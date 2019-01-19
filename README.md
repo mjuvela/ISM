@@ -1,2 +1,3 @@
 # SOC
-SOC - continuum radiative transfer with OpenCL
+SOC - continuum radiative transfer with Python and OpenCL
+
