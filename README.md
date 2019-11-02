@@ -5,7 +5,7 @@ For documentation, see http://www.interstellarmedium.org
 
 The main script for dust emission calculations is ASOC.py. Note that
 the map orientations have changed since the previous versions (called
-SOC.py). The main script for dust scvattering calculations is
+SOC.py). The main script for dust scattering calculations is
 ASOCS.py.
 
 make_dust.py is a sample script showing how to convert DustEM files to
