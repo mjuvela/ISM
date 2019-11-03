@@ -3,10 +3,6 @@
 using OpenCL, Printf, Mmap #, PyPlot
 using DelimitedFiles, Statistics
 
-"""
-Usage:   A2E.jl  solver.data   absorbed.data   emitted.data
-With solver.data dumped from A2E.cpp or A2E_pre.py, convert absorbed.data to emitted.data.
-"""
 ICELL   =  0
 GPU     =  false
 NSTOCH  =  999
@@ -25,14 +21,26 @@ if (USEHASH)
 end
 
 if (length(ARGS)<3)
-  println("\n  A2E.jl   dump  absorbed.data emitted.data [LIBRARY GPU NSTOCH]") ;  exit(1)
+  println("")
+  println("A2E.jl   dump  absorbed.data emitted.data [gpu nstoch [library]]")   
+  println("")
+  println("Input:")
+  println("   dump            = solver files written by A2E_pre.py or A2E_pre.jl or DE_to_GSET.jl")
+  println("                     or even dumped from A2E.cpp")
+  println("   absorbed.data   = file of absorptions (photons/Hz/H), as calculated by CRT or SOC")
+  println("   emitted.data    = file of emissions (photons/Hz/H) that can be used as input for CRT and SOC")
+  println("   library         = if >0, solve emission using a library (created here, we need all frequencies!)")
+  println("   gpu             = if >0, try to use a GPU for the OpenCL kernel")
+  println("                     if =0, use CPU for the OpenCL kernel")
+  println("                     of <0, solve in Julia without OpenCL")
+  exit(1)
 end
 if (length(ARGS)>3)
-  USELIB = (parse(Int32, ARGS[4])>0)
+  GPU = parse(Int32, ARGS[4])
   if (length(ARGS)>4)
-    GPU = parse(Int32, ARGS[5])
+    NSTOCH = parse(Int32, ARGS[5])
     if (length(ARGS)>5)
-      NSTOCH = parse(Int32, ARGS[6])
+      USELIB = (parse(Int32, ARGS[6])>0)
     end
   end
 end
@@ -75,6 +83,12 @@ function PlanckSafe(f, T)   # Planck function
 end  
 
 
+NIP         =  30000  # number of interpolation points for the lookup tables (equilibrium dust)
+
+
+
+# solve using GPU
+
 t0 = time()
 if (GPU>0)
   device = cl.devices(cl.CL_DEVICE_TYPE_GPU)[1]
@@ -86,13 +100,11 @@ end
 context = cl.Context(device)
 queue   = cl.CmdQueue(context)
 
-
 GLOBAL      =  max(BATCH, 64*LOCAL)
 if (GLOBAL%64!=0)
   GLOBAL  = Int32((floor(GLOBAL/64)+1)*64)
 end
 
-NIP         =  30000  # number of interpolation points for the lookup tables (equilibrium dust)
 OPT         =  "-D NE=$NE -D LOCAL=$LOCAL -D NFREQ=$NFREQ -D CELLS=$CELLS -D NIP=$NIP"
 OPT        *=  @sprintf(" -D FACTOR=%.4ef", FACTOR)
 
@@ -130,6 +142,9 @@ end
 
 DoSolve  =  cl.Kernel(program, "DoSolve")
 ## DoSolve.set_scalar_arg_dtypes([np.int32, np.int32, None, None, None, None, None, None, None, None, None, None, None ])
+
+
+
 
 X        =  zeros(Float32, BATCH, NE)
 # A2E.py strips the option of iterative solvers -- no worries about initial values.
@@ -964,6 +979,125 @@ end # process_size
 
 
 
+DUMP_ARRAY = zeros(Float32, NE, NSIZE)
+
+
+
+
+function process_size_stochastic_julia(isize, NFREQ, NE, SK_ABS, S_FRAC, ABSORBED, EMITTED)
+  """
+  Solve emission in pure Julia, single grain size as given by the argument.
+  Remember that L1, L2, and Ibeg contain indices in the 0-offset system.
+  """
+  println("Process_size_stochastic_julia isize = ", isize)
+  ## global NFREQ, NE, SK_ABS, S_FRAC
+  
+  AF    =  Array{Float64}(SK_ABS[:,isize]) ./ Array{Float64}(K_ABS[:])     # => E per grain
+  AF  ./=  S_FRAC[isize]*GD      # "invalid value encountered in divide"
+  AF    =  Array{Float32}(clamp.(AF, 1.0e-32, 1.0e+100))
+  if true
+    AF[isfinite.(AF).==false] .= 1.0e-30
+  end    
+  
+  noIw  =   read(FP, Int32)
+  Iw    =   zeros(Float32, noIw)
+  read!(FP, Iw)
+  L1    =   zeros(Int32, NE, NE)
+  read!(FP, L1)
+  L2    =   zeros(Int32, NE, NE)
+  read!(FP, L2)
+  Tdown =   zeros(Float32, NE)
+  read!(FP, Tdown)
+  EA    =   zeros(Float32, NE, NFREQ)
+  read!(FP, EA)
+  Ibeg  =   zeros(Int32, NFREQ)
+  read!(FP, Ibeg)
+  emit  =   zeros(Float64, NFREQ)
+  X     =   zeros(Float64, NE)
+  
+  # make indices 1-offset
+  L1    .+=  1
+  L2    .+=  1
+  Ibeg  .+=  1
+  
+  L     =  zeros(Float64, NE, NE)
+  t0    =  time()
+
+  for icell=1:CELLS
+    if (icell>201)
+      continue   # TO SLOW FOR LARGE MODELS !!
+    end    
+    emit .= 0.0
+    if (icell%100==0)
+      @printf("cell %6d / %d   (%.3e seconds per cell and size)\n", icell, CELLS, (time()-t0)/100.0)
+      t0 = time()
+    end    
+    # Heating
+    iw_index  =  1
+    for l=1:(NE-1)
+      for u=(l+1):NE
+        I           = 0.0
+        for i=L1[u,l]:L2[u,l]
+          I        +=   ABSORBED[i, icell] .* Iw[iw_index] .* AF[i]
+          iw_index += 1
+        end
+        L[u,l] = max(I, 0.0)
+      end
+    end
+    # Bottom row is already the original A matrix
+    # row NE-1 is also the original... except for the diagonal that we can skip
+    for j=(NE-2):-1:2
+      u = j+1
+      for i=1:(j-1)
+        L[j,i] += L[u,i]
+      end
+    end
+    # Solve
+    X[1] = 1.0e-20
+    for j=2:NE
+      X[j] = 0.0
+      for i=1:(j-1) 
+        X[j] += L[j,i] * X[i] 
+      end
+      X[j] /= (Tdown[j] + 1.0e-30)
+      X[j]  = max(X[j], 0.0)
+      if (X[j]>1.0e20)
+        for i=1:j 
+          X[i] *= 1.0e-20
+        end
+      end
+    end
+    # Normalise
+    I = 0.0
+    for i=1:NE
+      I += X[i]
+    end
+    I = 1.0/I
+    for i=1:NE
+      X[i] *= I
+    end
+    # Emission
+    for j=1:NFREQ
+      I = 0.0
+      for i=Ibeg[j]:NE
+        I += EA[i,j] * X[i]
+      end
+      emit[j] = I
+    end
+    EMITTED[:, icell] += emit  # contribution of current dust, current size
+    
+    if (icell==10)
+      DUMP_ARRAY[:, isize] = X
+    end
+    
+  end # -- for icell
+    
+end # process_size
+
+
+
+
+
 function Print(T::Tree)
   for i in children(T, 1)
     if (T.nodes[i].lo<0.0)
@@ -1024,7 +1158,14 @@ else
   if (USELIB==false)
     # Direct solution for all cells
     for isize = 1:NSIZE
-      process_size_stochastic(isize)
+      if (GPU>=0)
+        process_size_stochastic(isize)
+      else
+        process_size_stochastic_julia(isize, NFREQ, NE, SK_ABS, S_FRAC, ABSORBED, EMITTED)
+        fp = open("dump.ARRAY", "w")
+        write(fp, DUMP_ARRAY)
+        close(fp)
+      end
     end
   else   # Using library
     T, ICELLS, INT = prepare_tree(ABSORBED, NB)

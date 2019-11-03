@@ -1,5 +1,4 @@
 #!/usr/bin/julia
-include("/home/mika/starformation/SOC/Dust.jl")
 
 if (length(ARGS)<3)
   println("")
@@ -16,6 +15,8 @@ if (length(ARGS)<3)
   println("")
   exit(0)
 end
+
+include("/home/mika/starformation/SOC/Dust.jl")
 
 dustfile   =  ARGS[1]
 freqfile   =  ARGS[2]

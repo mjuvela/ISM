@@ -275,6 +275,9 @@ function Base.:read(D::DustO, filename)
   D.CRT_SFRAC     =  d[:,2] * 1.0               # sum(CRT_SFRAC) ==  1.0 in the file
   D.CRT_SFRAC   ./=  sum(D.CRT_SFRAC)           # 
   D.CRT_SFRAC    *=  grain_density              # WITHIN THIS SCRIPT CRT_SFRAC INCLUDES GRAIN_DENSITY !!
+  D.CRT_SFRAC     =  clamp(D.CRT_SFRAC, 1.0e-40, 1.0)
+  println("CRT_SFRAC: ")
+  println(D.CRT_SFRAC)
   D.SIZE_F        =  d[:,1] * 0.0               # NOT USED
   D.TMIN          =  d[:,3] * 1.0
   D.TMAX          =  d[:,4] * 1.0
@@ -370,7 +373,7 @@ Read dusts from DustEM file.
 function read_DE(filename)
   # Read dusts from a DustEM file
   DUSTS  = Array{DustO,1}([])
-  DE_dir = filename[1:(-1+findlast("/",filename)[1])]  # drop filename
+  DE_dir = filename[1:(-1+findlast("/",filename)[1])]    # drop filename
   DE_dir = DE_dir[1:(-1+findlast("/",  DE_dir  )[1])]    # drop /data
   fp     = open(filename, "r")
   for l in eachline(fp)
@@ -454,7 +457,7 @@ function make_dustem_dust(DE_dir, s)
     end #for ss
   end # analytical size distribution
 
-  # The files do not specify TMIN, TMAX .... use the same we wrote to GSET dust files
+  # The files do not specify TMIN, TMAX .... use the same we wrote to GSET dust files -- problem dependent!!
   D.TMIN  =  4.0.*ones(D.NSIZE)
   D.TMAX  =  10.0.^range(log10(2500.0), stop=log10(150.0), length=D.NSIZE)
     
@@ -465,10 +468,12 @@ function make_dustem_dust(DE_dir, s)
   @printf("rmass %10.3e, rho %10.3e, vol %10.3e\n", rmass, rho, vol)
   # grain_density  =  mH*ratio / (vol*rho)
   D.CRT_SFRAC  .*=  mH*rmass/(rho*vol)  # grain density included in D.SFRAC
-  
+  # make sure none of the CRT_SFRAC values are actually zero
+  D.CRT_SFRAC    =  clamp.(D.CRT_SFRAC, 1.0e-32, 1.0)
   vol = sum(D.CRT_SFRAC .* (4.0*pi/3.0) .* D.SIZE_A.^3.0)  
   @printf("Dust mass %10.3e, H mass %10.3e\n", vol*rho, mH)
-  
+  println("CRT_SFRAC: ", D.CRT_SFRAC)
+
   # Apply MIX, only after the initial normalisation
   mix = 0.0
   if (occursin("mix", D.TYPE))
@@ -482,6 +487,8 @@ function make_dustem_dust(DE_dir, s)
     D.SIZE_F    .*= mix
     D.CRT_SFRAC .*= mix
   end
+  # Parameter "beta" for temperature dependence cannot be used here
+
 
   # Read the optical data
   #  dustem directory /oprop/G_<dustname>.DAT
@@ -548,7 +555,7 @@ function make_dustem_dust(DE_dir, s)
     D.SIZE[1]       = D.AMIN      # optical data "extrapolated" to D.AMIN
   end
   if (D.AMAX>D.QSIZE[end])
-    @printf("*** ERROR *** AMAX %12.4e > OPTICAL DATA AMAX %12.4e\n", D.AMAX, D.QSIZE[-1])
+    @printf("*** ERROR *** AMAX %12.4e > OPTICAL DATA AMAX %12.4e\n", D.AMAX, D.QSIZE[end])
     exit(0)
   end
   @printf("AMIN - AMAX      %10.3e  %10.3e\n", D.AMIN, D.AMAX)
@@ -631,10 +638,13 @@ function Kabs(D::DustO, freq_in)
     # To be consistent with CRT (and dustem), interpolate Q *before* scaling with a^2
     # we do linear interpolation over these vectors, OPT[isize, ifreq, 4], last index { freq, Kabs, Ksca, g }
     yi  = Linpol(D.QSIZE, D.OPT[:, i, 2], D.SIZE_A)   # interpolation in size
-    yj  = Linpol(D.QSIZE, D.OPT[:, j, 2], D.SIZE_A)
-    y   = wi*yi + wj*yj
+    yj  = Linpol(D.QSIZE, D.OPT[:, j, 2], D.SIZE_A)   # OPT[isize, ifreq, 4]
+    y   = wi*yi + wj*yj                               # interpolation in frequency
     # geometrical cross section multiplied in AFTER interpolation of Q factors!
     res[ifreq] = sum(D.CRT_SFRAC .* y .* (pi*D.SIZE_A.^2.0) ) # GRAIN_DENSITY included in CRT_SFRAC
+    if (freq<D.QFREQ[1]) # do freq^2 extrapolation if we go out of QFREQ range
+      res[ifreq] *= (freq/D.QFREQ[1])^2.0
+    end
   end
   return res
 end
@@ -684,6 +694,10 @@ function SKabs_Int(D::DustO, isize::Int, freq)
     yj            =  Linpol(D.QSIZE, D.OPT[:, j, 2], D.SIZE_A[isize])
     y             =  wi*yi + wj*yj
     res[ifreq]    =  y * (pi*D.SIZE_A[isize].^2.0)
+    # do freq^2 extrapolation if freq outside the range of QFREQ
+    if (freq[ifreq]<D.QFREQ[1])
+      res[ifreq] *=  (freq[ifreq]/D.QFREQ[1])^2.0
+    end
   end
   res *= D.CRT_SFRAC[isize]
   return res
@@ -715,6 +729,10 @@ function SKabs(D, isize::Int, freq)
     yi            =  Linpol(D.QSIZE, D.OPT[:,i,2], D.SIZE_A)
     yj            =  Linpol(D.QSIZE, D.OPT[:,j,2], D.SIZE_A)
     res[ifreq]    =  (wi*yi+wj*yj) *  (pi*D.SIZE_A[isize]^2)  # pi*a^2 * Qabs
+    # do freq^2 extrapolation if freq outside the range of QFREQ
+    if (freq[ifreq]<D.QFREQ[1])
+      res[ifreq] *=  (freq[ifreq]/D.QFREQ[1])^2.0
+    end
   end
   return res
 end
@@ -1521,17 +1539,17 @@ file for the given dust struct D.
 """
 function write_A2E_dustfile(D::DustO, NE::Integer=128)
   # The main file
-  fp = open(@sprintf("jl_%s.dust", D.NAME), "w")
+  fp = open(@sprintf("gs_%s.dust", D.NAME), "w")
   @printf(fp, "gsetdust\n")
   @printf(fp, "prefix     %s\n", D.NAME)
   @printf(fp, "nstoch     99\n")
-  @printf(fp, "optical    gs_jl_%s.opt\n",  D.NAME)
-  @printf(fp, "enthalpies gs_jl_%s.ent\n",  D.NAME)
-  @printf(fp, "sizes      gs_jl_%s.size\n", D.NAME)
+  @printf(fp, "optical    gs_%s.opt\n",  D.NAME)
+  @printf(fp, "enthalpies gs_%s.ent\n",  D.NAME)
+  @printf(fp, "sizes      gs_%s.size\n", D.NAME)
   close(fp)
 
   # Optical properties
-  fp = open(@sprintf("jl_%s.opt", D.NAME), "w")
+  fp = open(@sprintf("gs_%s.opt", D.NAME), "w")
   @printf(fp, "%d %d  # NSIZE, NFREQ\n", D.QNSIZE, D.QNFREQ)
   for isize=1:D.QNSIZE
     @printf(fp, "%12.5e  # SIZE [um]\n", 1.0e4*D.QSIZE[isize])
@@ -1548,7 +1566,7 @@ function write_A2E_dustfile(D::DustO, NE::Integer=128)
   close(fp)
 
   # Grain sizes
-  fp = open(@sprintf("jl_%s.size", D.NAME), "w")
+  fp = open(@sprintf("gs_%s.size", D.NAME), "w")
   @printf(fp, "%12.5e   # GRAIN_DENSITY\n", sum(D.CRT_SFRAC))
   @printf(fp, "%d %d     # NSIZE  NE\n", D.NSIZE, NE)
   tmp   =  1.0*D.CRT_SFRAC
@@ -1561,7 +1579,7 @@ function write_A2E_dustfile(D::DustO, NE::Integer=128)
   close(fp)
   
   # Enthalpies
-  fp = open(@sprintf("jl_%s.ent", D.NAME), "w")
+  fp = open(@sprintf("gs_%s.ent", D.NAME), "w")
   @printf(fp, "# NUMBER OF SIZE     \n")
   @printf(fp, "#    { SIZES [um] }  \n")
   @printf(fp, "# NUMBER OF TEMPERATURES\n")
