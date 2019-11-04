@@ -48,7 +48,7 @@ Notes 2019-10-28:
 
 ICELL     =  0
 GPU       =  0.0      #     GPU.PLATFORM
-WITH_X    =  0
+WITH_X    =  0        # whether the kernel returns N(E), in addition to emission
         
 if (len(sys.argv)<4):
     print("\n  A2E_pyCL  dump  absorbed.data emitted.data [GPU [nstoch]]\n")
