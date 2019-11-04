@@ -4,6 +4,8 @@
 
 import os, sys
 HOMEDIR = os.path.expanduser('~/')
+
+# we assume that the Python scripts and *.c kernel files are in this directory
 sys.path.append(HOMEDIR+'/starformation/SOC/')
 
 import pyopencl as cl
@@ -28,7 +30,7 @@ Notes 2019-10-28:
         - Abs == Kabs(FREQ) == should be the total absorption cross section,
           METHOD='CRT' => KabsCRT  == sum(CRT_SFRAC*pi*SIZE_A**2) --- ok, GRAIN_DENSITY not used !!!
         - output file has GRAIN_DENSITY==1e-7, abs column /= (GRAIN_DENSITY*pi*GRAIN_SIZE**2)
-        - different from write_A2E_dustfile but the end result alsoo ok
+        - different from write_A2E_dustfile but the end result also ok
     DustLib read GSETDust:
         - as noted above, file has sum of CRT_SFRAC column == 1, GRAIN_DENSITY is true grain density
         - does read GRAIN_DENSITY == true grain density written by write_A2E_dustfile
@@ -46,6 +48,7 @@ Notes 2019-10-28:
 
 ICELL     =  0
 GPU       =  0.0      #     GPU.PLATFORM
+WITH_X    =  0
         
 if (len(sys.argv)<4):
     print("\n  A2E_pyCL  dump  absorbed.data emitted.data [GPU [nstoch]]\n")
@@ -65,7 +68,7 @@ NFREQ  =  np.fromfile(FP, np.int32, 1)[0]                                # NFREQ
 FREQ   =  np.fromfile(FP, np.float32, NFREQ)                             # FREQ[NFREQ]
 GD     =  np.fromfile(FP, np.float32, 1)[0]                              # GRAIN_DENSITY
 NSIZE  =  np.fromfile(FP, np.int32, 1)[0]                                # NSIZE
-S_FRAC =  np.fromfile(FP, np.float32, NSIZE)                             # S_FRAC
+S_FRAC =  clip(np.fromfile(FP, np.float32, NSIZE), 1.0e-32, 1.0e30)      # S_FRAC
 NE     =  np.fromfile(FP, np.int32, 1)[0]                                # NE
 SK_ABS =  np.fromfile(FP, np.float32, NSIZE*NFREQ).reshape(NSIZE, NFREQ) # SK_ABS[NSIZE, NFREQ]
 K_ABS  =  sum(SK_ABS, axis=0)
@@ -137,10 +140,16 @@ context     =  cl.Context(device)
 queue       =  cl.CommandQueue(context)
 mf          =  cl.mem_flags
 NIP         =  30000  # number of interpolation points for the lookup tables (equilibrium dust)
-OPT         =  "-D NE=%d -D LOCAL=%d -D NFREQ=%d -D CELLS=%d -D NIP=%d -D FACTOR=%.4ef" \
-               % (NE, LOCAL, NFREQ, CELLS, NIP, FACTOR)
+ARGS        =  "-D NE=%d -D LOCAL=%d -D NFREQ=%d -D CELLS=%d -D NIP=%d -D FACTOR=%.4ef -D WITH_X=%d" \
+               % (NE, LOCAL, NFREQ, CELLS, NIP, FACTOR, WITH_X)
+if (0): # no effect on run times
+    ARGS   +=  "-cl-fast-relaxed-math -cl-single-precision-constant -cl-mad-enable"
+if (0):
+    # ARGS  += " -cl-opt-disable"  # slower by x3 on CPU, x8 on GPU !!
+    ARGS   += ' -cl-nv-opt-level 1'
+
 source      =  open(HOMEDIR+"/starformation/SOC/kernel_A2E.c").read()
-program     =  cl.Program(context, source).build(OPT)
+program     =  cl.Program(context, source).build(ARGS)
 Iw_buf      =  cl.Buffer(context, mf.READ_ONLY,  NE*NE*NFREQ*4)
 L1_buf      =  cl.Buffer(context, mf.READ_ONLY,  NE*NE*4)
 L2_buf      =  cl.Buffer(context, mf.READ_ONLY,  NE*NE*4)
@@ -151,7 +160,7 @@ AF_buf      =  cl.Buffer(context, mf.READ_ONLY,  NFREQ*4)
 ABS_buf     =  cl.Buffer(context, mf.READ_ONLY,  BATCH*NFREQ*4)
 EMIT_buf    =  cl.Buffer(context, mf.READ_WRITE, BATCH*NFREQ*4)
 A_buf       =  cl.Buffer(context, mf.READ_WRITE, BATCH*(int((NE*NE-NE)/2))*4) # lower triangle only
-X_buf       =  cl.Buffer(context, mf.WRITE_ONLY, BATCH*NE*4)    # no initial values -> write only
+
 
 
 if (NSTOCH<NSIZE):    # Prepare to solve equilibrium temperature emission for larger grains
@@ -169,21 +178,28 @@ if (NSTOCH<NSIZE):    # Prepare to solve equilibrium temperature emission for la
     EMIT      =  zeros((BATCH,NFREQ), np.float32)
             
 DoSolve =  program.DoSolve
-DoSolve.set_scalar_arg_dtypes([np.int32, np.int32, 
-                                None, None, None, None, None, None, None, None, None, None, None ])
 
-X         = zeros((BATCH, NE), np.float32)
+if (WITH_X):
+    X_buf     =  cl.Buffer(context, mf.WRITE_ONLY, BATCH*NE*4)    # no initial values -> write only
+    X         =  zeros((BATCH, NE), np.float32)
+    DoSolve.set_scalar_arg_dtypes([np.int32, np.int32, 
+    None, None, None, None, None, None, None, None, None, None, None ])
+else:
+    DoSolve.set_scalar_arg_dtypes([np.int32, np.int32, 
+    None, None, None, None, None, None, None, None, None, None ])
+
 
 # A2E.py strips the option of iterative solvers -- no worries about initial values.
 emit = zeros((BATCH, NFREQ), np.float32)
 
 t0 = time.time()    
 for isize in range(NSIZE):        
-
+    
+    # AF = fraction of absorptions due to the current size
     AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
     AF   /= S_FRAC[isize]*GD  # "invalid value encountered in divide"
     AF    = asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
-    if (1):
+    if (0):
         mm = np.nonzero(~isfinite(AF))
         AF[mm] = 1.0e-30
     
@@ -241,7 +257,7 @@ for isize in range(NSIZE):
     # The rest is for stochastically heated grains
     cl.enqueue_copy(queue, AF_buf,    AF)
     noIw  = np.fromfile(FP, np.int32, 1)[0]
-    print("                              === noIw = %5d ===" % noIw)
+    # print("                              === noIw = %5d ===" % noIw)
     Iw    = np.fromfile(FP, np.float32, noIw)   # [ windex ], loop l=[0,NE-1[, u=[l+1,NE[
     cl.enqueue_copy(queue, Iw_buf,    Iw)
     L1    = np.fromfile(FP, np.int32,   NE*NE)  # [ l*NE + u ]
@@ -259,21 +275,26 @@ for isize in range(NSIZE):
     queue.finish()
 
     # Loop over the cells, BATCH cells per kernel call
+    t00 = time.time()            
     for icell in range(0, CELLS, BATCH):        
-        t00 = time.time()            
         batch = min([BATCH, CELLS-icell])  # actual number of cells
         cl.enqueue_copy(queue, ABS_buf,  ABSORBED[icell:(icell+BATCH),:])
         queue.finish()            
-        DoSolve(queue, [GLOBAL,], [LOCAL,], 
+        if (WITH_X):
+            DoSolve(queue, [GLOBAL,], [LOCAL,], 
             batch,     isize,
             Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+        else:
+            DoSolve(queue, [GLOBAL,], [LOCAL,], 
+            batch,     isize,
+            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
+            Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)
         queue.finish()            
         cl.enqueue_copy(queue, emit, EMIT_buf)  # batch*NFREQ
         EMITTED[icell:(icell+batch),:] += emit[0:batch,:]        # contribution of current dust, current size
-        if (icell==0):
-            print('   SIZE %2d/%2d  icell %6d/%6d  %7.2f s/%d %.3e s/cell/size' % \
-            (isize, NSIZE, icell, CELLS, time.time()-t00, batch, (time.time()-t00)/batch))
+    
+    print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
             
 DT = time.time() - t0
 print('  %.3f SECONDS' % DT)

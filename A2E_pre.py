@@ -3,11 +3,11 @@
 import os, sys
 HOMEDIR = os.path.expanduser('~/')
 
+# We assume that the Python scripts and *.c kernel files are in this directory
 sys.path.append(HOMEDIR+'/starformation/SOC/')
-###    execfile(HOMEDIR+'starformation/SOC/DustLib.py')
     
 from   SOC_aux import *
-from   MJ.Aux.DustLib import *
+from   DustLib import *
 import pyopencl as cl
 import numpy as np
 
@@ -16,7 +16,7 @@ Write solver.data using OpenCL.
 """
 
 if (len(sys.argv)<4):
-    print("Usage: A2E_pre.py <gset-dustname>  <frequencyfile>  <solver.data file> [NE]")
+    print("Usage:   A2E_pre.py <gset-dustname>  <frequencyfile>  <solver.data file> [NE]")
     sys.exit()
     
 
@@ -35,6 +35,8 @@ NEPO   =  NE+1
 LOCAL  =  4
 GLOBAL =  int((NE/64)+1)*64
 
+# we do not want any zeros in CRT_SFRAC !!
+DUST.CRT_SFRAC = clip(DUST.CRT_SFRAC, 1.0e-25, 1.0e30)
 
 if (0):
     isize, freq = 3, 1.0e12

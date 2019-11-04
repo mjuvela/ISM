@@ -2,9 +2,10 @@
 
 import os, sys
 HOMEDIR = os.path.expanduser('~/')
+
+# we assume that the Python scripts and *.c kernel files are in this directory
 sys.path.append(HOMEDIR+'/starformation/SOC/')
 from SOC_aux import *
-from MJ.Aux.mjGPU import *
 
 
 """
@@ -62,16 +63,16 @@ This script:
 """
 
 
-SHAREDIR = '/dev/shm/'
+## SHAREDIR = '/dev/shm/'
 ## SHAREDIR = '/HDD/mika/tt/HIMASS/'
-## SHAREDIR = './'
+SHAREDIR = './'
 
 
 USE_MMAP = False  # False, unless CELLS*ONFREQ does not fit to main memory !!
 
 if (len(sys.argv)<2):
     print("Usage:")
-
+    print("      A2E_MABU.py  ini absorbed.data emitted.data [GPU] [uselib|makelib]")
     print("Input:")
     print("  soc.ini        =  SOC ini file (listing the dusts and abundances etc.)")
     print("  absorbed.data  =  absorptions  [CELLS, nfreq] or [CELLS, nlfreq]")
@@ -138,6 +139,7 @@ RABS  = []
 FREQ  = []
 NFREQ = 0
 for idust in range(NDUST):
+    print("dust %d: %s" % (idust, DUST[idust]))
     if (EQDUST[idust]):
         lines     =  open(DUST[idust]).readlines()
         GD[idust] =  float(lines[1].split()[0])
@@ -359,11 +361,11 @@ ABU = np.ones((CELLS, NDUST), np.float32)
 for idust in range(NDUST):
     if (len(AFILE[idust])>1): # we have a file for the abundance of the current dust species
         ABU[:,idust] = np.fromfile(AFILE[idust], np.float32, CELLS)
-
+    
 
 # Initialise OpenCL to split the absorptions
-platform, device, context, queue, mf = InitCL(GPU=0)
-source      =  file(HOMEDIR+"starformation/SOC/kernel_A2E_MABU_aux.c").read()
+context, queue, mf = opencl_init(GPU=0)
+source      =  open(HOMEDIR+"starformation/SOC/kernel_A2E_MABU_aux.c").read()
 OPTS        =  '-D NFREQ=%d -D NDUST=%d' % (NFREQ, NDUST)
 program     =  cl.Program(context, source).build(OPTS)
 Split       =  program.split_absorbed
@@ -444,9 +446,9 @@ for IDUST in range(NDUST):
             (DUST[IDUST], DUST[IDUST], SHAREDIR, SHAREDIR, ["", "GPU"][GPU]))            
         else:           # just solve using A2E.py
             print("================================================================================")
-            print('A2E.py  %s.solver %stmp.absorbed %stmp.emitted  %d' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU))
+            print('    A2E.py  %s.solver %stmp.absorbed %stmp.emitted  %d' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU))
             print("================================================================================")
-            os.system('A2E.py  %s.solver %stmp.absorbed %stmp.emitted  %d' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU))            
+            os.system('A2E.py  %s.solver %stmp.absorbed %stmp.emitted  %d' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU))
         if (ONFREQ!=NFREQ):  # so far only equilibrium dust files can have ONFREQ<NFREQ !!
             print("A2E_MABU.py --- stochastically heated grains with equilibrium grains")
             print("                different number of frequencies... fix A2E.py to use a2e_wavelength parameter??")
@@ -462,12 +464,12 @@ for IDUST in range(NDUST):
             FPE[:,:] = 0.0
         else:
             FPE = np.zeros((CELLS, ONFREQ), np.float32)
-    print("===== Add emitted to sum file =====")
+    print("===== Add emitted to sum file: %s =====" % sys.argv[3])
     t0 = time.time()
     fp2 = open(SHAREDIR+'tmp.emitted', 'rb')
     np.fromfile(fp2, np.int32, 2)  # get rid of the header (CELLS, NFREQ)
     # **** GOOD **** ---- single dust emission added to the total in the file order
-    if (0):
+    if (1):
         for ICELL in range(CELLS):
             # file = B(T)*KABS for a single dust component, total is sum of B(T)*KABS*ABU
             FPE[ICELL,:] += np.fromfile(fp2, np.float32, ONFREQ) * ABU[ICELL, IDUST]
@@ -475,8 +477,8 @@ for IDUST in range(NDUST):
         a = 0
         while(a<CELLS):
             b = min(a+1024, CELLS)
-            FPE[a:b,:] += \
-            matmul(transpose(np.fromfile(fp2, np.float32, (b-a)*ONFREQ).reshape(b-a, ONFREQ)), ABU[a:b, IDUST])
+            FPE[a:b,:] += np.fromfile(fp2, np.float32, (b-a)*ONFREQ).reshape(b-a, ONFREQ) * \
+                          ABU[a:b, IDUST].reshape(b-a,1)
             a += 1024
     fp2.close()
     print("===== Add emitted to sum file: %.2f seconds =====" % (time.time()-t0))
