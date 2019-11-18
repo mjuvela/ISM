@@ -103,3 +103,54 @@ __kernel void DoSolve(const      int     batch,   //  0  cells per call
    for(int i=0; i<NE; i++)  XX[id*NE+i] = clamp(XL[i], 1.0e-35f, 10.0f) ;
 #endif
 }
+
+
+
+
+
+__kernel void EqTemperature(const int       icell,
+                            const float     kE,
+                            const float     oplgkE,
+                            const float     Emin,
+                            __global float *FREQ,   // [NFREQ]
+                            __global float *KABS,   // [NFREQ]
+                            __global float *TTT,    // [NIP]
+                            __global float *ABS,    // [BATCH*NFREQ]
+                            __global float *T,      // [BATCH]
+                            __global float *EMIT    // [BATCH*NFREQ]
+                           ) {
+   int id   =  get_global_id(0), iE ;  // id < BATCH
+   int ind  = icell+id ;
+   if (ind>=CELLS) return ;
+   float Ein, wi, TP, f ;
+   __global float *A = &(ABS[id*NFREQ]) ;
+   // Trapezoid integration of  Ein
+   // ABS = number of absorbed photons per dust grain
+   //  KABS == SK_ABS[isize] / (GRAIN_DENSITY*S_FRAC) == Q*pi*a^2  == single grain
+   Ein = 0.0f ;
+   for(int i=1; i<NFREQ; i++) {
+      // 0.5*PLANCK == 3.3130348e-27f
+      Ein += (A[i]*FREQ[i]+A[i-1]*FREQ[i-1]) * ((FREQ[i]-FREQ[i-1])*3.3130348e-27f) ;
+   }
+   // Table lookup --- table uses Eout = E * FACTOR because ABS read from file is n_true x FACTOR
+   iE    =  clamp((int)floor(oplgkE * log10(Ein/Emin)), 0, NIP-2) ;
+   wi    = (Emin*pown(kE,iE+1)-Ein) / (Emin*pown(kE, iE+1)-pown(kE, iE)) ;
+   TP    =  wi*TTT[iE] + (1.0-wi)*TTT[iE+1] ;
+   T[id] =  TP ;
+   
+   // printf("Ein %12.4e  Eout [%.2e,%.2e]  iE %d   T %10.3e\n", Ein, Emin, Emin*pown(kE, NIP), iE, TP) ;
+   
+   // Compute emission for the current cell -- all frequencies, EMIT[icell, NFREQ]
+   //  H/K = 4.7995074e-11
+   //  EMIT = number of photons, scaled by 1e20  .... NOW WITH FACTOR !!
+   //  1e20 * 4*pi * (2*PLANCK/C_LIGHT**2) / PLANCK  =  2.7963945936914554
+   for(int ifreq=0; ifreq<NFREQ; ifreq++) {
+      f = FREQ[ifreq] ;
+      // EMIT[id*NFREQ+ifreq] = 2.79639459f*KABS[ifreq]*(f*f/(exp(4.7995074e-11f*f/TP)-1.0f)) ;
+      // H_K = 4.799243348e-11
+      // 4*pi*2/C_LIGHT**2 == 2.796394593691455e-20
+      EMIT[id*NFREQ+ifreq] = (2.79639459e-20f*FACTOR)*KABS[ifreq]*(f*f/(exp(4.7995074e-11f*f/TP)-1.0f)) ;
+      // emission must be still scaled with GRAIN_DENSITY*S_FRAC = actual number of grains per H
+   }
+}
+

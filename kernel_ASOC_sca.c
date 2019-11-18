@@ -21,13 +21,11 @@ __kernel void zero_out(const int       NDIR,
 
 
 
-// KERNEL FOR CONSTANT SOURCES
 
-
-
-
-
-
+// KERNELS FOR SIMULATION OF SCATTERED LIGHT
+//   SimRAM_HP  =  healpix background
+//   SimRAM_PB  =  points sources and isotropic background
+//   SimRAM_CL  =  emission from the medium
 
 
 
@@ -70,7 +68,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
    // MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*id,1.0f)*4294967296L), samplesPerStream);
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+M_PI)),1.0)*4294967296L), samplesPerStream);   
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+PI)),1.0)*4294967296L), samplesPerStream);   
    int ind   = -1 ;
    int ind0=-1, level0, idust=0 ;
    float Rout =  0.5f*sqrt(1.0f*NX*NX+NY*NY+NZ*NZ) ;
@@ -80,18 +78,17 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
    if (id==0) {
       printf("RA %8.4f %8.4f %8.4f    DE %8.4f %8.4f %8.4f \n", 
              ORA[0].x,  ORA[0].y,  ORA[0].z,    ODE[0].x,  ODE[0].y,  ODE[0].z ) ;
-   }
-   
+   }   
    int ipix ;
    if (id==0) {
       for(int i=0; i<10; i++) {
          for(int j=0; j<10; j++) {
-            theta = M_PI*(j+0.5)/10.0 ;
-            phi   = 2.0*M_PI*(i+0.5)/10.0 ;
+            theta = PI*(j+0.5)/10.0 ;
+            phi   = 2.0*PI*(i+0.5)/10.0 ;
             ipix = Angles2PixelRing(64, phi, theta) ;           
-            printf(" %7.2f %7.2f   %6d   ", theta*180.0/M_PI, phi*180.0/M_PI, ipix) ;
+            printf(" %7.2f %7.2f   %6d   ", theta*180.0/PI, phi*180.0/PI, ipix) ;
             Pixel2AnglesRing(64, ipix, &phi, &theta) ;
-            printf(" %7.2f %7.2f\n", theta*180.0/M_PI, phi*180.0/M_PI) ;
+            printf(" %7.2f %7.2f\n", theta*180.0/PI, phi*180.0/PI) ;
          }
       }
    }
@@ -105,6 +102,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
       // Unweighted: select *random* Healpix pixel for the emission
       ind     =   clamp((int)(floor(Rand(&rng)*49152)), 0, 49151) ;  // NSIDE==64
       PHOTONS =   BG[ind] ;
+      // if (id==999) printf(" %6d  %12.4e\n", ind, PHOTONS) ;
 #else
       // Select Healpix pixel according to the cumulative probability in HPBGP
       //   NSIDE==64 =>  NPIX = 49152 ==> need at most 16 comparisons... not fast but fast enough (?)
@@ -135,33 +133,82 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
       if (fabs(DIR.y)<DEPS) DIR.y = DEPS ;
       if (fabs(DIR.z)<DEPS) DIR.z = DEPS ; 
       DIR         =  normalize(DIR) ;
+
+      // if (id==0) printf("%8.4f %8.4f %8.4f\n", DIR.x, DIR.y, DIR.z) ;
       
       // Package directed towards the cloud, onto a surface of a sphere with radius Rout
-      ds     =  2.0*M_PI*Rand(&rng) ;   
-      dx     =  sqrt(Rand(&rng)) ;
-      POS.x  =  dx*cos(ds) ;   POS.y = dx*sin(ds) ;   POS.z = sqrt(1.001f-dx*dx) ;
-      // This would be a random position on the surface if healpix pixel were towards +Z
+      ds     =  2.0f*PI*Rand(&rng) ;   
+      dx     =     sqrt(Rand(&rng)) ;
+      POS.x  =  dx*cos(ds) ;  
+      POS.y  =  dx*sin(ds) ;   
+      POS.z  =  sqrt(1.001f-dx*dx) ;
+      
+
+      // This would be a random position on unit sphere if the healpix pixel were towards +Z
       // However, the healpix pixel is now in the direction (theta,phi)
+      
+      
+      //  2019-11-16: the did not work on GPU/Intel
+      //              the two rotations leave POS.x and POS.y always equal to zero ????
+      //  CPU runs are ok, with results similar to CRT
+      //              ok.... M_PI ***NOT DEFINED*** WITH THE INTEL GPU OPENCL ????
+      //              you can print M_PI and it seems correct !!!!!!!
+      //              calculate cos(M_PI-phi) and it is always ~1e-16  ????
+      //              cast M_PI to float and it can be used in the calculations.... or not ???
+      //              cast other arguments to double and it remains wrong
+      //    M_PI exists "If double precision is supported by the device"....
+      //   but how can one cast M_PI to float and it suddenly works.. or one can print its value???
+      
+
+#if 0
+      // M_PI problem 
+      // pyopencl.Device 'Intel(R) Gen9 HD Graphics NEO' on 'Intel(R) OpenCL HD Graphics'
+      if (id==10) {
+         printf("PI  =%8.4f,   PI   + PI   = %8.4f\n", PI,  PI+PI) ;
+         printf("M_PI=%8.4f,   M_PI + M_PI = %8.4f\n", M_PI,  M_PI+M_PI) ;
+         printf("(float)M_PI=%8.4f,   (float)M_PI + (float)M_PI = %8.4f\n", (float)M_PI, (float)M_PI+(float)M_PI) ;
+         printf("cos(PI-0.1f)          = %8.4f \n", cos(PI-0.1f)) ;
+         printf("cos(M_PI-0.1f)        = %8.4f \n", cos(M_PI-0.1f)) ;
+         printf("cos((float)M_PI-0.1f) = %8.4f \n", cos((float)M_PI-0.1f)) ;
+         printf("cos(M_PI-phi)         = %8.4f \n", cos(M_PI-phi)) ;  // <---- WILL BE ~ZERO IRRESPECTIVE OF phi !!
+         printf("cos((float)M_PI-phi)  = %8.4f \n", cos(M_PI-phi)) ;  // <---- WILL BE ~ZERO IRRESPECTIVE OF phi !!
+         printf("cos(1.0f*M_PI-phi)    = %8.4f \n", cos(M_PI-phi)) ;  // <---- WILL BE ~ZERO IRRESPECTIVE OF phi !!
+         printf("cos(M_PI-(double)phi) = %8.4f \n", cos(M_PI-phi)) ;  // <---- WILL BE ~ZERO IRRESPECTIVE OF phi !!
+         printf("cos(PI-phi)           = %8.4f \n", cos(PI-phi)) ;
+         printf("cos(M_PI)             = %8.4f \n", cos(M_PI)) ; 
+         printf("cos(2.0f*M_PI)        = %8.4f \n", cos(2.0f*M_PI)) ;
+         printf("cos(M_PI+M_PI)        = %8.4f \n", cos(M_PI+M_PI)) ;
+         phi = 0.1f ;
+         printf("phi=0.1f;cos(M_PI-phi)= %8.4f \n", cos(M_PI-phi)) ;  // <---- GIVES ZERO
+         printf("phi=0.1f;cos(M_PI-phi)= %.4e  \n", cos(M_PI-phi)) ;  // <---- 3.2122e-17 !!!
+         printf("phi=0.1f;cos(M_PI+phi)= %.4e  \n", cos(M_PI-phi)) ;  // <---- 3.2122e-17 !!! same as above !?!?!
+      }
+#endif
+      
+      
       // (1) rotation theta around +Y
-      POS0.x =  POS.x*cos(theta) + POS.z*sin(theta) ;
-      POS0.y =  POS.y ;
-      POS0.z = -POS.x*sin(theta) + POS.z*cos(theta) ;
+      POS0.x =  POS.x*cos(theta)         + POS.z*sin(theta) ;
+      POS0.y =                   POS.y ;
+      POS0.z = -POS.x*sin(theta)         + POS.z*cos(theta) ;
+      
       // (2) rotation phi around new +Z
       //     phi is now angle from -X, not from +X !! because healpix (l,b)=(0,0) is towards [-1,0,0]
       //    => rotation is by angle pi-phi
-      POS.x  =  POS0.x*cos(M_PI-phi) + POS0.y*sin(M_PI-phi) ;
-      POS.y  = -POS0.x*sin(M_PI-phi) + POS0.y*cos(M_PI-phi) ;
-      POS.z  =  POS0.z ;
-      //
+      POS.x  =  POS0.x*cos(PI-phi) + POS0.y*sin(PI-phi)        ;
+      POS.y  = -POS0.x*sin(PI-phi) + POS0.y*cos(PI-phi)        ;
+      POS.z  =                                              POS0.z ;
+      
+      // Actual grid coordinates, wrt. model centre
       POS.x  =  0.5f*NX + Rout*POS.x ;
       POS.y  =  0.5f*NY + Rout*POS.y ;
       POS.z  =  0.5f*NZ + Rout*POS.z ;
+      
       // Position should now be on the sphere, on the same side of the cloud as the Healpix pixel
       // -> try to step onto the actual cloud surface -- part of rays will be rejected (miss the cloud)
       Surface(&POS, &DIR) ;   // input POS should be outside the cloud, on the upstream side
-      
-      
+            
       IndexG(&POS, &level, &ind, DENS, OFF) ;      
+      
       if (ind<0) continue ; // we are inside the loop: for II in BATCH 
       
       
@@ -290,7 +337,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
 #ifdef HG_TEST
             // fraction = probability of scattering per solid angle
             float G = 0.65f, fraction ;
-            fraction  =  (1.0f/(4.0f*M_PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
+            fraction  =  (1.0f/(4.0f*PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
             // delta     =  PHOTONS *  exp(-tau) *  fraction ;
             delta    *=  PHOTONS *  fraction * ((tau>TAULIM) ?  (1.0f-exp(-tau)) : (tau*(1.0f-0.5f*tau))) ;
 #else
@@ -333,7 +380,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
 #ifdef HG_TEST
                // fraction = probability of scattering per solid angle
                float G = 0.65f, fraction ;
-               fraction  =  (1.0f/(4.0f*M_PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
+               fraction  =  (1.0f/(4.0f*PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
                // delta     =  PHOTONS *  exp(-tau) *  fraction ;
                delta     =  PHOTONS *  fraction * ((tau>TAULIM) ?  (1.0f-exp(-tau)) : (tau*(1.0f-0.5f*tau))) ;
 #else
@@ -441,8 +488,8 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                         __global   float   *ROI_LOAD   // 29 external file of incoming ROI photons
                        ) 
 {
-   // This routine is simulating the radiation field in order to determine the
-   // absorbed energy in each cell.
+   // This routine is simulating the radiation field in order to determine the absorbed energy in each cell:
+   // Isotropic background and point sources
    const int id     = get_global_id(0) ;
    const int GLOBAL = get_global_size(0) ;
    
@@ -459,7 +506,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
    // MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*id,1.0f)*4294967296L), samplesPerStream);
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+M_PI)),1.0)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+PI)),1.0)*4294967296L), samplesPerStream);
    
    int ind   = -1 ;
    int ind0=-1, level0, idust=0 ;
@@ -694,7 +741,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
             // cos(theta)
             v2  = (ind<2) ? (fabs(DIR.x)) :   ((ind<4) ? (fabs(DIR.y)) : (fabs(DIR.z))) ;
             // re-weight photon numbers
-            PHOTONS  *=   v2*b / (4.0f*M_PI*v1*v1) ; // division by XPS_AREA done above when ind was still [0,3[
+            PHOTONS  *=   v2*b / (4.0f*PI*v1*v1) ; // division by XPS_AREA done above when ind was still [0,3[
             IndexG(&POS, &level, &ind, DENS, OFF) ;            
 #endif
 #if (PS_METHOD==4)
@@ -1080,7 +1127,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
    // MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*id,1.0f)*4294967296L), samplesPerStream);
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+M_PI)),1.0)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+PI)),1.0)*4294967296L), samplesPerStream);
 #endif
    
    int ICELL = id-GLOBAL ;
@@ -1276,7 +1323,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 #ifdef HG_TEST
             // fraction = probability of scattering per solid angle
             float G = 0.65f, fraction ;
-            fraction  =  (1.0f/(4.0f*M_PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
+            fraction  =  (1.0f/(4.0f*PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
             // delta     =  PHOTONS *  exp(-tau) *  fraction ;
             delta    *=  PHOTONS *  fraction * ((tau>TAULIM) ?  (1.0f-exp(-tau)) : (tau*(1.0f-0.5f*tau))) ;
 #else
@@ -1320,7 +1367,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 #ifdef HG_TEST
                // fraction = probability of scattering per solid angle
                float G = 0.65f, fraction ;
-               fraction  =  (1.0f/(4.0f*M_PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
+               fraction  =  (1.0f/(4.0f*PI)) * (1.0f-G*G) / pow(1.0f+G*G-2.0f*G*cos_theta, 1.5f) ;
                // delta     =  PHOTONS *  exp(-tau) *  fraction ;
                delta     =  PHOTONS *  fraction * ((tau>TAULIM) ?  (1.0f-exp(-tau)) : (tau*(1.0f-0.5f*tau))) ;
 #else

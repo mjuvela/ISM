@@ -1,8 +1,12 @@
-#!/bin/python2
+#!/bin/python
 
 import os, sys
-HOMEDIR = os.path.expanduser('~/')
-sys.path.append(HOMEDIR+'/starformation/SOC/')
+
+# HOMEDIR = os.path.expanduser('~/')
+# sys.path.append(HOMEDIR+'/starformation/SOC/')
+INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(INSTALL_DIR)
+
 from   ASOC_aux import *
 import multiprocessing as mp
 
@@ -122,16 +126,14 @@ print('-'*90)
 
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d \
 -D CELLS=%d -D AREA=%.0f -D NO_PS=%d  %s -D WITH_ABU=%d -D FACTOR=%.4ef \
--D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef \
--I%s/starformation/SOC/ \
+-D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I%s \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D WITH_COLDEN=%d -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D METHOD=%d -D USE_EMWEIGHT=%d -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d \
 -D OPT_IS_HALF=%d -D WITH_ROI_LOAD=%d -D ROI_NSIDE=%d" % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), USER.kernel_defs, WITH_ABU, FACTOR, 
-   USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, 
-   os.getenv("HOME"), #####  NSIDE==USER.NPIX['x'] ???
+   USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, INSTALL_DIR,
    USER.POLSTAT, int(USER.STEP_WEIGHT[0]), USER.STEP_WEIGHT[1], int(USER.STEP_WEIGHT[2]), 
    int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1],
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, len(USER.file_colden)>1, USER.MINLOS, USER.MAXLOS,
@@ -142,7 +144,7 @@ ARGS   += NVARGS
 print(ARGS)
 
 # Create contexts, command queue, and program = kernels for the simulation step
-source            =  os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_sca.c"        
+source            =  INSTALL_DIR+"/kernel_ASOC_sca.c"        
 context, commands =  opencl_init(USER)   # context and commands are both arrays [DEVICES]
 program           =  get_program(context, commands, source, ARGS) # program in also an array [DEVICES]
 mf                =  cl.mem_flags
@@ -496,7 +498,7 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
             PS = [0.0,]
 
             
-        if ((II==2)&(EMWEI>0)):
+        if ((II==2)&(USER.USE_EMWEIGHT>0)):
             print("UPDATE EMWEI")
             skip += 1 
             if (skip==3):
@@ -559,7 +561,7 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
             else:
                 # no relative weighting between Healpix pixels
                 cl.enqueue_copy(commands[ID], HPBG_buf[ID], asarray((WBG/FREQ)*HPBG[IFREQ,:], np.float32))
-
+                print("      <HPBG> %12.4e" % mean(ravel(HPBG[IFREQ,:])))
                 
         print("  FREQ %3d/%3d  %10.3e --  ABS %.3e  SCA %.3e  BG %10.3e  PS %10.3e..." % (IFREQ+1, NFREQ, FREQ,    ABS[0], SCA[0], BG, PS[0]))
         # Upload to device new DSC, CSC, possibly also EMIT
@@ -595,26 +597,24 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
             cl.enqueue_copy(commands[ID], EMIT_buf[ID], EMIT)
         commands[ID].finish()
         t0 = time.time()            
-        if (II==2): # DFPAC --- the same kernel as for CLPAC !!
-            kernel_CL(commands[ID], [GLOBAL,], [LOCAL,],
-            np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID],
-            SCA_buf[ID], LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], 
-            EMIT_buf[ID], DSC_buf[ID], CSC_buf[ID], NDIR, ODIR_buf[ID], 
-            USER.NPIX, USER.MAP_DX, USER.MAPCENTRE, RA_buf[ID], DE_buf[ID], 
-            OUT_buf[ID], OPT_buf[ID], ABU_buf[ID], EMWEI_buf[ID])
-        elif (II<2):       # PSPAC, BGPAC
-            if ((II==1)&(size(HPBG)>0)): # using a healpix map for the background
-                # print(ID, GLOBAL, LOCAL)
-                # print(PACKETS, BATCH, seed)
-                # print(ABS_buf[ID], SCA_buf[ID])
-                # print(LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], DSC_buf[ID])
+        if (II==0):      # 0=PSPAC
+            kernel_PB(commands[ID], [GLOBAL,], [LOCAL,], np.int32(II), 
+            PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], 
+            BG, PSPOS_buf[ID], PS_buf[ID], 
+            LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
+            NDIR, ODIR_buf[ID], USER.NPIX, USER.MAP_DX, USER.MAPCENTRE, 
+            RA_buf[ID], DE_buf[ID], OUT_buf[ID], ABU_buf[ID], OPT_buf[ID], 
+            XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID], ROI_DIM_buf, ROI_LOAD_buf)            
+        elif (II==1):    # 1=BGPAC
+            # we do not come here unless BGPAC>1 --- either isotropic or healpix background
+            if (size(HPBG)>0):         # using a healpix map for the background
                 kernel_HP(commands[ID], [GLOBAL,], [LOCAL,],
                 PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], 
                 LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
                 NDIR, ODIR_buf[ID], USER.NPIX, USER.MAP_DX, USER.MAPCENTRE, 
                 RA_buf[ID], DE_buf[ID], OUT_buf[ID], ABU_buf[ID], OPT_buf[ID], 
                 HPBG_buf[ID], HPBGP_buf[ID])
-            else:
+            else:                      #  isotropic background
                 kernel_PB(commands[ID], [GLOBAL,], [LOCAL,], np.int32(II), 
                 PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], 
                 BG, PSPOS_buf[ID], PS_buf[ID], 
@@ -622,7 +622,14 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
                 NDIR, ODIR_buf[ID], USER.NPIX, USER.MAP_DX, USER.MAPCENTRE, 
                 RA_buf[ID], DE_buf[ID], OUT_buf[ID], ABU_buf[ID], OPT_buf[ID], 
                 XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID], ROI_DIM_buf, ROI_LOAD_buf)
-        elif (II==3): # ROI_LOAD
+        elif (II==2):    # 2=DFPAC     --- the same kernel as for CLPAC !!
+            kernel_CL(commands[ID], [GLOBAL,], [LOCAL,],
+            np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID],
+            SCA_buf[ID], LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], 
+            EMIT_buf[ID], DSC_buf[ID], CSC_buf[ID], NDIR, ODIR_buf[ID], 
+            USER.NPIX, USER.MAP_DX, USER.MAPCENTRE, RA_buf[ID], DE_buf[ID], 
+            OUT_buf[ID], OPT_buf[ID], ABU_buf[ID], EMWEI_buf[ID])
+        elif (II==3):    # ROI_LOAD
             if (USER.WITH_ROI_LOAD<=0): continue
             cl.enqueue_copy(commands[0], ROI_LOAD_buf, asarray(ROI_LOAD[IFREQ,:]*USER.ROI_LOAD_SCALE/(USER.GL*USER.GL), float32))
             ## ROI_LOAD

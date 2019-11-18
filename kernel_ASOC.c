@@ -326,7 +326,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
             // cos(theta)
             v2  = (ind<2) ? (fabs(DIR.x)) :   ((ind<4) ? (fabs(DIR.y)) : (fabs(DIR.z))) ;
             // re-weight photon numbers
-            PHOTONS  *=   v2*b / (4.0f*M_PI*v1*v1) ; // division by XPS_AREA done above when ind was still [0,3[
+            PHOTONS  *=   v2*b / (4.0f*PI*v1*v1) ; // division by XPS_AREA done above when ind was still [0,3[
             IndexG(&POS, &level, &ind, DENS, OFF) ;            
 #endif
             

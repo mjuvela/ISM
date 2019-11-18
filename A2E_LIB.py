@@ -3,6 +3,10 @@
 from MJ.mjDefs import *
 import pyopencl as cl
 
+INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(INSTALL_DIR)
+
+
 if (len(sys.argv)<3):
     #                     1             2          3        4        5             6
     print()
@@ -448,7 +452,7 @@ def solve_with_library_1(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
     cl.enqueue_copy(queue, SA_buf, SARRAY)
     
     OPT      =  "-D K=%.3ef -D NFREQ=%d -D SIND=%d" % (K, nfreq, SIND)
-    source   =  file(HOMEDIR+"starformation/SOC/kernel_SOC_lookup.c").read()
+    source   =  open(INSTALL_DIR+"/kernel_SOC_lookup.c").read()
     program  =  cl.Program(context, source).build(OPT)    
     Lookup   =  program.Lookup
     #                              cells     abs[]   res[]
@@ -687,7 +691,7 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
     
     OPT       =  " -D BINS0=%d -D BINS1=%d -D BINS2=%d -D NFREQ=%d -D IFREQ0=%d -D IFREQ1=%d -D IFREQ2=%d" % \
     (BINS0, BINS1, BINS2, NFREQ, IFREQ[0], IFREQ[1], IFREQ[2])
-    source    =  file(HOMEDIR+"starformation/SOC/kernel_tree3.c").read()
+    source    =  open(INSTALL_DIR+"/kernel_tree3.c").read()
     program   =  cl.Program(context, source).build(OPT)
     Populate  =  program.Populate
     Populate.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, None, None, None, None, None, None, None])
@@ -865,7 +869,7 @@ def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
     LOCAL        =  4
     OPT          =  " -D BINS0=%d -D BINS1=%d -D BINS2=%d -D NFREQ=%d -D IFREQ0=%d -D IFREQ1=%d -D IFREQ2=%d" % \
     (BINS0, BINS1, BINS2, NFREQ, IFREQ[0], IFREQ[1], IFREQ[2])
-    source       =  file(HOMEDIR+"starformation/SOC/kernel_tree3.c").read()
+    source       =  open(INSTALL_DIR+"/kernel_tree3.c").read()
     program      =  cl.Program(context, source).build(OPT)
     
     AMIN1_buf2   =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=AMIN1)

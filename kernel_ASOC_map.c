@@ -812,7 +812,7 @@ __kernel void PolMapping(
       BN    =  normalize(BN) ;
       // Psi = polarisation angle = 0.5*pi + PA of the magnetic field,  tan(PA) =  -(B*RA) / (B*DE)
       // Minus because our "RA" is an axis pointing to the right!!
-      float Psi  =  0.5f*M_PI + atan2(dot(BN, -RA), dot(BN, DE)) ;  // polarisation angle
+      float Psi  =  0.5f*PI + atan2(dot(BN, -RA), dot(BN, DE)) ;  // polarisation angle
       
       // gamma between B and POS,  zeta between B and LOS == B vs DIR
       // cos(gamma) = cos(90-zeta)  =  sin(zeta) 
@@ -977,7 +977,7 @@ __kernel void PolMapping(
       // *Polarisation angle* Psi is defined in IAU convention, East of North
       // ==  0.5*pi + angle between B and north direction
       // In this dispersion calculation the constant 0.5*PI could be omitted...
-      float Psi  =  0.5f*M_PI + atan2(dot(BN, -RA), dot(BN, DE)) ;  // polarisation angle
+      float Psi  =  0.5f*PI + atan2(dot(BN, -RA), dot(BN, DE)) ;  // polarisation angle
       // gamma is wrt plane of the sky, cos(complement) = dot(BN, DIR)
       //      dot(BN,DIR) = cos(90-gamma) = -sin(gamma)
       // =>   cos(gamma)  = 1 - [dot(BN,DIR)]^2
@@ -1059,7 +1059,7 @@ __kernel void PolMapping(
       PR         =  length(BN) ;
       BN         =  normalize(BN) ;
       // Chi defined in IAU convention, East of North
-      float Chi  =  0.5f*M_PI + atan2(dot(BN, -RA), dot(BN, DE)) ; // same for density and emission weighting !!!
+      float Chi  =  0.5f*PI + atan2(dot(BN, -RA), dot(BN, DE)) ; // same for density and emission weighting !!!
       float rho  =  DENS[oind] ;
       if (DTAU<1.0e-3f) {
          sz = exp(-TAU) *  (1.0f-0.5f*DTAU)        * sx * EMIT[oind]*rho ;
@@ -1236,7 +1236,7 @@ __kernel void PolMapping(
       BN  = normalize(BN) ;
       // note: 0.5*PI is needed for correct Psi
       // atan2() is the position angle of the B-field, polarisation angle differs by 0.5*pi
-      float Psi  = 0.5f*M_PI + atan2(dot(BN, -RA), dot(BN, DE)) ;
+      float Psi  = 0.5f*PI + atan2(dot(BN, -RA), dot(BN, DE)) ;
       float cc   = 0.99999f - 0.99998f * dot(BN, DIR)*dot(BN, DIR) ; // cos(gamma)^2
       if (DTAU<1.0e-3f) {
          sz = exp(-TAU) *  (1.0f-0.5f*DTAU)        * sx * EMIT[oind]*DENS[oind] ;

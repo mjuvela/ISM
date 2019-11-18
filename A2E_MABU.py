@@ -1,10 +1,13 @@
 #!/bin/python3
 
 import os, sys
-HOMEDIR = os.path.expanduser('~/')
 
 # we assume that the Python scripts and *.c kernel files are in this directory
-sys.path.append(HOMEDIR+'/starformation/SOC/')
+# HOMEDIR = os.path.expanduser('~/')
+# sys.path.append(HOMEDIR+'/starformation/SOC/')
+INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(INSTALL_DIR)
+
 from SOC_aux import *
 
 
@@ -260,7 +263,7 @@ def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=9999
     # Set up kernels
     CELLS, NFREQ=  np.fromfile(f_absorbed, np.int32, 2)
     context, commands, mf = opencl_init(GPU)
-    source      =  open(os.getenv("HOME")+ "/starformation/SOC/kernel_eqsolver.c").read()
+    source      =  open(INSTALL_DIR+"/kernel_eqsolver.c").read()
     ARGS        =  "-D CELLS=%d -D NFREQ=%d -D FACTOR=%.4ef" % (CELLS, NFREQ, FACTOR)
     if (0):
         ARGS += ' -cl-fast-relaxed-math'
@@ -365,7 +368,7 @@ for idust in range(NDUST):
 
 # Initialise OpenCL to split the absorptions
 context, queue, mf = opencl_init(GPU=0)
-source      =  open(HOMEDIR+"starformation/SOC/kernel_A2E_MABU_aux.c").read()
+source      =  open(INSTALL_DIR+"/kernel_A2E_MABU_aux.c").read()
 OPTS        =  '-D NFREQ=%d -D NDUST=%d' % (NFREQ, NDUST)
 program     =  cl.Program(context, source).build(OPTS)
 Split       =  program.split_absorbed

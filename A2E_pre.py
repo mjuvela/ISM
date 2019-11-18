@@ -1,11 +1,14 @@
 #!/usr/bin/python3
 
 import os, sys
-HOMEDIR = os.path.expanduser('~/')
 
 # We assume that the Python scripts and *.c kernel files are in this directory
-sys.path.append(HOMEDIR+'/starformation/SOC/')
-    
+# sys.path.append(HOMEDIR+'/starformation/SOC/')
+# HOMEDIR = os.path.expanduser('~/')
+INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(INSTALL_DIR)
+  
+
 from   SOC_aux import *
 from   DustLib import *
 import pyopencl as cl
@@ -96,7 +99,7 @@ for iplatform in range(3):
         break
     except:
         pass
-src       =  open(HOMEDIR+"starformation/SOC/kernel_A2E_pre.c").read()
+src       =  open(INSTALL_DIR+"/kernel_A2E_pre.c").read()
 program   =  cl.Program(context, src).build(" -D FACTOR=%.4ef " % FACTOR)
 mf        =  cl.mem_flags 
 FREQ_buf  =  cl.Buffer(context, mf.READ_ONLY,  4*NFREQ)

@@ -115,6 +115,7 @@ class User:
         self.INTOBS       = cl.cltypes.make_float3(-1e12,0,0) # location of an internal observer
         self.MAPCENTRE    = cl.cltypes.make_float3(-1e12,0.0) # position towards centre of the maps
         self.DEVICES      = 'c'      # computing devices to be used
+        self.FISSION      =  0       # optional, use a subdevice with FISSION threads
         self.DSC_BINS     = 0        # angle bins in scattering function
         self.LOCAL        = -1       # is user request specific value of local
         self.BATCH        = 30       # sub-batch size of rays per kernel call
@@ -247,6 +248,7 @@ class User:
             # keywords with a single argument
             key, a  =  s[0], s[1]
             if (key.find('device')==0):      self.DEVICES           = a
+            if (key.find('fission')==0):     self.FISSION           = int(a)
             if (key.find('platform')==0):    self.PLATFORM          = int(a)
             if (key.find('sourcemap')==0):   self.file_sourcemap    = a
             if (key.find('tempera')==0):     self.file_temperature  = a
@@ -580,7 +582,8 @@ def OT_cut_levels(infile, outfile, maxlevel, platform=-1):
             pass
     mf       = cl.mem_flags
     LOCAL    =  8
-    source   =  open(os.getenv("HOME")+"/starformation/SOC/kernel_OT_tools.c").read()
+    # source   =  open(os.getenv("HOME")+"/starformation/SOC/kernel_OT_tools.c").read()
+    source   =  open(os.path.dirname(os.path.realpath(__file__))+"/kernel_OT_tools.c").read()
     OPT      =  '' 
     program  =  cl.Program(context, source).build(OPT)
     AverageParent = program.AverageParent
@@ -1079,7 +1082,7 @@ def opencl_init(USER):
     """
     context          = []  # for each device
     commands         = []
-    try_platforms    = arange(3)
+    try_platforms    = arange(5)
     if (USER.PLATFORM>=0): try_platforms = [USER.PLATFORM,]
     for dc in USER.DEVICES:
         plat, devi, cont, queue = None, None, None, None
@@ -1091,8 +1094,18 @@ def opencl_init(USER):
                     devi  = platform.get_devices(cl.device_type.GPU)
                 else:
                     devi  = platform.get_devices(cl.device_type.CPU)
+                ###
+                if (USER.FISSION>0):
+                    print("FISSION %d !" % USER.FISSION)
+                    print(devi[0])
+                    dpp   =  cl.device_partition_property
+                    devi  =  [devi[0].create_sub_devices( [dpp.EQUALLY, USER.FISSION] )[0],]
+                    print('  --> ')
+                    print(devi[0])                    
+                ###
                 cont  = cl.Context(devi)
                 queue = cl.CommandQueue(cont)
+                print("context ", cont)
                 break
             except:
                 pass

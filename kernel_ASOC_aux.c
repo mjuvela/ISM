@@ -1,10 +1,10 @@
 // #define HG_TEST 1
 
-#define PI        3.14159265f
 #define TWOPI     6.28318531f
 #define TAULIM    5.0e-4f
 #define PIHALF    1.5707963268f
 #define TWOTHIRD  0.6666666667f
+#define PI        3.1415926535897f
 //  #define ADHOC   (1.0e-10f)
 
 

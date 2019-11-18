@@ -1,9 +1,12 @@
 #!/bin/python3
 
 import os, sys
-HOMEDIR = os.path.expanduser('~/')
-sys.path.append(HOMEDIR+'/starformation/SOC/')
 
+# HOMEDIR      = os.path.expanduser('~/')
+# sys.path.append(HOMEDIR+'/starformation/SOC/')
+INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(INSTALL_DIR)
+    
 from   ASOC_aux import *    
 import multiprocessing as mp
 
@@ -33,10 +36,10 @@ Memory requirements for the kernel:
     - WITH_ABU>0          ->   OPT[2*CELLS]
     - WITH_MSF            ->   ABU[CELLS, NDUST]
     
-For example, basic run with 480e6 cells
+Basic run with 480e6 cells
       PAR, DENSE, EMIT, TABS      =  4 x CELLS  =   7.2 GB
 The same with variable abundances:      
-      PAR, DENSE, EMIT, TABS, OPT =  6 x CELLS  =  10.7 GB !!    
+      PAR, DENSE, EMIT, TABS, OPT =  6 x CELLS  =  10.7 GB
       
 2019-02-19:
     Drop root grid cells from PAR_buf (top level cells have no parents), ~0.5 GB for 400e6 cell model!
@@ -58,7 +61,7 @@ The same with variable abundances:
     Added fselect keyword
 2019-10-01:
     Added new options for work with A2E_LIB (dust emission solved with the library method).
-    libabs => save absorptions for a subset of frequencies and stop there
+    libabs  => save absorptions for a subset of frequencies and stop there
     libmaps => load smaller emitted file with a subset of frequencies, write maps for those
 """
 
@@ -91,9 +94,14 @@ NDUST             =  len(AFABS)
 # Use ONFREQ for the actual number of frequencies in the absorption and emission files
 # In case of library method, ONFREQ<NFREQ and ONFREQ contains the reference frequencies (LIB_ABS==True)
 # or the emitted/map frequencies (LIB_MAPS=True) -- only one of those can be true
+# Note: F_SIM can be used to limit the number of the simulated frequencies but that does not affect the
+#       number of frequencies in the absorption and emission arrays
 ONFREQ            =  NFREQ
 if ((USER.LIB_ABS)|(USER.LIB_MAPS)):
     ONFREQ        =  len(USER.FSELECT)
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print("!!!!!!!!!!!!  ONFREQ = %d   <   NFREQ = %d !!!!!!!!!!!!!!!" % (ONFREQ, NFREQ))
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 if (USER.LIB_MAPS):
     USER.ITERATIONS  = 0
     USER.NOSOLVE     = 1
@@ -279,8 +287,7 @@ print('-'*90)
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
 -D CELLS=%d -D AREA=%.0f -D NO_PS=%d -D WITH_ABU=%d -D ROI_MAP=%d \
 -D ROI_STEP=%d -D ROI_NSIDE=%d -D WITH_ROI_LOAD=%d -D WITH_ROI_SAVE=%d \
--D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef \
--I%s/starformation/SOC/ \
+-D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I%s \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D WITH_COLDEN=%d -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D METHOD=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
@@ -288,7 +295,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD, FACTOR,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), WITH_ABU, USER.ROI_MAP, 
    USER.ROI_STEP, USER.ROI_NSIDE, USER.WITH_ROI_LOAD, USER.WITH_ROI_SAVE,
-   USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, os.getenv("HOME"), 
+   USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, INSTALL_DIR, 
    USER.POLSTAT, int(USER.STEP_WEIGHT[0]), USER.STEP_WEIGHT[1], int(USER.STEP_WEIGHT[2]), 
    int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1],
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, len(USER.file_colden)>1, USER.MINLOS, USER.MAXLOS,
@@ -301,7 +308,8 @@ NVARGS  = " -cl-fast-relaxed-math"
 ARGS   += NVARGS
 
 # Create contexts, command queu, and program = kernels for the simulation step
-source  =  os.getenv("HOME")+"/starformation/SOC/kernel_ASOC.c"        
+# source  =  os.getenv("HOME")+"/starformation/SOC/kernel_ASOC.c"        
+source  =  INSTALL_DIR+"/kernel_ASOC.c"        
 
 
 # NOTE -- kernel_SOC now uses Healpix for pointsource and background simulation
@@ -929,14 +937,18 @@ else:
             FREQ = FFREQ[IFREQ]
             ## print("IFREQ %d   =   %12.4e ..... LIMITS [%.3e,%.3e]Hz" % (IFREQ, FREQ, USER.SIM_F[0], USER.SIM_F[1]))
             
-            # INTENSITY has been zeroed -> skip some unimportant frequencies that will remain 0
-            if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])):
-                continue            
-            
             if (USER.LIB_ABS): 
                 # Simulation for the library method, FSELECT contains the reference frequencies
                 if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001): continue
             OIFREQ += 1 
+
+            # Must increase OIFREQ before SIM_F test.... SIM_F limits the number of simulated frequencies
+            # but the absorption arrays still contain all NFREQ frequencies.... unless frequencies were
+            # dropped using FSELECT above --- OIFREQ is index to FABSORBED array
+            
+            # INTENSITY has been zeroed -> skip some unimportant frequencies that will remain 0
+            if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])):
+                continue            
             
             
             # single dust            => we use ABS[1] and SCA[1]  
@@ -1385,13 +1397,14 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 commands[ID].finish()
                 kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],np.int32(1),TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
                 commands[ID].finish()
-                # Parameters for the current frequency
-                if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue # FREQ not simulated!!
-                ## print("    FREQ %3d/%3d   %12.4e --  ABS %.3e  SCA %.3e" % (IFREQ+1, NFREQ, FREQ, ABS, SCA))
                 
                 if (USER.LIB_ABS): # simulate only reference frequencies in FSELECT
                     if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001): continue
                 OIFREQ += 1
+                
+                # Parameters for the current frequency
+                if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue # FREQ not simulated!!
+                
                 print("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
             
                 G = 0.0  # not used !
@@ -2046,10 +2059,12 @@ if ('SUBITERATIONS' in USER.KEYS):
             commands[ID].finish()
             # Parameters for the current frequency
             FREQ   =  FFREQ[IFREQ]
-            if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue            
+
             if (len(USER.FSELECT)>0): 
                 if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001): continue
             OIFREQ += 1  # OIFREQ<=IFREQ, in case we use LIB_ABS (although that makes no sense in subiterations?)
+            
+            if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue            
             
             # print("    FREQ %3d/%3d   %12.4e --  ABS %.3e  SCA %.3e" % (IFREQ+1, NFREQ, FREQ, ABS, SCA))
             print("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
@@ -2574,7 +2589,8 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     print("MAP_SLOW")
     MAP_buf     = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
     COLDEN_buf  = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
-    source      = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map.c").read()
+    # source      = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map.c").read()
+    source      = open(INSTALL_DIR+"/kernel_ASOC_map.c").read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d' % (USER.NPIX['x']))
     kernel_map  = None
     try:
@@ -2722,7 +2738,8 @@ if ((not(MAP_HIER))&(USER.NPIX['y']<0)): # Healpix map
     # Normal Healpix map
     # 2019-04-10: column density map is now always saved
     print("MAP_HIER=%d, NPIX[y]=%d" % (MAP_HIER, USER.NPIX['y']))
-    source      = open(os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map.c").read()
+    # source      = open(os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map.c").read()
+    source      = open(INSTALL_DIR+"/kernel_ASOC_map.c").read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d' % (USER.NPIX['x']))
     kernel_map  = None
     print(USER.NPIX['y'], USER.ROI_MAP)
@@ -2783,8 +2800,9 @@ if ((not(MAP_HIER))&(USER.NPIX['y']<0)): # Healpix map
         FREQ = FFREQ[IFREQ]
         if (USER.LIB_MAPS): # Simulation for the library method, FSELECT contains the reference frequencies
             if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001): continue
-        if ((FREQ<USER.MAP_FREQ[0])|(FREQ>USER.MAP_FREQ[1])): continue # never with LIB_MAPS
         OIFREQ += 1   # the running index in case of LIB_MAPS
+
+        if ((FREQ<USER.MAP_FREQ[0])|(FREQ>USER.MAP_FREQ[1])): continue # never with LIB_MAPS
         
         # optical parameters
         ABS[0], SCA[0]  = AFABS[0][IFREQ], AFSCA[0][IFREQ]
@@ -2853,7 +2871,8 @@ if (MAP_HIER):
     if (USER.LIB_MAPS):
         print("*** ERROR: MAP_HIER not implemented together with LIB_MAPS !!!"), sys.exit()
     print("MAP_HIER=%d, NPIX[y]=%d" % (MAP_HIER, USER.NPIX['y']))
-    source      = open(os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map_H.c").read()
+    # source      = open(os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map_H.c").read()
+    source      = open(INSTALL_DIR+"/kernel_ASOC_map_H.c").read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d' % (USER.NPIX['x']))
     kernel_map  = None
     if (USER.NPIX['y']<=0):  kernel_map = program_map.HealpixMapping
@@ -2971,7 +2990,8 @@ if (MAP_FAST):
     I1, I2     =  m[0][0], m[0][-1]      # first and last frequency index
     ##print NF, I1, I2
     ##print USER.MAP_FREQ, USER.REMIT_F
-    filename    = os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map_X.c"
+    # filename    = os.getenv("HOME")+"/starformation/SOC/kernel_ASOC_map_X.c"
+    filename    = INSTALL_DIR+"/kernel_ASOC_map_X.c"
     source      = open(filename).read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d -D NF=%d' % (USER.NPIX['x'], NF))
     kernel_map  = None
@@ -3096,7 +3116,8 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
     if (USER.LIB_MAPS):
         print("*** ERROR: POLMAP not implemented together with LIB_MAPS"), sys.exit()
     TNEW        = zeros(CELLS, float32)        
-    source      = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map.c").read()
+    # source      = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map.c").read()
+    source      = open(INSTALL_DIR+ "/kernel_ASOC_map.c").read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d' % (USER.NPIX['x']))
     kernel_map  = program_map.PolMapping
     # Push the magnetic fields. B files have the same format as density
@@ -3247,7 +3268,8 @@ if ((USER.POLMAP>0)&(USER.NOMAP==0)&(USER.NPIX['y']<0)):  # HEALPIX POLARISATION
         column_names = [ 'rhoTheta', 'rhoGamma', 'jTheta', 'jGamma' ]
     #### TNEW = zeros(CELLS, float32)        
     program_map, kernel_map = None, None
-    source = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map_H.c").read()
+    # source = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map_H.c").read()
+    source = open(INSTALL_DIR+ "/kernel_ASOC_map_H.c").read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d' % (USER.NPIX['x']))
     kernel_map = program_map.PolHealpixMapping
     # Push the magnetic fields. B files have the same format as density
