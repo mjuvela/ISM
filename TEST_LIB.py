@@ -5,9 +5,32 @@ rc('font', size=9)
 
 TEST_ABUNDANCE = 0 
 
+
+""" 
+
+The script includes sections to create a small model cloud, create
+frequency grids and dust files, and calculate dust emission assuming
+grains that are at equilibrium with the radiation field or are
+stochastically heated. For the latter, there are technically different
+solutions, including the use of the ASOC_driver.py script and/or the
+library method. See the code for details!
+
+The script can plot a figure with emission maps from (I)
+equilibrium-temperature dust calculation, (II) from full calculation
+with stochastically heated grains, and (III) the emission of
+stochastically heated grains calculated via the library method). If
+one uses several dust components, the plot for (I) will not
+(necessarily) correspond to physical setting behind the solutions (II)
+and (III). The same is true if one uses spatially varying abundances
+(TEST_ABUNDANCE=1). The results from (II) and (III) should also in
+those cases correspond to each other.
+
+"""
+
+
 #================================================================================
 DUST     =  [ 'aSilx', 'PAH0_MC10', 'PAH1_MC10', 'amCBEx', 'amCBEx_copy1' ]
-DUST0    =     DUST[0].replace('gs_', '')
+DUST0    =    'tmp.dust'
 
 ### DUST     =  [ 'aSilx', 'amCBEx' ]
 

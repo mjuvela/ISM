@@ -19,13 +19,18 @@ the "GSET" format dust files written by make_dust.py. In addition,
 * A2E.py solves emission using these "solver files"
 * A2E_MABU.py can be used to simplify this when a run includes several 
   dust populations, possibly with spatially varying abundances.
+* A2E_LIB.py for making and using the library method (lookup tables
+  for faster conversion of absorptions to emission)
+* ASOC_driver.py automates the process of (1) calculate absorptions,
+  (2) solve dust emission, (3) write emission maps
 
-There are corresponding julia routines (work in progress). In
+There are some corresponding julia routines (work in progress). In
 particular, DE_to_GSET.jl writes GSET format dust files and the
 combined simple ascii file, and the scattering function files needed
 by SOC. A2E.jl corresponds to A2E.py and the (still experimental)
 script MA2E.jl corresponds to A2E_MABU.py.
 
 Practical examples of the end-to-end calculations will be added here
-in the near future.
+in the near future. For the moment, one can examine (or even try to
+run) the script TEST_LIB.py
 
