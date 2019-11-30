@@ -99,9 +99,9 @@ NDUST             =  len(AFABS)
 ONFREQ            =  NFREQ
 if ((USER.LIB_ABS)|(USER.LIB_MAPS)):
     ONFREQ        =  len(USER.FSELECT)
-    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-    print("!!!!!!!!!!!!  ONFREQ = %d   <   NFREQ = %d !!!!!!!!!!!!!!!" % (ONFREQ, NFREQ))
-    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+    print("!!!!!  ONFREQ = %3d   <   NFREQ = %3d  !!!!!" % (ONFREQ, NFREQ))
+    print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 if (USER.LIB_MAPS):
     USER.ITERATIONS  = 0
     USER.NOSOLVE     = 1
@@ -152,7 +152,7 @@ if (len(sys.argv)>2): # command line overrides devices defined in the ini file
     else:                     USER.DEVICES = 'c'
         
 # Open file containing diffuse emission per cell
-DIFFUSERAD        =  mmap_diffuserad(USER, CELLS)
+DIFFUSERAD        =  mmap_diffuserad(USER, CELLS)   # memory mapped => do not scale the array itself with K_diffuse
 DEVICES           =  len(USER.DEVICES)
 KDEV              =  1.0/DEVICES
 KDEV              =  1.0  # here only one device !!
@@ -265,7 +265,7 @@ if (len(USER.file_hpbg)>2):
     # We use healpix maps for the background sky intensity... 
     #   currently *fixed* at NSIDE=64 which gives ~55 arcmin pixels, 49152 pixels on the sky
     #   1000 frequencies ~ 188 MB => just read all in
-    print("*** Using healpix background sky ***")
+    print("*** Using healpix background sky, user scaling %.3e ***" % USER.scale_background)
     HPBG = fromfile(USER.file_hpbg, float32).reshape(NFREQ, 49152) * USER.scale_background
     
     
@@ -480,8 +480,12 @@ for ID in range(DEVICES):
 # With LIB_MAPS, emitted file contains only a subset of frequencies == USER.FSELECT
 # => make sure EMITTED is still read and not zeroed
 if (USER.LIB_MAPS):
-    print("Reading EMITTED --- assuming LIB_MAPS with %d emission frequencies" % len(USER.FSELECT))
+    print("### ASOC WITH LIB_MAPS =>  ASSUME EMITTED %d CELLS x  %d FREQUENCIES" % (CELLS, len(USER.FSELECT)))    
     EMITTED  = mmap_emitted(USER, CELLS, LEVELS, LCELLS, len(USER.FSELECT), OFF, DENS)  # EMITTED[CELLS, REMIT_NFREQ]
+elif (USER.LIB_ABS): #  only emission at USER.FSLECT frequencies = reference frequencies
+    print("### ASOC WITH LIB_ABS =>  EMITTED %d CELLS  x   %d FREQUENCIES" % (CELLS, len(USER.FSELECT)))
+    # IN FACT THIS RUN WILL NOT DO NOTHING WITH EMITTED... APART FROM AS DIFFUSE RADIATION SOURCE ?
+    EMITTED  = mmap_emitted(USER, CELLS, LEVELS, LCELLS, len(USER.FSELECT), OFF, DENS)
 else:
     EMITTED  = mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS)  # EMITTED[CELLS, REMIT_NFREQ]
 
@@ -2652,7 +2656,10 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         FREQ = FFREQ[IFREQ] 
         
         if (USER.LIB_MAPS):  # Simulation for the library method, FSELECT contains the reference frequencies
-            if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001): continue                    
+            if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001):
+                iiii = argmin(abs((FREQ-USER.FSELECT)))
+                # print("  FREQ %12.4e  ... closest FSELECT %12.4e\n" % (FREQ, USER.FSELECT[iiii]))
+                continue                    
         print("FREQ %.3e  MAP_FREQ  %.3e %.3e" % (FREQ, USER.MAP_FREQ[0], USER.MAP_FREQ[1]))
             
         # OIFREQ is   [0,NFREQ[ or [REMIT_I1,REMIT_I2] and with LIB_MAPS it is [0, ONFREQ[

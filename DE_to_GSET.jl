@@ -41,11 +41,17 @@ end
 # Write the files for individual dust components
 for d in dusts
   name     =  d.NAME
-  write_A2E_dustfile(d, ne)
-  filename = "jl_$name.solver"
+  write_A2E_dustfile(d, ne, prefix="")  # instead of the normal gs_ prefix !!!
+  # filename = "jl_$name.solver"
+  filename = "$name.solver"
   write_solver_file(d, ne, freq, filename)
-  filename = "jl_$name.dsc"
+  # filename = "jl_$name.dsc"
+  filename = "$name.dsc"
   write_DSF_CSF(d, filename, freq, bins=2500)
+  # simple dust for individual dust components
+  filename = "$name"*"_simple.dust"
+  write_simple_dust([d ], filename, freq)
+  
 end
 
 # Write the 'simple-dust' files, sum of all components

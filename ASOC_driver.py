@@ -4,9 +4,8 @@ from MJ.Aux.DustLib import *
 
 """
 Usage:
-    ASOC_driver.py  soc-ini  [uselib] [makelib]
-    
-    
+    ASOC_driver.py  soc-ini  [uselib] [makelib] 
+        
 If calculations involve stochastically heated grains:
     - creates <dust>.solver files with A2E_pre.py
     - creates <dust>_simple.dust files
@@ -18,24 +17,18 @@ If calculation involve only eqdust (no stochastically heated ones),
 do also the above three runs -- this is needed in case of 
 spatially varying dust abundances.   
 
-We assume that ini file contains dusts of the types simple and gs and 
-that the corresponding dust files have already been created (e.g. based on DustEM).
-
-These can be done running three routines from DustLib.py:
-    write_DUSTEM_files()   -->  dustem_<name>.dust
-    write_simple_dust()    -->  <name>_simple.dust, <name>.dsc
-    write_A2E_dustfiles()  -->  gs_<name>.dust
-(see make_dust.py).
-
-
 2019-09-22: 
     For the USELIB case, if ini-file contains the keyword ofreq + filename,
     the emitted file will contain only the frequencies listed in the file ---
     ini will be read only in A2E_MABU and passed on as command line argument to A2E_LIB.
     
-    Simulation with fewer frequencies is done using <dust>_lib_simple.dust.
-    A2E_pre.py gs_PAH1_MC10_lib.dust freq.dat PAH1_MC10_lib.solver is an error !!!
-    We will use <dust>.solver and there is no <dust>_lib.solver files !!!    
+    Simulation with fewer frequencies is done using <dust>_lib.dust.
+    OR WITH <dust>_simple.dust and keyword fselect !
+    We will use <dust>.solver and there is no <dust>_lib.solver files !
+    
+2019-11-20:
+    accept dust files without the initial gs_
+    
 """
 
 if (len(sys.argv)<2):
@@ -58,104 +51,100 @@ for arg in sys.argv[2:]:
 print(GPU, USELIB, MAKELIB)
 
 
+def is_gs_dust(name):
+    if (open(name).readline().split()[0]=='gsetdust'): return True
+    return False
+
 
 # Make a list of the dusts
-stochastic, simple = [], []   # list of dust names
+stochastic, simple = [], []   # list of dust names, basename without ".dust"
 fabs, femit = None, None      # names of absorption and emission files
-nstoch, ndust = 0, 0          # number of stochastic and all dusts
+nstoch, nsimple = 0, 0            # number of stochastic and equilibrium dusts
 for line in LINES:
     s = line.split()
     if (len(s)<2): continue
     if (s[0]=='optical'):
-        name, ndust = s[1], ndust+1
-        if (name[0:3]=='gs_'):
-            stochastic.append(name.replace('_lib', ''))  # _lib is just for RT, simulation of lib frequencies only
-            simple.append('%s_simple.dust' % (name[3:].split('.')[0]))
+        name = s[1]
+        if (is_gs_dust(name)):            
+            stochastic.append(name.replace('.dust',''))
             nstoch += 1
         else:
-            stochastic.append('')
-            simple.append(name)        
+            simple.append(name.replace('.dust',''))
+            nsimple += 1
     if (s[0]=='absorbed'): fabs  = s[1]
     if (s[0]=='emitted'):  femit = s[1]
 
 
     
 print("================================================================================")
-# using library =>
-#   simple      =  PAH0_MC10_lib_simple.dust
-#   stochastic  =  gs_PAH0_MC10.dust
 print("ASOC_driver")
 print("SIMPLE:")
 print(simple)
-print("STOCHASTIC")
+print("STOCHASTIC:")
 print(stochastic)
 # sys.exit()
 
-"""
-SIMPLE:
-    ['PAH0_MC10_lib_simple.dust', 'PAH1_MC10_lib_simple.dust', 'amCBEx_lib_simple.dust', 'amCBEx_copy1_lib_simple.dust', 'aSilx_lib_simple.dust']
-STOCHASTIC
-    ['gs_PAH0_MC10.dust', 'gs_PAH1_MC10.dust', 'gs_amCBEx.dust', 'gs_amCBEx_copy1.dust', 'gs_aSilx.dust']    
-"""
-print("================================================================================")        
 
 
 
 # Write solver file for each stochastically heated dust
-for dust in stochastic:          # dust == filename for stochastically heated dust
-    if (len(dust)<1): continue   # was simple dust only
-    solver  =  '%s.solver' % dust[3:].split('.')[0]
+for dust in stochastic:             # dust == filename for stochastically heated dust
+    solver  =  '%s.solver' % dust
     redo    =   True
     if (os.path.exists(solver)): # skip solver creation if that exists and is more recent than dust file
-        if (os.stat(dust).st_mtime<os.stat(solver).st_mtime): redo = False
+        if (os.stat(dust+'.dust').st_mtime<os.stat(solver).st_mtime): redo = False
     if (redo):
         print("================================================================================")
-        print('A2E_pre.py %s freq.dat %s' % (dust, solver))
+        print('A2E_pre.py %s.dust freq.dat %s' % (dust, solver))
         print("================================================================================")
-        os.system('A2E_pre.py %s freq.dat %s' % (dust, solver))
+        os.system('A2E_pre.py %s.dust freq.dat %s' % (dust, solver))
     
 
         
-# First SOC run -- gather absorptions
-# Write new ini with simple dust only, only reference frequencies
-# Note -- the alternative would be to write new dusts that contain only
-#         the reference frequencies... but then one should also write
-#         new versions of all background and diffuse emission files !
+        
+# First SOC run -- gather absorptions, stochastic dusts replaced with simple dusts
+# USELIB implies the use of "libabs lfreq.dat" => absorptions only for reference frequencies
 fp    = open('rt_simple.ini', 'w')
 idust = 0
 for line in LINES:
     s = line.split()
     if (len(s)<1): continue
-    if (s[0]=='optical'):
-        sto, sim = stochastic[idust], simple[idust]
-        if (len(sto)>0):  # stochastic dust to be replaced
-            fp.write('optical %s\n' % sim)
-        else:
-            fp.write(line)
-        idust += 1
-    else:
+    if (s[0]!='optical'):
         fp.write(line)
+for d in simple:
+    fp.write('optical %s.dust\n' % d)
+for d in stochastic:
+    fp.write('optical %s_simple.dust\n' % d)
 fp.write('nomap\n')
 fp.write('nosolve\n')
 if (USELIB):
-    fp.write('fselect  lfreq.dat\n')  # simulation only for the library reference frequencies !!!
+    # simulation only for the library reference frequencies !
+    # alternatively we could have used *_lib.dust contaning ref. frequencies only
+    fp.write('libabs lfreq.dat\n')
+# with makelib, this initial simulation will cover all frequencies
 fp.close()
-# !!!
 
 
-if (0): # THE ASOC RUNS
+
+if (1): # THE ASOC RUNS
     print("================================================================================")
     print('ASOC.py rt_simple.ini')
     print("================================================================================")
-    os.system('ASOC.py rt_simple.ini')
+    if (1):
+        os.system('ASOC.py rt_simple.ini')
+    else:
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("!!!!! ASOC.py rt_simple.ini SKIPPED !!!!!")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        time.sleep(10)
     if (MAKELIB==2):
         # In addition to the run covering all frequencies, do another one for the
         # reference frequencies only, with x10 the number of photon packages;
         # finally merge into a single absorption file
         LINES  =  open('rt_simple.ini').readlines()
         fp     =  open('makelib.ini', 'w')
-        AFILE  =  ''
-        AFILE2 =  '/dev/shm/absorbed.data.lib'
+        AFILE  =  ''   # probably /dev/shm/makelib_A.lib
+        AFILE2 =  '/dev/shm/makelib_A2.lib'
         for line in LINES:
             s = line.split()
             if (len(s)<1): continue
@@ -174,9 +163,9 @@ if (0): # THE ASOC RUNS
             else:
                 fp.write(line)
         # tell ASOC to do this simulation only at reference frequencies
-        fp.write('fselect  lfreq.dat \n')
+        fp.write('libabs lfreq.dat \n')
         fp.close()
-        if (1): # !!!
+        if (1): # !
             print("================================================================================")
             print('ASOC.py makelib.ini')
             print("================================================================================")
@@ -190,17 +179,18 @@ if (0): # THE ASOC RUNS
                 IFREQ[i] = argmin(abs(FREQ-LFREQ[i]))        
             print("IFREQ", IFREQ)        
             cells, nfreq = fromfile(AFILE, int32, 2)
-            A = fromfile(AFILE,  float32)[2:].reshape(cells, nfreq)   # normal absorptions
-            B = fromfile(AFILE2, float32)[2:].reshape(cells, nfreq)   # better for reference frequencies
-            for i in IFREQ:
-                A[:, i] = B[:,i]
+            A = fromfile(AFILE,  float32)[2:].reshape(cells, nfreq)    # normal absorptions
+            B = fromfile(AFILE2, float32)[2:].reshape(cells, NLFREQ)   # better for reference frequencies
+            for i in range(3):
+                A[:, IFREQ[i]] = B[:,i]
             fp = open(AFILE, 'wb')
             asarray([cells, nfreq], int32).tofile(fp)
             A.tofile(fp)
             fp.close()
-                            
+        print("MAKELIB DONE --- ADDITIONAL SIMULATION OF REFERENCE FREQUENCIES DONE")
     
-    
+            
+
 # A2E_MABU.py run -- solve emission for each dust
 # MAKELIB means that we have simulated all frequencies, we solve all cells and then make the library
 # => A2E_MABU.py takes care of this
@@ -209,25 +199,54 @@ if (GPU):      args += " GPU"
 if (USELIB):   args += " uselib"
 if (MAKELIB):  args += " makelib"   # will both calculate emitted and build the library
 # calculate emission --- need <dust>.dust
-LINES = open(INI).readlines()
-fp = open('solve.ini', 'w')
-for line in LINES:
-    if (USELIB):
-        fp.write(line.replace('_lib.dust', '_out_simple.dust').replace('gs_', ''))
+
+
+# Give A2E_MABU always the original dusts
+lines = open(INI).readlines()
+fpo   = open('/dev/shm/a2e.ini', 'w')
+for line in lines:
+    if (MAKELIB | USELIB):
+        fpo.write(line.replace('_simple.dust', '.dust'))
     else:
-        fp.write(line.replace('_lib.dust', '.dust'))
-fp.close()
+        fpo.write(line)
+fpo.close()    
+
 
 print("================================================================================")
-print('A2E_MABU.py %s %s %s %s' % ('solve.ini', fabs, femit, args))
+# possible arguments include makelib and uselib
+# makelib ---
+#         A2E_MABU.py /dev/shm/makelib.ini /dev/shm/makelib_A.data /dev/shm/makelib_E.data  GPU makelib
+print('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 print("================================================================================")
-os.system('A2E_MABU.py %s %s %s %s' % ('solve.ini', fabs, femit, args))
-   
+# sys.exit()
+os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 
-# Second SOC run -- compute maps --- fselect does not limit map frequencies
-os.system('cat solve.ini | egrep -v nomap > maps.ini') # just renove "nomap" option
-os.system('echo "iterations 0" >> maps.ini')
-os.system('echo "nosolve"      >> maps.ini')
+
+
+
+# Second SOC run -- compute maps 
+# remove the "nomap" option and replace stochastic dusts with corresponding simple dusts
+# USELIB =>  use full dust but include "libmaps"
+lines = open(INI).readlines()
+fp3   = open('maps.ini', 'w')
+for line in lines:
+    s = line.split()
+    if (len(s)<1): continue
+    if (s[0]=='nomap'): continue
+    if (s[0]=='libabs'): continue  # was used when absorptions were computed for the library method
+    if ((s[0]=='wavelengths')&(USELIB)): continue  # use only libmaps to specify map frequencies
+    if (s[0]=='optical'):
+        dust = s[1]
+        if (is_gs_dust(dust)):
+            line = line.replace(dust, '%s_simple.dust' % (dust.split('.')[0]))        
+    fp3.write(line)
+fp3.write('iterations 0\n')    
+fp3.write('nosolve    0\n') 
+if (USELIB):  # library may have been built to provide only these output frequencies
+    if (os.path.exists('ofreq.dat')):
+        fp3.write('libmaps  ofreq.dat\n')
+fp3.close()            
+
 print("================================================================================")
 print("ASOC.py maps.ini")
 print("================================================================================")

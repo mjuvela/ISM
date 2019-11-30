@@ -331,7 +331,7 @@ class DustO:
             epsrel=1.0e-20, epsabs=EPSABS)
             # print('        KscaTrust  %12.5e +/- %12.5e' % (resj, dres))
         #    ksca       = exp(wi*log(resi) + wj*log(resj))
-        ksca       = wi*resi + wj*resj
+        ksca       =  clip(wi*resi + wj*resj, 1.0e-40, 1.0e40)
         return ksca
 
 
@@ -400,8 +400,7 @@ class DustO:
         resj, dres = quad(ProductIntegrand_LOLOA, self.AMIN, self.AMAX, args=(self.ipFRAC_LL, ipKj_LL), 
         epsrel=1.0e-10, epsabs=EPSABS)
         ksca       = exp(wi*log(resi) + wj*log(resj))
-        
-        return ksca
+        return clip(ksca, 1.0e-40, 1.0e40)
     
 
     
@@ -478,7 +477,7 @@ class DustO:
         # the integral as a sum, CRT_SFRAC includes scaling by mass ratio
         ksca  =  sum(self.CRT_SFRAC*y*(pi*self.SIZE_A**2.0))  # CRT_SFRAC INCLUDES GRAIN_DENSITY
         # print("      KscaCRT   %.3e x %.3e    + %.3e x %.3e   .... %12.4e" % (wi, y1[1], wj, y2[1], ksca))
-        return   ksca
+        return   clip(ksca, 1.0e-40, 1.0e40)
     
     
     def DSF_CRT(self, freq, cos_theta, SIN_WEIGHT):
@@ -512,6 +511,7 @@ class DustO:
         y1    =  get_IP(self.SIZE_A, ip1)   # higher frequency, sizes SIZE_A
         y2    =  get_IP(self.SIZE_A, ip2)   # lower  frequency, sizes SIZE_A
         y     =  wi*y1 + wj*y2              # interpolated Qsca, current frequency, sizes SIZE_A
+        y     =  clip(y, 1.0e-40, 1.0e40)
         # repeat the same interpolation for g parameter
         yg1    =  self.OPT[:, i, 3] 
         yg2    =  self.OPT[:, j, 3] 
@@ -558,14 +558,14 @@ class DustO:
         # we have to interpolate between the sizes given in Q files == in the OPT array
         #  =============  OPT[size, freq, 4] = [um, Kabs, Kaca, g]
         #  note -- this is interpolation between size and Q*pi*a**2, not size and Q (no effect!)
-        y1    =  self.OPT[:, i, 2] 
-        y2    =  self.OPT[:, j, 2] 
-        ip1   =  IP(self.QSIZE, y1.copy())
-        ip2   =  IP(self.QSIZE, y2.copy())
-        y1    =  get_IP(self.SIZE_A, ip1)
-        y2    =  get_IP(self.SIZE_A, ip2)
-        y     =  wi*y1 + wj*y2   # interpolated Qsca
-
+        y1     =  self.OPT[:, i, 2] 
+        y2     =  self.OPT[:, j, 2] 
+        ip1    =  IP(self.QSIZE, y1.copy())
+        ip2    =  IP(self.QSIZE, y2.copy())
+        y1     =  get_IP(self.SIZE_A, ip1)
+        y2     =  get_IP(self.SIZE_A, ip2)
+        y      =  wi*y1 + wj*y2   # interpolated Qsca
+        y      =  clip(y, 1.0e-40, 1.0e40)
         yg1    =  self.OPT[:, i, 3] 
         yg2    =  self.OPT[:, j, 3] 
         ipg1   =  IP(self.QSIZE, yg1.copy())
@@ -680,7 +680,7 @@ class DustO:
             else:
                 total += w * HenyeyGreenstein(theta, g) # sin(theta) NOT included !!
             WEIGHT += w
-        total /= WEIGHT        # retain the normalisation of HG_per_theta and HenyeyGreenstein
+        total /= (WEIGHT+1.0e-90)        # retain the normalisation of HG_per_theta and HenyeyGreenstein
         if (1):
             # double check normalisation
             if (SIN_WEIGHT):
@@ -748,7 +748,7 @@ class DustO:
             else:
                 total += w * HenyeyGreenstein(arccos(cos_theta), g) # sin(theta) NOT included !!
             WEIGHT += w
-        total /= WEIGHT        # retain the normalisation of HG_per_theta and HenyeyGreenstein
+        total /= (WEIGHT+1.0e-90)      # retain the normalisation of HG_per_theta and HenyeyGreenstein
         if (1):
             # double check normalisation
             if (SIN_WEIGHT):
@@ -1215,7 +1215,7 @@ def combined_scattering_function(DUST, um, theta, SIN_WEIGHT, size_sub_bins=500)
     res = zeros(len(theta), float64)
     W   = 0.0
     for i in range(n):
-        w     =  DUST[i].Ksca(f)   # Ksca = weight factor
+        w     =  DUST[i].Ksca(f)   # Ksca = weight factor  --- guaranteed to be >0
         W    +=  w
         res  +=  w * DUST[i].DSF(f, theta, SIN_WEIGHT, size_sub_bins)
     res /= W
@@ -1231,7 +1231,7 @@ def combined_scattering_function2(DUST, um, cos_theta, SIN_WEIGHT, size_sub_bins
     res = zeros(len(cos_theta), float64)
     W   = 0.0
     for i in range(n):
-        w     =  DUST[i].Ksca(f)   # Ksca = weight factor
+        w     =  DUST[i].Ksca(f)   # Ksca = weight factor -- guaranteed to be >0
         W    +=  w
         res  +=  w * DUST[i].DSF2(f, cos_theta, SIN_WEIGHT, size_sub_bins)
     res /= W
@@ -1246,7 +1246,7 @@ def combined_scattering_function_CRT(DUST, um, cos_theta, SIN_WEIGHT):
     res = zeros(len(cos_theta), float64)
     W   = 0.0
     for i in range(n):
-        w     =  DUST[i].Ksca(f)   # Ksca = weight factor
+        w     =  DUST[i].Ksca(f)   # Ksca = weight factor -- guaranteed to be >0
         W    +=  w
         res  +=  w * DUST[i].DSF_CRT(f, cos_theta, SIN_WEIGHT)
     res /= W
@@ -1260,7 +1260,7 @@ def combined_scattering_function_CRT_CSC(DUST, um, theta, SIN_WEIGHT):
     res = zeros(len(theta), float64)
     W   = 0.0
     for i in range(n):
-        w     =  DUST[i].Ksca(f)   # Ksca = weight factor
+        w     =  DUST[i].Ksca(f)   # Ksca = weight factor  -- guaranteed to be >0
         W    +=  w
         res  +=  w * DUST[i].DSF_CRT_CSC(f, theta, SIN_WEIGHT)
     res /= W
@@ -1323,7 +1323,7 @@ def combined_scattering_function2_simple(DUST, um, cos_theta, SIN_WEIGHT):
     res = zeros(len(cos_theta), float64)
     W   = 0.0
     for i in range(n):
-        w     =  DUST[i].Ksca(f)   # Ksca = weight factor
+        w     =  DUST[i].Ksca(f)   # Ksca = weight factor -- guaranteed to be >0
         W    +=  w
         res  +=  w * DUST[i].DSF2_simple(f, cos_theta, SIN_WEIGHT)
     res /= W
@@ -1340,7 +1340,7 @@ def combined_scattering_function_simple(DUST, um, theta, SIN_WEIGHT, size_sub_bi
     res = zeros(len(theta), float64)
     W   = 0.0
     for i in range(n):
-        w     =  DUST[i].Ksca(f)   # Ksca = weight factor
+        w     =  DUST[i].Ksca(f)   # Ksca = weight factor  -- guaranteed to be >0
         print("um = %7.3f     dust %d   w =  %.3e" % (um, i, w))
         W    +=  w
         res  +=  w * DUST[i].DSF_simple(f, theta, SIN_WEIGHT)
@@ -1466,7 +1466,7 @@ class DustsO:
         return res
 
     def Ksca(self, freq):
-        # print("DustsO::Ksca")
+        # Return opacity per H, guaranteed to be >0
         res = 0.0
         if (isscalar(freq)):
             for dust in self.DUSTS:
@@ -1484,7 +1484,7 @@ class DustsO:
         if (isscalar(freq)):
             w, res = 0.0, 0.0
             for i in range(self.N):
-                x    = self.DUSTS[i].Ksca(freq)
+                x    = self.DUSTS[i].Ksca(freq)  # guaranteed to be >0
                 w   += x
                 res += x * self.DUSTS[i].Gsca(freq)
             res /= w
@@ -1493,7 +1493,7 @@ class DustsO:
             for j in range(len(freq)):
                 w, s = 0.0, 0.0
                 for i in range(self.N):
-                    x    = self.DUSTS[i].Ksca(freq[j])
+                    x    = self.DUSTS[i].Ksca(freq[j]) # guaranteed to be >0
                     w   += x
                     s   += x * self.DUSTS[i].Gsca(freq[j])
                 res[j] = s/w
@@ -1529,7 +1529,7 @@ def write_simple_dust(DUST, FREQ, BINS=2500, filename='tmp.dust', dscfile='tmp.d
     ABS, SCA, GSUM = zeros(NFREQ, float64), zeros(NFREQ, float64), zeros(NFREQ, float64)
     for i in range(NDUST):
         Abs   =  DUST[i].Kabs(FREQ)
-        Sca   =  DUST[i].Ksca(FREQ)
+        Sca   =  DUST[i].Ksca(FREQ)   # already guaranteed to be >0
         g     =  DUST[i].Gsca(FREQ)
         ABS   += Abs
         SCA   += Sca
@@ -1586,7 +1586,7 @@ def write_simple_dust_output(DUST, FREQ, BINS=2500, filename='tmp.dust', dscfile
     ABS, SCA, GSUM = zeros(NFREQ, float64), zeros(NFREQ, float64), zeros(NFREQ, float64)
     for i in range(NDUST):
         Abs   =  DUST[i].Kabs(FREQ)
-        Sca   =  DUST[i].Ksca(FREQ)
+        Sca   =  DUST[i].Ksca(FREQ)  # already guaranteed to be >0
         g     =  DUST[i].Gsca(FREQ)
         ABS   += Abs
         SCA   += Sca
@@ -1652,7 +1652,7 @@ def write_simple_dust_CRT(DUST, FREQ, BINS=2500, filename='tmp.dust', dscfile='t
     ABS, SCA, GSUM = zeros(NFREQ, float64), zeros(NFREQ, float64), zeros(NFREQ, float64)
     for i in range(NDUST):
         Abs   =  DUST[i].Kabs(FREQ)
-        Sca   =  DUST[i].Ksca(FREQ)
+        Sca   =  DUST[i].Ksca(FREQ)   # already guaranteed to be >0
         g     =  DUST[i].Gsca(FREQ)
         ABS   += Abs
         SCA   += Sca
@@ -1708,7 +1708,7 @@ def write_simple_dust_output_CRT(DUST, FREQ, BINS=2500, filename='tmp.dust', dsc
     ABS, SCA, GSUM = zeros(NFREQ, float64), zeros(NFREQ, float64), zeros(NFREQ, float64)
     for i in range(NDUST):
         Abs   =  DUST[i].Kabs(FREQ)
-        Sca   =  DUST[i].Ksca(FREQ)
+        Sca   =  DUST[i].Ksca(FREQ)   # already guaranteed to be >0
         g     =  DUST[i].Gsca(FREQ)
         ABS   += Abs
         SCA   += Sca
@@ -1807,7 +1807,7 @@ def write_DUSTEM_files(dustem_file=''):
     
 
 
-def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[]):
+def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[], prefix='gs_'):
     """
     Write the dust files for A2E  *** NATIVE CRT FORMAT ***
     Input:
@@ -1829,16 +1829,16 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[]):
         dust  =  DUST[idust]
         NE    =  NE_ARRAY[idust]
         name  =  DNAME[idust]   # PAH0_MC10 etc.
-        fp = open('gs_%s.dust' % name, 'w')
+        fp = open('%s%s.dust' % (prefix, name), 'w')
         fp.write('gsetdust\n')
         fp.write('prefix     %s\n' % name)
         #fp.write('eqlimit    0.0025\n')
         #fp.write('binnings   1e-3 1e-1 1e0 1e1 1e2 1e4\n')
         fp.write('nstoch     -1\n')
         # fp.write('nstoch     999\n')
-        fp.write('optical    gs_%s.opt\n' % name)
-        fp.write('enthalpies gs_%s.ent\n' % name)
-        fp.write('sizes      gs_%s.size\n' % name)
+        fp.write('optical    %s%s.opt\n' % (prefix, name))
+        fp.write('enthalpies %s%s.ent\n' % (prefix, name))
+        fp.write('sizes      %s%s.size\n' % (prefix, name))
         fp.close()
         
         
@@ -1848,7 +1848,7 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[]):
         #     {  size [um]
         #          { freq, Qabs, Qsca, g }
         #     }
-        fp = open('gs_%s.opt' % name, 'w')
+        fp = open('%s%s.opt' % (prefix, name), 'w')
         fp.write('%d %d  # NSIZE, NFREQ\n' % (dust.QNSIZE, dust.QNFREQ))
         for isize in range(dust.QNSIZE):
             fp.write('%12.5e   # SIZE [um]\n' % (1e4*dust.QSIZE[isize]))
@@ -1872,7 +1872,7 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[]):
         # NE  =  256
         # NE  =  512
         # NE  =  2048
-        fp  =  open('gs_%s.size' % name, 'w')
+        fp  =  open('%s%s.size' % (prefix, name), 'w')
         fp.write('%12.5e   # GRAIN_DENSITY\n' % sum(dust.CRT_SFRAC))
         fp.write('%d %d    # NSIZE NE\n' % (dust.NSIZE, NE))    #  NE not used ????
         
@@ -1893,7 +1893,7 @@ def write_A2E_dustfiles(DNAME, DUST, NE_ARRAY=[]):
 
         
         # Copy the data on enthalpies,  dust.CC = erg/K/cm3
-        fp   = open('gs_%s.ent' % name, 'w')
+        fp   = open('%s%s.ent' % (prefix, name), 'w')
         fp.write('# NUMBER OF SIZE\n')
         fp.write('#    { SIZES [um] }\n')
         fp.write('# NUMBER OF TEMPERATURES\n')
@@ -2208,6 +2208,7 @@ class GSETDust(DustO):
             # geometrical cross section multiplied in AFTER interpolation of Q factors
             kabs  =  sum(self.CRT_SFRAC*y* (pi*self.SIZE_A**2.0) )
             res[ifreq] = kabs
+        res = clip(res, 1.0e-40, 1.0e40)
         if (isscalar(freq_in)): return res[0]
         return  res
 
@@ -2245,6 +2246,7 @@ class GSETDust(DustO):
             y1    =  get_IP(self.SIZE_A, ip1)
             y2    =  get_IP(self.SIZE_A, ip2)
             y     =  wi*y1 + wj*y2              # Ksca for size grid, interpolated in frequency
+            y     =  clip(y, 1.0e-40, 1.0e40)
             # interpolate similarly the g values
             y1    =  self.OPT[:, i, 3]          # OPT[isize, ifreq, 4]  { freq, Kabs, Ksca, g }
             y2    =  self.OPT[:, j, 3]

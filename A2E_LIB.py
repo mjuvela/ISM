@@ -12,7 +12,7 @@ if (len(sys.argv)<3):
     print()
     print("Solve emission for stochastically heated grain using a library")
     print("Usage:")
-    print("   A2E_LIB.py  <dust>.solver <dust>.lib freq.dat lfreq.dat abs.data emit.data [makelib] [GPU] [ofreq]")
+    print("   A2E_LIB.py  <dust>.solver <dust>.lib freq.dat lfreq.dat abs.data emit.data [makelib] [GPU] [ofreq] [bins]")
     print("Input:")
     print("   <dust>.solver  =  solver file written by A2E_pre.py")
     print("   <dust>.lib     =  name of the library file")
@@ -26,21 +26,24 @@ if (len(sys.argv)<3):
     print("                     library is created but emitted.data is the solution from normal A2E.py run")
     print("   GPU            =  if given, use GPU instead of CPU")
     print("   ofreq          =  optional filename listing a subset of frequencies, only these written to emitted")
+    print("   number of bins can be defined using a format like  bins-45-25-15")
     print("Notes:")
     print("   When solving, absorbed.data can have either the full set of frequencies or only the")
     print("   reference frequencies. Once library is built, absorptions are needed only for lfreq")
     sys.exit()
   
     
-SOLVER  = sys.argv[1]
-LIBNAME = sys.argv[2]
-FREQ    = loadtxt(sys.argv[3])
-LFREQ   = loadtxt(sys.argv[4])
-NFREQ   = len(FREQ)
-NLFREQ  = len(LFREQ)
-AFILE   = sys.argv[5]
-EFILE   = sys.argv[6]
-OFREQ   = ""
+SOLVER   =  sys.argv[1]
+LIBNAME  =  sys.argv[2]
+FREQ     =  loadtxt(sys.argv[3])
+LFREQ    =  loadtxt(sys.argv[4])
+NFREQ    =  len(FREQ)
+NLFREQ   =  len(LFREQ)
+AFILE    =  sys.argv[5]
+EFILE    =  sys.argv[6]
+F_OFREQ  =  ""
+LIB_BINS =  [ 45, 34, 15 ]
+SHAREDIR = '/dev/shm'
 
 # file for absorptions
 CELLS, nfreq = fromfile(AFILE, int32, 2)
@@ -51,9 +54,13 @@ for arg in sys.argv[7:]:
         GPU     = 1
     elif (arg=='makelib'):    
         MAKELIB = 1
+    elif (arg.find('bins')>=0):  # binning defined with a string like  bins-45-15-15
+        s = arg.split('-')
+        LIB_BINS = [ int(s[1]), int(s[2]), int(s[3]) ]
     else:
-        OFREQ = arg
+        F_OFREQ = arg
 
+        
         
 if (MAKELIB):
     if (nfreq!=NFREQ):
@@ -151,10 +158,10 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
     #                         /                                                    
     #   ifreq=2          [  [   ]   [  ]  ]                             LINKS[2]   
     m                 =  nonzero(ABS[:,0]>0.0)
-    if (0):
+    if (1):
         AMIN[0], AMAX[0]  =  0.9999*min(ABS[m[0],0]), 1.0001*max(ABS[m[0],0])
     else:
-        AMIN[0], AMAX[0]  = percentile(ABS[m[0],0], (0.01, 99.99))
+        AMIN[0], AMAX[0]  =  percentile(ABS[m[0],0], (0.01, 99.99))
     BINS[0]           =  1+int(1+log(AMAX[0]/AMIN[0]) / log(K))
     print("A2E_LIB.py -> create_library -> AMIN[0] %10.3e AMAX[0] %10.3e BINS[0] %d" % (AMIN[0], AMAX[0], BINS[0]))
     ii = nonzero(ABS[:,0]== min(ABS[m[0],0]))
@@ -193,7 +200,7 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
             else:
                 if (AMIN[1]<(1.0e-3*AMAX[1])):  AMIN[1] = 1.0e-3*AMAX[1] # all bins must be positive !!
                 BINS[1] =  int(2+log(AMAX[1]/AMIN[1]) / log(K))
-        print("0: BIN %2d/%2d  [%10.3e, %10.3e]  %6d   %12.4e" % (i0, BINS[0], amin, amax, len(m[0]), mean(ABSORBED[m[0],IFREQ[0]])))
+        #print("0: BIN %2d/%2d  [%10.3e, %10.3e]  %6d   %12.4e" % (i0, BINS[0], amin, amax, len(m[0]), mean(ABSORBED[m[0],IFREQ[0]])))
                 
         # level 0 element i0 has vector on level 1, number of elements = i1 discretisation
         # one i0 element has the number of one i1 vector
@@ -208,7 +215,7 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
             MASK1[nonzero((ABS[:,1]<amin)|(ABS[:,1]>amax))] = 0           # cells matching i0 and i1 bins
             m                 =  nonzero(MASK1>0)
             
-            print("  1: BIN %2d/%2d  [%10.3e, %10.3e]  %6d   %12.4e" % (i1, BINS[1], amin, amax, len(m[0]), mean(ABSORBED[m[0],IFREQ[1]])))
+            #print("  1: BIN %2d/%2d  [%10.3e, %10.3e]  %6d   %12.4e" % (i1, BINS[1], amin, amax, len(m[0]), mean(ABSORBED[m[0],IFREQ[1]])))
 
             if (len(m[0])<1):
                 AMIN[2], BINS[2] = -1.0, 0
@@ -223,7 +230,7 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
                 else:
                     if (AMIN[2]<(1.0e-3*AMAX[2])): AMIN[2] = 1.0e-3*AMAX[2]  # all bins must be positive !!
                     BINS[2]  =  1+int(1+log(AMAX[2]/AMIN[2]) / log(K))
-                print("    2:  %d cells,  AMIN[2] %12.4e   AMAX[2] %12.4e" % (len(m[0]), AMIN[2], AMAX[2]))
+                #print("    2:  %d cells,  AMIN[2] %12.4e   AMAX[2] %12.4e" % (len(m[0]), AMIN[2], AMAX[2]))
                     
             VEC[2].append( zeros(BINS[2], int32) )                        # one i1 element -> new i2 vector
             AMI[2].append( AMIN[2] )
@@ -234,7 +241,7 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
                 MASK2[nonzero((ABS[:,2]<amin)|(ABS[:,2]>amax))] = 0       # mask for current i0, i1, i2 bin
                 m                 =  nonzero(MASK2>0)
                 
-                print("    2: BIN %2d/%2d  [%10.3e, %10.3e]  %6d   %12.4e" % (i2, BINS[2], amin, amax, len(m[0]), mean(ABSORBED[m[0],IFREQ[2]])))
+                #print("    2: BIN %2d/%2d  [%10.3e, %10.3e]  %6d   %12.4e" % (i2, BINS[2], amin, amax, len(m[0]), mean(ABSORBED[m[0],IFREQ[2]])))
 
                 if (len(m[0])<1):
                     res           = -1.0
@@ -265,13 +272,13 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
     # Now we have in SARRAY[SIND, nfreq] the absorption vectors for all tree nodes
                 
     # Solve emission for all absorption vectors in ABSORBED... use A2E_pyCL
-    fp = file('/dev/shm/absorbed.lib', 'wb')
+    fp = file(SHAREDIR+'/absorbed.lib', 'wb')
     asarray([SIND, nfreq], int32).tofile(fp)
     asarray(SARRAY, float32).tofile(fp)
     fp.close()
-    os.system('A2E_pyCL_2.py %s /dev/shm/absorbed.lib /dev/shm/emitted.lib %d' % (solver, GPU))
+    os.system('A2E_pyCL_2.py %s %s/absorbed.lib %s/emitted.lib %d' % (solver, SHAREDIR, SHAREDIR, GPU))
     # Copy solved emissions back to ARRAY
-    fp = file('/dev/shm/emitted.lib', 'rb')
+    fp = file(SHAREDIR+'/emitted.lib', 'rb')
     fromfile(fp, int32, 2)
     SARRAY = fromfile(fp, float32)
     fp.close()
@@ -554,22 +561,37 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
         IFREQ[ilib] = i
         print("  ***  IFREQ[%d] = %d" % (ilib, i))        
     for ilib in range(3):
+        print("*** A2E_LIB    LIB[%d] ~   FREQ[%3d]" % (ilib, IFREQ[ilib]))
         ABS[:, ilib] = ABSORBED[:, IFREQ[ilib]]
 
     # While we are creating the tree structure, we can work with the ABS[] array that only has LFREQ values
     # find AMIN and BINS for each bin
     t0  = time.time()
-    m   =  nonzero((ABS[:,0]>0.0)&(ABS[:,1]>0.0)&(ABS[:,2]>0.0))
+    m   =  nonzero((ABS[:,0]>1.0e-32)&(ABS[:,1]>1.0e-32)&(ABS[:,2]>1.0e-32))
     print("Positive absorptions: %d cells" % len(m[0]))
 
-    PERCENT       =  0.01
-    AMIN0, AMAX0  =  min(ABS[m[0], 0]), max(ABS[m[0], 0])
+    if (0):
+        AMIN0, AMAX0  =  0.9999*min(ABS[m[0], 0]), 1.0001*max(ABS[m[0], 0])
+    else:
+        # AMIN0, AMAX0  =  percentile(ABS[m[0], 0], (0.002, 99.998))
+        AMIN0, AMAX0  =  percentile(ABS[m[0], 0], (0.001, 99.999))
     K0            =  exp(log(AMAX0/AMIN0)/BINS0)
     K             =  zeros(BINS0*BINS1)  # K values for BINS0*BINS1 nodes on levels 1 and 2
-    print("AMIN0 %.3e  K0 %.3e" % (AMIN0, K0))
-    if (K0>1.3):
-        print("K0 = %.3f  > 1.3   ---- ARE YOU SURE ???" % K0),    sys.exit()
+    print("AMIN0 %.3e  K0 %.3e, ABS RANGE %12.4e ... %12.4e" % (AMIN0, K0, AMIN0, AMAX0))
     
+    
+    if (K0>1.3):        
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("!!!!!         K0 = %.2f  > 1.3   ---- ARE YOU SURE ???     !!!!!" % K0)
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        time.sleep(2)
+        if (K0>1.4):
+            print("*** ABORT !!! ****")
+            time.sleep(5)
+            sys.exit()
+        
     AMIN1, K1     =  zeros(BINS0, float32), zeros(BINS0, float32)
     AMIN2, K2     =  zeros(BINS0*BINS1, float32), zeros(BINS0*BINS1, float32)    
     MASK00        =  zeros(CELLS, int32)
@@ -581,18 +603,26 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
         m         =  nonzero((ABS[:,0]<a)|(ABS[:,0]>b))                         # not level 0 bin
         MASK0[m]  =  0                                                          # leave cells matching level 0 bin
         m         =  nonzero(MASK0>0)                                           # valid cells in level 0 bin
-        print("i0 %3d/%3d     %.3e - %.3e   %6d cells" % (i0, BINS0, a, b, len(m[0])))
+        #print("i0 %3d/%3d     %.3e - %.3e   %6d cells" % (i0, BINS0, a, b, len(m[0])))
         if (len(m[0])<1):
-            print("CANNOT HAVE EMPTY LEVEL 0 BIN ")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("!!!!! CANNOT HAVE EMPTY LEVEL 0 BIN ..... ABORT !!!!!")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+            time.sleep(5)
             sys.exit()
             
         # binning on level 1 (bin i0 -> one level 1 vector)
-        amin1, amax1      =  min(ABS[m[0], 1]), max(ABS[m[0], 1])
+        if (1):
+            amin1, amax1  =  min(ABS[m[0], 1]), max(ABS[m[0], 1])
+        else:
+            amin1, amax1  =  percentile(ABS[m[0], 1], (0.01, 99.99))
         amin1, amax1      =  0.9999*amin1, 1.0001*amax1                         # must be different numbers
         k1                =  exp(log(amax1/amin1)/BINS1)                        #  -> AMIN and K define the vector
         AMIN1[i0]         =  amin1                                              # i0 points to one level 1 vector
         K1[i0]            =  k1
-        print("  AMIN1 %.3e  K0 %.3e" % (amin1, k1))
+        #print("  AMIN1 %.3e  K0 %.3e" % (amin1, k1))
     
         # if level 1 vector has no data, widen the binning
         MASK1             =  MASK0.copy()
@@ -600,11 +630,14 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
         m1                =  nonzero(MASK1>0)                                   # cells in i0 -> level 1 vector
         if (len(m1[0])<1):  # expand the range for level 1 vector
             m             =  nonzero(MASK0>0)
-            amin1, amax1  =  min(ABS[m[0], 1]), max(ABS[m[0], 1])
+            if (1):
+                amin1, amax1  =  min(ABS[m[0], 1]), max(ABS[m[0], 1])
+            else:
+                amin1, amax1  =  percentile(ABS[m[0], 1](0.01, 99.99))
             k1            =  exp(log(amax1/amin1)/BINS1)                        #  -> AMIN and K define the vector
             AMIN1[i0]     =  amin1                                              # i0 points to one level 1 vector
             K1[i0]        =  k1
-            print("  ----------------->  AMIN1 %.3e  K0 %.3e" % (amin1, k1))
+            #print("  ----------------->  AMIN1 %.3e  K0 %.3e" % (amin1, k1))
             MASK1         =  MASK0.copy()
             MASK1[(ABS[:,1]<amin1)|(ABS[:,1]>amax1)] = 0
             m             =  nonzero(MASK1>0)
@@ -617,10 +650,10 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
             MASK1         =  MASK0.copy()                                       # level 0 bin
             MASK1[(ABS[:,1]<a)|(ABS[:,1]>b)] = 0                                # level 0 and level 1 bin
             m             =  nonzero(MASK1>0)                                   # match level 0 and level 1 bins
-            print("    i1   %.3e - %.3e   %6d cells" % (a, b, len(m[0])))
+            #print("    i1   %.3e - %.3e   %6d cells" % (a, b, len(m[0])))
             i1_bin_empty = False
             if (len(m[0])<1):
-                print("i1 bin is empty --- empty bins allowed only on the lowest level !!!")
+                ## print("i1=%d bin is empty --- empty bins allowed only on the lowest level !!!" % i1)
                 i1_bin_empty = True
                 ## sys.exit()
                 
@@ -631,22 +664,27 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
                 AMIN2[i0*BINS1+i1] =  -1.0
                 K2[i0*BINS1+i1]    =  -1.0          
             else:
-                amin2, amax2       =  min(ABS[m[0], 2]), max(ABS[m[0], 2])
+                if (1):
+                    amin2, amax2   =  min(ABS[m[0], 2]), max(ABS[m[0], 2])
+                else:
+                    amin2, amax2   =  percentile(ABS[m[0], 2], (0.03, 99.97))
                 amin2, amax2       =  0.9999*amin2, 1.0001*amax2                     # must be different => k2 > 1.0
                 k2                 =  exp(log(amax2/amin2)/BINS2)        
                 AMIN2[i0*BINS1+i1] =  amin2
                 K2[i0*BINS1+i1]    =  k2
-                print("    AMIN2 %.3e  K0 %.3e" % (amin2, k2))
+                #print("    AMIN2 %.3e  K0 %.3e" % (amin2, k2))
                 MASK2              =  MASK1.copy()
                 MASK2[(ABS[:,2]<amin2)|(ABS[:,2]>amax2)] = 0
                 m                  =  nonzero(MASK2>0)
                 if (len(m[0])<1):
                     print("*** WIDEN THE RANGE FOR LEVEL 2 VECTOR ***")
-                    amin2, amax2       =  0.999*min(ABS[m[0], 2]), 1.001*max(ABS[m[0], 2])
+                    amin2, amax2       =  min(ABS[m[0], 2]), max(ABS[m[0], 2])
+                    ### amin2, amax2   =  percentile(ABS[m[0], 2], (0.05, 99.95))
+                    amin2, amax2       =  0.9999*amin2, 1.0001*amax2
                     k2                 =  exp(log(amax2/amin2)/BINS2)        
                     AMIN2[i0*BINS1+i1] =  amin2
                     K2[i0*BINS1+i1]    =  k2
-                    print("    -----> AMIN2 %.3e  K0 %.3e" % (amin2, k2))
+                    #print("    -----> AMIN2 %.3e  K0 %.3e" % (amin2, k2))
                     #
                     MASK2             =  MASK1.copy()
                     MASK2[(ABS[:,2]<amin2)|(ABS[:,2]>amax2)] = 0
@@ -683,73 +721,80 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
     ADD_buf   =  cl.Buffer(context, mf.READ_ONLY,   4*BBB*NFREQ)
     ALL_buf   =  cl.Buffer(context, mf.READ_ONLY,   4*BBB*NFREQ)
     NUM_buf   =  cl.Buffer(context, mf.READ_WRITE,  4*BBB)
+    NUMO_buf  =  cl.Buffer(context, mf.READ_WRITE,  4*BBB)
     
     ALL       =  zeros((BBB, NFREQ), float32)
     NUM       =  zeros(BBB, int32)
-    cl.enqueue_copy(queue, ALL_buf, ALL)
-    cl.enqueue_copy(queue, NUM_buf, NUM)
+    cl.enqueue_copy(queue, ALL_buf,  ALL)
+    cl.enqueue_copy(queue, NUM_buf,  NUM)
     
     OPT       =  " -D BINS0=%d -D BINS1=%d -D BINS2=%d -D NFREQ=%d -D IFREQ0=%d -D IFREQ1=%d -D IFREQ2=%d" % \
     (BINS0, BINS1, BINS2, NFREQ, IFREQ[0], IFREQ[1], IFREQ[2])
     source    =  open(INSTALL_DIR+"/kernel_tree3.c").read()
     program   =  cl.Program(context, source).build(OPT)
     Populate  =  program.Populate
-    Populate.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, None, None, None, None, None, None, None])
+    Populate.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, None, None, None, None, None, None, None ])
     
 
     t0 = time.time()
     for ibatch in range(CELLS//BBB+1):
         a, b = ibatch*BBB, (ibatch+1)*BBB       # ADD is allocated for [GLOBAL, NFREQ]
         b    = min([CELLS, b])   
-        print("ibatch %d =>  %d:%d" % (ibatch, a, b))
+        if (ibatch%100==0): print("A2E_LIB.py, populate tree,  ibatch %d =>  %d:%d" % (ibatch, a, b))
         cl.enqueue_copy(queue, ADD_buf, ABSORBED[a:b,:])  # the full absorption vector
         Populate(queue, [GLOBAL,], [LOCAL,], 
         b-a, AMIN0, K0, AMIN1_buf, K1_buf, AMIN2_buf, K2_buf, ADD_buf, NUM_buf, ALL_buf)
     print("!!! POPULATE: %.2f SECONDS" % (time.time()-t0))
     t0 = time.time()
     
-    if (1):
-        cl.enqueue_copy(queue, NUM, NUM_buf)
-        cl.enqueue_copy(queue, ALL, ALL_buf)
-        m = nonzero(NUM<=0) 
-        print("A????? NUM HAS %d ZEROS" % (len(m[0])))
-        ALL.shape = (BBB, NFREQ)
-        m = nonzero(ALL[:,IFREQ[1]]<=0.0)
-        print("A????? ALL HAS %d ZEROS" % (len(m[0])))
+    print("????? Before interpolation:")
+    cl.enqueue_copy(queue, NUM, NUM_buf)
+    cl.enqueue_copy(queue, ALL, ALL_buf)
+    m = nonzero(NUM<=0) 
+    print("?????    NUM HAS %d ZEROS" % (len(m[0])))
+    ALL.shape = (BBB, NFREQ)
+    m = nonzero(ALL[:,IFREQ[1]]<=0.0)
+    print("?????    ALL HAS %d ZEROS" % (len(m[0])))
     
-        
     # interpolate before normalising with the number of input vectors added per bin
-    print("=== INTERPOLATE ===")
+    print("=== A2E_LIB INTERPOLATE ===")
+    cl.enqueue_copy(queue, NUMO_buf, NUM)    
     Interpolate   = program.Interpolate
-    Interpolate.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None, None, None, None])
-    Interpolate(queue, [GLOBAL,], [LOCAL,], AMIN0, K0, AMIN1_buf, K1_buf, AMIN2_buf, K2_buf, NUM_buf, ALL_buf)
-    print("!!! INTERPOLATE: %.2f SECONDS" % (time.time()-t0))
+    Interpolate.set_scalar_arg_dtypes([np.float32, np.float32, None, None, None, None, None, None, None])
+    Interpolate(queue, [GLOBAL,], [LOCAL,], AMIN0, K0, AMIN1_buf, K1_buf, AMIN2_buf, K2_buf, \
+    NUMO_buf, NUM_buf, ALL_buf)
+    cl.enqueue_copy(queue, NUM, NUM_buf)
+    bad =  len(nonzero(NUM==0)[0])
+    print("\n!!! INTERPOLATE: %.2f SECONDS, %d ZERO NUM VALUES" % (time.time()-t0, bad))
     t0 = time.time()
     
-    
     # another kernel to just do the division ALL/NUM
-    print("=== DIVIDE ===")
+    print("=== A2E_LIB DIVIDE ===")
     Divide   = program.Divide
     Divide.set_scalar_arg_dtypes([None, None])
     Divide(queue, [GLOBAL,], [LOCAL,], ALL_buf, NUM_buf)
     print("!!! DIVIDE: %.2f SECONDS" % (time.time()-t0))
     t0 = time.time()
-    
-    # Final effort to fill in missing data below some i1
-    print("=== FILL ===")
+
+    # Final effort to fill in missing data below some i1 
+    print("=== A2E_LIB FILL ===")
+    cl.enqueue_copy(queue, NUM,      NUM_buf)    
+    cl.enqueue_copy(queue, NUMO_buf, NUM)    
     Fill   = program.Fill
-    Fill.set_scalar_arg_dtypes([None, None, None])
-    Fill(queue, [GLOBAL,], [LOCAL,], ALL_buf, NUM_buf, K1_buf)
-    print("!!! FILL: %.2f SECONDS" % (time.time()-t0))
+    Fill.set_scalar_arg_dtypes([None, None, None, None])
+    Fill(queue, [GLOBAL,], [LOCAL,], ALL_buf, NUMO_buf, NUM_buf, K1_buf)
+    cl.enqueue_copy(queue, NUM, NUM_buf)
+    bad =  len(nonzero(NUM==0)[0])
+    print("!!! FILL: %.2f SECONDS, %d ZERO NUM VALUES" % (time.time()-t0, bad))
     t0 = time.time()
 
-    if (1):
-        # Note that Fill did not update NUM but should have filled in all i2 vectors with some data
-        cl.enqueue_copy(queue, ALL, ALL_buf)
-        ALL.shape  = (BBB, NFREQ)
-        m = nonzero(sum(ALL, axis=1)<=0.0)
-        print("C????? ALL HAS %d ZEROS" % (len(m[0])))
-                
+    cl.enqueue_copy(queue, ALL, ALL_buf)
+    queue.finish()
+    ALL.shape  = (BBB, NFREQ)
+    m          = nonzero(sum(ALL, axis=1)<=0.0)
+    bad        = len(nonzero(NUM==0)[0])
+    print("????? ALL HAS %d ZERO VECTORS, NUM HAS %d ZEROS" % (len(m[0]), bad))
+    if (bad>0): sys.exit()
     
     # read the absorption cube back
     cl.enqueue_copy(queue, NUM, NUM_buf)
@@ -761,11 +806,15 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
     asarray([BBB, NFREQ], int32).tofile(fp)
     asarray(ALL, float32).tofile(fp)
     fp.close()
+    print("==========================================================================================")
+    print("  In A2E_LIB.py  ", sys.argv[1:])
+    print("  create_library_2 => ")
+    print("  A2E.py  %s tmp.absorbed tmp.emitted" % solver)
+    print("==========================================================================================")
     os.system("A2E.py  %s tmp.absorbed tmp.emitted" % solver)
     ALL = fromfile('tmp.emitted', float32)[2:].reshape(BBB, NFREQ)
     print("!!! A2E: %.2f SECONDS" % (time.time()-t0))
     t0 = time.time()
-    
     
     # save library to file
     fp = file(libname, 'wb')
@@ -779,13 +828,13 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
     asarray(K2, float32).tofile(fp)
     asarray(ALL, float32).tofile(fp)   # now the emissions for the tree leaf bins
     fp.close()
-        
+    print("=== create_library_2 .... call FINISHED")
         
 
     
     
         
-def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=0, ofreq=""):
+def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=0, f_ofreq=""):
     """
     Calculate emissions to file_emitted based on the absorptions in file_absorbed and the
     provided library file libname. Library created with create_library_2), with fixed number of
@@ -796,11 +845,11 @@ def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
         lfreq         =  vector of input frequencies used in file_absorbed
         file_absorbed =  absorption file written by SOC
         file_emitted  =  file of emissions for lfreq frequencies
-        ofreq         =  if given, is a file listing subset of freq frequencies and only those
+        f_ofreq       =  if given, is a file listing subset of freq frequencies and only those
                          will be written to the output file
     """
     # load library from file
-    print("=== SOLUTION===")
+    print("=== SOLUTION===  .... solve_with_library_2,  f_ofreq=%s" % f_ofreq)
     t0 = time.time()
 
     # read the library from file
@@ -829,17 +878,18 @@ def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
     fp.close()
 
     # Find the indices for the reference frequencies -- before FREQ is potentially change by ofreq below
+    print("=== LIBRARY FREQUENCIES (in solve_with_library_2)") 
     IFREQ        =  zeros(NLFREQ, int32)
     for ilib in range(NLFREQ):
         IFREQ[ilib] = argmin(abs(FREQ-LFREQ[ilib]))
-    print("%8.3f -> %8.3f um, IFREQ = %3d" % (f2um(LFREQ[ilib]), f2um(FREQ[IFREQ[ilib]]), IFREQ[ilib]))
+        print("   %8.3f -> %8.3f um, IFREQ = %3d" % (f2um(LFREQ[ilib]), f2um(FREQ[IFREQ[ilib]]), IFREQ[ilib]))
     
     
-    if (len(ofreq)>1):
+    if (len(f_ofreq)>1):
         # If we select a subset of output frequencies, that can be done immediately here by modifying the
         # library, its ALL array   ALL[BBB, nfreq]  ->  ALL[BBB, ofreq]
         ALL.shape = (BBB, NFREQ)
-        OFREQ = loadtxt(ofreq)
+        OFREQ = loadtxt(f_ofreq)
         tmp   =  zeros((BBB, len(OFREQ)), float32)
         for i in range(len(OFREQ)):
             ifreq = argmin(abs(freq-OFREQ[i]))
@@ -889,18 +939,21 @@ def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
 
     
     # Put to ABS only the data of the reference frequencies (file could have the full NFREQ)
-    print("ABS.shape ", ABS.shape, " NFREQ = %d" % NFREQ, "  NLFREQ = %d" % NLFREQ)
+    print("=== solve_with_library2....")
+    print("    ABS.shape ", ABS.shape, " NFREQ = %d" % NFREQ, "  NLFREQ = %d" % NLFREQ)
     if (ABS.shape[1]>NLFREQ):    # we have absoprtions for more than just the reference frequencies
-        print("INPUT HAS ALL NAFREQ=%d FREQUENCIES" % NAFREQ)
+        print("    INPUT HAS ALL NAFREQ=%d FREQUENCIES" % NAFREQ)
         ABS = asarray(ABS[:, IFREQ], float32).copy()  # IFREQ == index to full original NFREQ
     elif (ABS.shape[1]==NLFREQ):
-        print("INPUT HAS NLFREQ=%d REFERENCE FREQUENCIES" % NLFREQ)
+        print("    INPUT HAS NLFREQ=%d REFERENCE FREQUENCIES" % NLFREQ)
         ABS = asarray(ABS, float32)   # already just the reference frequencies
     else:
         print("??? absorption file has < nlfreq frequencies ???"), sys.exit()
         
         
     # Solve one batch at a time
+    print("=== A2E_LIB.py  =>  solve_with_library2.... loop over BATCHES")
+    processed = 0
     for i in range(CELLS//BATCH+1):
         a, b      =  i*BATCH, (i+1)*BATCH
         b         =  min([b, CELLS])
@@ -909,14 +962,15 @@ def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
         Lookup(queue, [GLOBAL,], [LOCAL,], b-a, AMIN0, K0, AMIN1_buf2, K1_buf2, AMIN2_buf2, K2_buf2, ALL_buf2,
         ABS_buf, EMIT_buf)
         cl.enqueue_copy(queue, EMIT[a:b,:], EMIT_buf)
-    print("USELIB solution: %.2f seconds" % (time.time()-t0))
+        processed += (b-a)
+    print("USELIB solution: %.2f seconds ... processed %d cells, CELLS=%d" % (time.time()-t0, processed, CELLS))
 
     # Save emission
     fp = file(file_emitted, 'wb')
     asarray([CELLS, NFREQ], int32).tofile(fp)
     EMIT.tofile(fp)
     fp.close()
-
+    print("######### WROTE EMIT CELLS=%d, NFREQ=%d, EMIT=" % (CELLS, NFREQ), EMIT.shape, " #######")
 
     if (0):
         # Compare library solution to full reference solution in /dev/shm/emitted.data.ref
@@ -928,7 +982,7 @@ def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
         i100  =  argmin(abs(FREQ-um2f(100.0)))
         i500  =  argmin(abs(FREQ-um2f(500.0)))
         print("100um -> ifreq=%d" % i100)
-        REF   =  fromfile('/dev/shm/emitted.data.ref', float32)[2:].reshape(CELLS, NFREQ) # full cell-by-cell solution
+        REF   =  fromfile(SHAREDIR+'/emitted.data.ref', float32)[2:].reshape(CELLS, NFREQ) # full cell-by-cell solution
         m     =  nonzero((REF[:,i100]>0.0)&(REF[:,i500]>0.0))  ###  &(ABS[:,1]>0.0))
         REF   =  REF[m[0],:]
         EMIT  =  EMIT[m[0],:]
@@ -987,11 +1041,15 @@ if (0):
     solve_with_library(LIBNAME, FREQ, LFREQ, sys.argv[5], sys.argv[6])
 else:
     # New one with constant number of bins on each level
-    BINS = [ 40, 30, 10 ]
+    ##### LIB_BINS = [ 45, 34, 15 ]
+    ## BINS = [ 30, 34, 15 ]
     if (MAKELIB):
-        create_library_2(SOLVER, LIBNAME, FREQ, LFREQ, AFILE, BINS=BINS, GPU=0)
-    solve_with_library_2(LIBNAME, FREQ, LFREQ, AFILE, EFILE, GPU=0, ofreq=OFREQ)
-    
+        print("=== A2E_LIB.py  =>  create_library_2  ", SOLVER)
+        create_library_2(SOLVER, LIBNAME, FREQ, LFREQ, AFILE, BINS=LIB_BINS, GPU=0)
+    print("=== A2E_LIB.py  =>  solve_with_library2.... ", SOLVER)
+    print("=== A2E_LIB.py ... F_OFREQ ", F_OFREQ, "   SOLVER ", SOLVER)
+    solve_with_library_2(LIBNAME, FREQ, LFREQ, AFILE, EFILE, GPU=0, f_ofreq=F_OFREQ)
+    print("=== A2E_LIB.py  =>  solve_with_library2.... done ", SOLVER)
     
     
     

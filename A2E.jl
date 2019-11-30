@@ -1,4 +1,5 @@
 #!/usr/bin/julia
+
 # 2019-04-24  julia translation of A2E.py
 using OpenCL, Printf, Mmap #, PyPlot
 using DelimitedFiles, Statistics
@@ -974,6 +975,7 @@ function process_size_stochastic(isize)
       @printf("   SIZE %2d/%2d  icell %6d/%6d  %7.2f s/%d %.3e s/cell/size",
       isize, NSIZE, icell, CELLS, time.time()-t00, batch, (time.time()-t00)/batch)
     end
+    
   end # -- for icell
 end # process_size
 
@@ -1024,7 +1026,7 @@ function process_size_stochastic_julia(isize, NFREQ, NE, SK_ABS, S_FRAC, ABSORBE
   t0    =  time()
 
   for icell=1:CELLS
-    if (icell>201)
+    if (icell>101)
       continue   # TO SLOW FOR LARGE MODELS !!
     end    
     emit .= 0.0
@@ -1162,11 +1164,11 @@ else
         process_size_stochastic(isize)
       else
         process_size_stochastic_julia(isize, NFREQ, NE, SK_ABS, S_FRAC, ABSORBED, EMITTED)
-        fp = open("dump.ARRAY", "w")
-        write(fp, DUMP_ARRAY)
-        close(fp)
       end
     end
+    fp = open("dump.ARRAY", "w")
+    write(fp, DUMP_ARRAY)
+    close(fp)
   else   # Using library
     T, ICELLS, INT = prepare_tree(ABSORBED, NB)
     #Print(T)

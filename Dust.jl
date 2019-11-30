@@ -437,7 +437,7 @@ function make_dustem_dust(DE_dir, s)
         a0, sigma, i = parse(Float64, s[i]),  parse(Float64, s[i+1]), i+2
         @printf("*** logn ***  a0 %10.3e, sigma %10.3e\n", a0, sigma)
         # factor 0.5 was missing from the documentation ??
-        D.SIZE_F   = exp(- 0.5*(log.(D.SIZE_A/a0)./sigma).^2.0 )
+        D.SIZE_F   = exp.(- 0.5*(log.(D.SIZE_A/a0)./sigma).^2.0 )
         # convert from dn/dloga to dn/da....  *=  dloga/da = 1/a
         D.SIZE_F ./= D.SIZE_A
       elseif (ss=="plaw")               # dn/da ~ a^alpha
@@ -1537,19 +1537,19 @@ end # Heating()
 Mainly for double checking the DustEM reader. Write a GSETDustO
 file for the given dust struct D.      
 """
-function write_A2E_dustfile(D::DustO, NE::Integer=128)
+function write_A2E_dustfile(D::DustO, NE::Integer=128; prefix="gs_")
   # The main file
-  fp = open(@sprintf("gs_%s.dust", D.NAME), "w")
+  fp = open(@sprintf("%s%s.dust", prefix, D.NAME), "w")
   @printf(fp, "gsetdust\n")
   @printf(fp, "prefix     %s\n", D.NAME)
   @printf(fp, "nstoch     99\n")
-  @printf(fp, "optical    gs_%s.opt\n",  D.NAME)
-  @printf(fp, "enthalpies gs_%s.ent\n",  D.NAME)
-  @printf(fp, "sizes      gs_%s.size\n", D.NAME)
+  @printf(fp, "optical    %s%s.opt\n",  prefix,D.NAME)
+  @printf(fp, "enthalpies %s%s.ent\n",  prefix,D.NAME)
+  @printf(fp, "sizes      %s%s.size\n", prefix,D.NAME)
   close(fp)
 
   # Optical properties
-  fp = open(@sprintf("gs_%s.opt", D.NAME), "w")
+  fp = open(@sprintf("%s%s.opt", prefix, D.NAME), "w")
   @printf(fp, "%d %d  # NSIZE, NFREQ\n", D.QNSIZE, D.QNFREQ)
   for isize=1:D.QNSIZE
     @printf(fp, "%12.5e  # SIZE [um]\n", 1.0e4*D.QSIZE[isize])
@@ -1566,7 +1566,7 @@ function write_A2E_dustfile(D::DustO, NE::Integer=128)
   close(fp)
 
   # Grain sizes
-  fp = open(@sprintf("gs_%s.size", D.NAME), "w")
+  fp = open(@sprintf("%s%s.size", prefix, D.NAME), "w")
   @printf(fp, "%12.5e   # GRAIN_DENSITY\n", sum(D.CRT_SFRAC))
   @printf(fp, "%d %d     # NSIZE  NE\n", D.NSIZE, NE)
   tmp   =  1.0*D.CRT_SFRAC
@@ -1579,7 +1579,7 @@ function write_A2E_dustfile(D::DustO, NE::Integer=128)
   close(fp)
   
   # Enthalpies
-  fp = open(@sprintf("gs_%s.ent", D.NAME), "w")
+  fp = open(@sprintf("%s%s.ent", prefix, D.NAME), "w")
   @printf(fp, "# NUMBER OF SIZE     \n")
   @printf(fp, "#    { SIZES [um] }  \n")
   @printf(fp, "# NUMBER OF TEMPERATURES\n")
