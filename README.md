@@ -1,7 +1,12 @@
-# SOC
-SOC - continuum radiative transfer with Python and OpenCL
 
-For documentation, see http://www.interstellarmedium.org
+#ISM 
+
+## SOC
+
+The directory *SOC* containsthe SOC continuum radiative transfer
+program implemented with Python and OpenCL. For more detailed
+background and documentation, see 
+http://www.interstellarmedium.org/radiative-transfer/soc/
 
 The main script for dust emission calculations is ASOC.py. Note that
 the map orientations have changed since the previous versions (called
@@ -34,3 +39,31 @@ Practical examples of the end-to-end calculations will be added here
 in the near future. For the moment, one can examine (or even try to
 run) the script TEST_LIB.py
 
+
+
+## TM - template matching analysis of images
+
+The directory *TM* contains scripts for *template matching* (TM) and
+Rolling Hough Transform -type (RHT) analysis of images. As an example
+of these, the script test_TM.py will run both routines on the provided
+FITS image. The expected output is shown in the included test_TM.png.
+For further information, see 
+* http://www.interstellarmedium.org/template-matching
+* Juvela M.: Pattern matching methods for the analysis of interstellar cloud structure, 2016, A&A 593, A58)
+* http://www.interstellarmedium.org/rht-rolling-hough-transform/
+
+
+## Extinction
+
+The directory *Extinction* includes some routines for the
+calculation of extinction maps based on the (near-infrared)
+reddening of background stars. The sample script test_Nicer.py
+should download input data (photometry for 2Mass stars) from the
+web, calculate an extinction map for a region specified in the
+script, and write the results as FITS files. The programs again
+require a working OpenCL environment.
+
+For further information, see
+* http://www.interstellarmedium.org/nicer-extinction-maps/
+* http://www.interstellarmedium.org/extinction/ 
+and the references mentioned there.
