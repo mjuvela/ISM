@@ -1,8 +1,53 @@
-from   MJ.mjDefs import *
-from   MJ.WCS import get_fits_pixel_size
-import time
-import numpy as np
-import pyopencl as cl
+import os, sys
+# !!! directory where the routines and the kernel *.c files can be found
+INSTALL_DIR = '/home/mika/GITHUB/ISM/TM/'
+sys.path.append(INSTALL_DIR)
+from TM_aux import *
+
+"""
+Routines related to template matching and RHT-like search of elongated structures in images.
+"""
+
+
+
+def InitCL(GPU=0, platforms=[], sub=0):
+    """
+    OpenCL initialisation, searching for the requested CPU or GPU device.
+    Usage:
+        platform, device, context, queue, mf = InitCL(GPU=0, platforms=[], sub=0)
+    Input:
+        GPU       =  if >0, try to return a GPU device instead of CPU
+        platforms =  optional array of possible platform numbers, default [0, 1, 2, 3, 4, 5]
+        sub       =  optional number of threads for a subdevice (CPU only, first subdevice returned)
+    """
+    platform, device, context, queue = None, None, None, None
+    possible_platforms = range(6)
+    if (len(platforms)>0):
+        possible_platforms = platforms
+    device = []
+    for iplatform in possible_platforms:
+        print("try platform %d..." % iplatform)
+        try:
+            platform     = cl.get_platforms()[iplatform]
+            if (GPU>0):
+                device   = platform.get_devices(cl.device_type.GPU)
+            else:
+                device   = platform.get_devices(cl.device_type.CPU)
+            if (sub>0):
+                # try to make subdevices with sub threads, return the first one
+                dpp       =  cl.device_partition_property
+                device    =  [device[0].create_sub_devices( [dpp.EQUALLY, sub] )[0],]
+            context   =  cl.Context(device)
+            queue     =  cl.CommandQueue(context)
+            break
+        except:
+            pass
+    print(".... device ....")
+    print(device)
+    return platform, device, context, queue,  cl.mem_flags
+                
+                    
+                    
 
 
 def RHT_ave_angle(si, co):
@@ -11,36 +56,33 @@ def RHT_ave_angle(si, co):
     return T
             
 
-def RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0, GPU_LOCAL=-1, iplatform=0):
+
+
+
+
+def RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0, local=-1, platforms=arange(6)):
     """
     Calculate Rolling Hough Transform for image F.
-    R, SIN, COS, T, SS = RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0)
+    Usage:
+        R, SIN, COS, T, SS = RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0)
     Input:
         F         =  pyfits image to be analysed
-        DK        =  diameter of the convolution kernel  (smaller)
+        DK        =  diameter of the convolution kernel
         DW        =  diameter of the region = length of the bar
         THRESHOLD =  fraction of SCALE for ON pixels
-        GPU_LOCAL =  override default value of 64 (local work group size)
-        iplatform =  platform number (default=0)
+        local     =  override default value of local work group size (64 for GPU, 8 for CPU)
+        platforms =  array of platoforms (integers), default is arange(6)
     """
     t0       = time.time()
-    platform = cl.get_platforms()[iplatform]
-    if (GPU>0):
-        device   = platform.get_devices(cl.device_type.GPU)
-        LOCAL    = 64
-        if (GPU_LOCAL>0): LOCAL = GPU_LOCAL                
-    else:
-        device   = platform.get_devices(cl.device_type.CPU)
-        LOCAL    =  8
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)
+    LOCAL    = [8, 64][GPU>0]
+    if (local>0): LOCAL = local
     N, M     = F[0].data.shape
-    context  = cl.Context(device)
-    queue    = cl.CommandQueue(context)
-    mf       = cl.mem_flags
     NDIR     = int(floor((3.14159/sqrt(2.0))*(DW-1.0)+1.0))
     print("NDIR %d" % NDIR)
     OPT      = " -D DK=%d -D DW=%d -D N=%d -D M=%d" % (DK, DW, N, M)
     OPT     += " -D NDIR=%d  -D Z=%.5e " % (NDIR, THRESHOLD)
-    source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_RHT.c').read()
+    source   = open(INSTALL_DIR+'kernel_RHT.c').read()
     program  = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
     #
@@ -59,7 +101,7 @@ def RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0, GPU_LOCAL=-1, iplatform=0
     SMOO(queue, [GLOBAL,], [LOCAL,], S_buf, SS_buf)
     cl.enqueue_copy(queue, SS, SS_buf)
     print('--- smoothing       %5.2f seconds' % (time.time()-t0))
-    # RHT
+    # RHT computation
     t0       = time.time()
     RHT      = program.R_kernel
     RHT.set_scalar_arg_dtypes([None, None, None, None])
@@ -75,37 +117,28 @@ def RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0, GPU_LOCAL=-1, iplatform=0
     cl.enqueue_copy(queue, COS, COS_buf)
     print('--- RHT             %5.2f seconds' % (time.time()-t0))
     T        = RHT_ave_angle(SIN, COS)
-    #
     return R, SIN, COS, T, SS
 
 
 
-def LIC(T, fwhm, GPU=0):
+def LIC(T, fwhm, GPU=0, local=-1, platforms=arange(6)):
     """
-    Make Line Integration Convolution map for T, which is an image
-    of the angles (east from north).
+    Make Line Integration Convolution map for T, which is an image of the angles (east from north).
+    Usage:
+        L = LIC(T, fwhm, GPU=0, local=-1)
+    Input:
+        T         =  2D image
+        fwhm      =  smoothing beam size [pixels]
+        GPU       =  if >0, use GPU instead of CPU (default GPU=0)
+        local     =  if >0, override default value of the local work group size (64 for GPU, 8 for CPU)
+        platforms =  list of platforms, default is arange(6)
     """
     t0       = time.time()
-    platform, device, context, queue = None, None, None, None
-    for iplatform in range(3):
-        try:
-            platform = cl.get_platforms()[iplatform]
-            if (GPU>0):
-                device   = platform.get_devices(cl.device_type.GPU)
-                LOCAL    = 64
-            else:
-                device   = platform.get_devices(cl.device_type.CPU)
-                LOCAL    =  8
-            context  = cl.Context(device)
-            queue    = cl.CommandQueue(context)
-            print('Platform %d has %s:' % (iplatform, ['CPU', 'GPU'][GPU>0]), device)
-            break
-        except:
-            pass
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)
     N, M     = T.shape
     mf       = cl.mem_flags
     OPT      = "-D N=%d -D M=%d -D FWHM=%.3f" % (N, M, fwhm)
-    source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_LIC.c').read()
+    source   = open(INSTALL_DIR+'kernel_LIC.c').read()
     program  = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds' % (time.time()-t0))
     #
@@ -119,6 +152,8 @@ def LIC(T, fwhm, GPU=0):
     FUN.set_scalar_arg_dtypes([None, None, None])
     t0       = time.time()
     GLOBAL   = (int((N*M)/64)+1)*64
+    LOCAL    = [ 8, 32 ][GPU>0]
+    if (local>0): LOCAL = local
     FUN(queue, [GLOBAL,], [LOCAL,], S_buf, T_buf, L_buf)
     cl.enqueue_copy(queue, L, L_buf)
     print('--- LIC             %5.2f seconds' % (time.time()-t0))
@@ -126,40 +161,38 @@ def LIC(T, fwhm, GPU=0):
     
 
 
-def Centipede(F, FWHM_AM, LEGS=3, STUDENT=1, NDIR=17, GPU=0, K_HPF=2.0, GPU_LOCAL=-1):
+def Centipede(F, FWHM_AM=0.0, LEGS=3, STUDENT=1, NDIR=17, K_HPF=2.0, FWHM_PIX=-1, GPU=0, local=-1, platforms=arange(6)):
     """
-    Analyse image by fitting centipede.
+    Analyse image by fitting centipede (3-element wide pattern).
+    Usage:
+        SIG, PA, SS = Centipede(F, FWHM_AM, LEGS=3, STUDENT=1, NDIR=17, GPU=0, K_HPF=2.0, local=-1)
     Input:
         F         =  pyfits image
         FWHM_AM   =  FWHM in arcmin
         LEGS      =  number of pairs of legs
         STUDENT   =  standardize fitted data
         NDIR      =  number of centipede directions
+        K_HPF     =  high-pass filter has beam with FWHM = K_HPF * FWHM_AM
+        FWHM_PIX  =  FWHM in pixels (overrides FWHM_AM)
         GPU       =  GPU>0 == use GPU
-        GPU_LOCAL =  override default value of 64 (local work group size)        
+        local     =  override default value of local work group size (64 for GPU, 8 for CPU)
+        platforms =  list of possible platform numbers, default is arange(6)
     Return:
         SIG, PA, SS = significant, position angle, filtered image
     """
-    PIX       =  get_fits_pixel_size(F)*DEGREE_TO_RADIAN        
-    FWHM      =  FWHM_AM*ARCMIN_TO_RADIAN/PIX  # in pixels
+    if (FWHM_PIX>0):
+        FWHM = FWHM_PIX
+    else:
+        PIX       =  get_fits_pixel_size(F[0].header)*DEGREE_TO_RADIAN        
+        FWHM      =  FWHM_AM*ARCMIN_TO_RADIAN/PIX  # in pixels
     FWHM_HPF  =  K_HPF*FWHM                    # scale for high pass filter
     N, M      =  F[0].data.shape
     # 
     t0       = time.time()
-    platform = cl.get_platforms()[0]
-    if (GPU>0):
-        device   = platform.get_devices(cl.device_type.GPU)
-        LOCAL    = 64
-        if (GPU_LOCAL>0): LOCAL = GPU_LOCAL                
-    else:
-        device   = platform.get_devices(cl.device_type.CPU)
-        LOCAL    =  8
-    context  = cl.Context(device)
-    queue    = cl.CommandQueue(context)
-    mf       = cl.mem_flags
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)
     OPT      = " -D FWHM=%.3f -D FWHM_HPF=%.3f -D N=%d -D M=%d" % (FWHM, FWHM_HPF, N, M)
     OPT     += " -D LEGS=%d -D NDIR=%d -D STUDENT=%d" % (LEGS, NDIR, STUDENT)
-    source   =  file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_centipede.c').read()
+    source   =  open(INSTALL_DIR+'kernel_centipede.c').read()
     program  = cl.Program(context, source).build(OPT)
     print('--- initialisation    %5.2f seconds' % (time.time()-t0))
     #
@@ -174,6 +207,8 @@ def Centipede(F, FWHM_AM, LEGS=3, STUDENT=1, NDIR=17, GPU=0, K_HPF=2.0, GPU_LOCA
     SMOO.set_scalar_arg_dtypes([None, None])
     t0       = time.time()
     GLOBAL   = (int((N*M)/64)+1)*64
+    LOCAL    = [ 8, 64][GPU>0]
+    if (local>0): LOCAL = local
     SMOO(queue, [GLOBAL,], [LOCAL,], S_buf, SS_buf)
     cl.enqueue_copy(queue, SS, SS_buf)
     print('--- smoothing         %5.2f seconds' % (time.time()-t0))
@@ -197,6 +232,8 @@ def Centipede(F, FWHM_AM, LEGS=3, STUDENT=1, NDIR=17, GPU=0, K_HPF=2.0, GPU_LOCA
 def pyFTrack(S, P, TOP=1.0, BTM=0.5, FWHM=5.0, delta=40.0*DEGREE_TO_RADIAN, REDUCE=0.5):
     """
     Trace filaments
+    Usage:
+        filaments = pyFTrack(S, P, TOP=1.0, BTM=0.5, FWHM=5.0, delta=40.0*DEGREE_TO_RADIAN, REDUCE=0.5)
     Input:
         S     =  significance map
         P     =  map of position angles
@@ -330,20 +367,25 @@ def pyFTrack(S, P, TOP=1.0, BTM=0.5, FWHM=5.0, delta=40.0*DEGREE_TO_RADIAN, REDU
 
 
 def FTrack(S, P, TOP, BTM, FWHM=5.0, delta=40.0*DEGREE_TO_RADIAN, OVERLAP=2, REPEL=1.0, 
-           GPU=0, MIN_LEN=2):
+           GPU=0, MIN_LEN=2, local=-1, platforms=arange(6)):
     """
     Trace the filaments using OpenCL kernel
+    Usage:
+        FIL = FTrack(S, P, TOP, BTM, FWHM=5.0, delta=40.0*DEGREE_TO_RADIAN, OVERLAP=2, REPEL=1.0, 
+                     GPU=0, MIN_LEN=2, local=-1, platforms=arange(6)
     Input: 
-        S        =  input image (2d array)
-        P        =  map of position angles (2d array)
-        TOP      =  minimum peak value (units of S)
-        BTM      =  minimum value within filaments (units of S)
-        FWHM     =  scale in pixels
-        delta    =  limit on the change of direction (radians)
-        OVERLAP  =  maximum overlap between two filaments
-        REPEL    =  repel between filaments
-        GPU      =  whether to use CPU or GPU
-        MIN_LEN  =  minimum length in units of FWHM
+        S         =  input image (2d array)
+        P         =  map of position angles (2d array)
+        TOP       =  minimum peak value (units of S)
+        BTM       =  minimum value within filaments (units of S)
+        FWHM      =  scale in pixels
+        delta     =  limit on the change of direction (radians)
+        OVERLAP   =  maximum overlap between two filaments
+        REPEL     =  repel between filaments
+        GPU       =  whether to use CPU or GPU
+        MIN_LEN   =  minimum length in units of FWHM
+        local     =  if >0, override default value of local work group size (32 for GPU, 8 for CPU)
+        platforms =  list of possible platform numbers, default is arange(6)
     Return:
         FIL      =  [ [x1[], y1[]], [ x2[], y2[] ],  ... ]
     """
@@ -353,23 +395,18 @@ def FTrack(S, P, TOP, BTM, FWHM=5.0, delta=40.0*DEGREE_TO_RADIAN, OVERLAP=2, REP
     S[nonzero(~isfinite(S))] = 0.0
     P[nonzero(~isfinite(P))] = 0.0
     N, M     =  S.shape
-    #### K        =  4.0*log(2.0)/(FWHM*FWHM)
     MAXPOS   =  100
     MASK     =  asarray(S.copy(), float32)
     # OpenCL routine to track the filaments
     t0       =  time.time()
-    platform =  cl.get_platforms()[0]
-    device   =  platform.get_devices(cl.device_type.CPU)
-    LOCAL    =  8
-    context  =  cl.Context(device)
-    queue    =  cl.CommandQueue(context)
-    mf       =  cl.mem_flags
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)    
+    LOCAL    =  [ 8, 32 ][GPU>0]
+    if (local>0): LOCAL = local
     OPT      =  "-D FWHM=%.3ff -D N=%d -D M=%d -D BTM=%.3ff -D MAXPOS=%d -D OVERLAP=%d -D REPEL=%.2f" % \
     (FWHM, N, M, BTM, MAXPOS, OVERLAP, REPEL)
-    source   =  file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_ftrack.c').read()
+    source   =  open(INSTALL_DIR+'kernel_ftrack.c').read()
     program  =  cl.Program(context, source).build(OPT)
     print('--- initialisation    %5.2f seconds' % (time.time()-t0))
-    #
     S_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
     P_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=P)
     # Initial positions (X0, Y0)
@@ -443,49 +480,47 @@ def FTrack(S, P, TOP, BTM, FWHM=5.0, delta=40.0*DEGREE_TO_RADIAN, OVERLAP=2, REP
                 cl.enqueue_copy(queue, MASK, MASK_buf)
                 queue.finish()
         COUNT += 1
-        THOST += time.time()-t0
-        
+        THOST += time.time()-t0        
         if (0):
             if (COUNT>100):
                 clf()
                 imshow(MASK)
                 colorbar()
-                SHOW()
+                show()
                 sys.exit()
     print('HOST %.1f sec of which MASK %.1f sec, ADD %.1f sec; DEVICE %.1f sec' % \
-    (THOST, TMASK, TADD, TDEV))
-    
+    (THOST, TMASK, TADD, TDEV))    
     if (0):
         clf()
         figure(2)
         imshow(MASK)
         colorbar()
-        figure(1)
-        
+        figure(1)        
     return FIL
-                                            
-    
-
-
 
 
 
 def FTrack2(S, P, TOP, BTM, FWHM=5.0, DTHETA=40.0*DEGREE_TO_RADIAN, OVERLAP=2, REPEL=1.0, 
-           GPU=0, MIN_LEN=2, STEP=0.5):
+           GPU=0, MIN_LEN=2, STEP=0.5, local=-1, platforms=arange(6)):
     """
     Trace the filaments
+    Usage:
+        FIL = FTrack2(S, P, TOP, BTM, FWHM=5.0, DTHETA=40.0*DEGREE_TO_RADIAN, OVERLAP=2, REPEL=1.0, 
+                      GPU=0, MIN_LEN=2, STEP=0.5, local=-1, platforms=arange(6))
     Input: 
-        S        =  input image (2d array)
-        P        =  map of position angles (2d array)
-        TOP      =  minimum peak value (units of S)
-        BTM      =  minimum value within filaments (units of S)
-        FWHM     =  scale in pixels
-        DTHETA   =  limit on the change of direction (radians)
-        OVERLAP  =  maximum overlap between two filaments
-        REPEL    =  repel between filaments
-        GPU      =  whether to use CPU or GPU
-        MIN_LEN  =  minimum length in units of FWHM
-        STEP     =  step in units of pixels
+        S         =  input image (2d array)
+        P         =  map of position angles (2d array)
+        TOP       =  minimum peak value (units of S)
+        BTM       =  minimum value within filaments (units of S)
+        FWHM      =  scale in pixels
+        DTHETA    =  limit on the change of direction (radians)
+        OVERLAP   =  maximum overlap between two filaments
+        REPEL     =  repel between filaments
+        GPU       =  whether to use CPU or GPU
+        MIN_LEN   =  minimum length in units of FWHM
+        STEP      =  step in units of pixels
+        local     =  if >0, override default value of local work group size (32 for GPU, 8 for CPU)
+        platforms =  list of possible OpenCL platforms, default is arange(6)
     Return:
         FIL      =  [ [x1[], y1[]], [ x2[], y2[] ],  ... ]
     """
@@ -500,20 +535,14 @@ def FTrack2(S, P, TOP, BTM, FWHM=5.0, DTHETA=40.0*DEGREE_TO_RADIAN, OVERLAP=2, R
     MASK     =  asarray(S.copy(), float32)
     # OpenCL routine to track the filaments
     t0       =  time.time()
-    platform =  cl.get_platforms()[0]
-    device   =  platform.get_devices(cl.device_type.CPU)
-    LOCAL    =  8
-    context  =  cl.Context(device)
-    queue    =  cl.CommandQueue(context)
-    mf       =  cl.mem_flags
-    OPT      =  "-D FWHM=%.3ff -D N=%d -D M=%d -D BTM=%.3ff -D MAXPOS=%d \
-    -D OVERLAP=%d -D REPEL=%.2f -D STEP=%.3f -D DTHETA=%.5f" % \
-    (FWHM, N, M, BTM, MAXPOS, 
-    OVERLAP, REPEL, STEP, DTHETA)
-    source   =  file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_ftrack2.c').read()
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)    
+    LOCAL    =  [8, 32][GPU>0]
+    if (local>0): LOCAL = local
+    OPT      =  "-D FWHM=%.3ff -D N=%d -D M=%d -D BTM=%.3ff -D MAXPOS=%d -D OVERLAP=%d -D REPEL=%.2f \
+    -D STEP=%.3f -D DTHETA=%.5f" %  (FWHM, N, M, BTM, MAXPOS, OVERLAP, REPEL, STEP, DTHETA)
+    source   =  open(INSTALL_DIR+'kernel_ftrack2.c').read()
     program  =  cl.Program(context, source).build(OPT)
     print('--- initialisation    %5.2f seconds' % (time.time()-t0))
-    #
     S_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
     P_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=P)
     # Initial positions (X0, Y0)
@@ -597,7 +626,7 @@ def FTrack2(S, P, TOP, BTM, FWHM=5.0, DTHETA=40.0*DEGREE_TO_RADIAN, OVERLAP=2, R
                 clf()
                 imshow(MASK)
                 colorbar()
-                SHOW()
+                show()
                 sys.exit()
     print('HOST %.1f sec of which MASK %.1f sec, ADD %.1f sec; DEVICE %.1f sec' % \
     (THOST, TMASK, TADD, TDEV))
@@ -614,14 +643,15 @@ def FTrack2(S, P, TOP, BTM, FWHM=5.0, DTHETA=40.0*DEGREE_TO_RADIAN, OVERLAP=2, R
 
 
 
-def PatternMatch(F, FWHM_AM, FILTER, STUDENT, PAT, THRESHOLD, GPU=0, NDIR=21, 
+def PatternMatch(F, FWHM_AM=0.0, FILTER=1, STUDENT=1, PAT=[], THRESHOLD=0.7, GPU=0, NDIR=21, 
                  K_HPF=2.0, SYMMETRIC=False, STEP=1.0, AAVE=0, FWHM_PIX=-1,
-                 GPU_LOCAL=-1, HOST_CONVOLUTION=False):
+                 local=-1, HOST_CONVOLUTION=False, platforms=arange(6)):
     """
     Run pattern matching on the image F.
     Usage:
-        SIG, PA, SS = PatternMatch(F, FWHM_AM, FILTER, STUDENT, PAT, THRESHOLD, GPU=0, NDIR=21,
-                         K_HPF=2.0, SYMMETRIC=False, STEP=1.0, AAVE=0)
+        SIG, PA, SS = PatternMatch(F, FWHM_AM=0.0, FILTER=1, STUDENT=1, PAT=[], THRESHOLD=0,7, GPU=0, NDIR=21, 
+                                   K_HPF=2.0, SYMMETRIC=False, STEP=1.0, AAVE=0, FWHM_PIX=-1,
+                                   local=-1, HOST_CONVOLUTION=False, platforms=arange(6))
     Input:
         F         = pyfits image (in the first HDU, pixels aligned with coordinate axes, east on the left)
         FWHM_AM   = FWHM of the low-pass filter [arcmin]
@@ -634,43 +664,34 @@ def PatternMatch(F, FWHM_AM, FILTER, STUDENT, PAT, THRESHOLD, GPU=0, NDIR=21,
         NDIR      = number of tested position angles
         K_HPF     = ratio FWHM_HPF / FWHM_LPF, default is 2.0
         SYMMETRIC = should be True of template symmetric for 180 degree rotation (PA in [0,180])
-        STEP      = step between template elements in units of FWHM_AM,
-                    the default value is 1.0
+        STEP      = step between template elements in units of FWHM, the default is 1.0
         AAVE      = instead of significance and PA of the best-fitting angle, calculate
                     PA as angular averages (similar to RHT; for AAVE==1), or also
                     calculate angular average of significance (AAVE==2)
         FWHM_PIX  = if >0, overrides FWHM_AM, value in pixels
-        GPU_LOCAL = override default value of 64 for the local work group size (GPU only)
+        local     = if >0, override default value of local work group size (64 for GPU, 8 for CPU)
         HOST_CONVOLUTION = if True, do FFT convolution on host
+        platforms = list of possible OpenCL platforms, default is arange(6)
     """
-    PIX        =  get_fits_pixel_size(F)*DEGREE_TO_RADIAN
     if (FWHM_PIX>0):
-        FWHM   =  FWHM_PIX
+        FWHM = FWHM_PIX
     else:
+        PIX    =  get_fits_pixel_size(F[0].header)*DEGREE_TO_RADIAN
         FWHM   =  FWHM_AM*ARCMIN_TO_RADIAN/PIX   # as pixels -- FWHM of LPF == stencil step
     FWHM_HPF   =  K_HPF*FWHM                     # as pixels
-    print('PatternMatch FWHM_AM %.3f FWHM_HPF %.3f FILTER %d' % (FWHM_AM, FWHM_AM*K_HPF, FILTER))
+    print('PatternMatch FWHM %.3f pix, FWHM_HPF %.3f pix, FILTER %d' % (FWHM, FWHM*K_HPF, FILTER))
     N, M       =  F[0].data.shape
     DIM0, DIM1 =  PAT.shape
     # Kernel assumes the image to be aligned with coordinate axes, east is left!
-    t0        =  time.time()
-    platform  =  cl.get_platforms()[0]
-    if (GPU>0):
-        device   = platform.get_devices(cl.device_type.GPU)
-        LOCAL    = 64
-        if (GPU>1): device = (device[1],)
-        if (GPU_LOCAL>0): LOCAL = GPU_LOCAL
-    else:
-        device   = platform.get_devices(cl.device_type.CPU)
-        LOCAL    =  8
-    context  =  cl.Context(device)
-    queue    =  cl.CommandQueue(context)
-    mf       =  cl.mem_flags
+    t0        =  time.time()    
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)
+    LOCAL     =  [ 8, 64 ][GPU>0]
+    if (local>0): LOCAL = local
     # compiler options (make sure your system does recompile each time this is run)
     OPT      = " -D FWHM=%.3e -D FWHM_HPF=%.3e -D N=%d -D M=%d" % (FWHM, FWHM_HPF, N, M)
     OPT     += " -D DIM0=%d -D DIM1=%d -D NDIR=%d -D SYMMETRIC=%d" % (DIM0, DIM1, NDIR, SYMMETRIC)
     OPT     += " -D STUDENT=%d -D STEP=%.4f -D AAVE=%d" % (STUDENT, STEP, AAVE)    
-    source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_PM.c').read()
+    source   = open(INSTALL_DIR+'kernel_PM.c').read()
     program  = cl.Program(context, source).build(OPT)
     print(OPT)
     print('--- initialisation    %5.2f seconds' % (time.time()-t0))
@@ -721,9 +742,12 @@ def PatternMatch(F, FWHM_AM, FILTER, STUDENT, PAT, THRESHOLD, GPU=0, NDIR=21,
     
 
 
-def CentipedeHealpix(S, FWHM, FWHM_HPF, LEGS=3, NDIR=21, STUDENT=1, GPU=0, GPU_LOCAL=-1):
+def CentipedeHealpix(S, FWHM, FWHM_HPF, LEGS=3, NDIR=21, STUDENT=1, GPU=0, local=-1, platforms=arange(6)):
     """
     Run Centipede on allsky healpix map.
+    Usage:
+        SIG, PA, SS = CentipedeHealpix(S, FWHM, FWHM_HPF, LEGS=3, NDIR=21, STUDENT=1, 
+                                       GPU=0, local=-1, platforms=arange(6))
     Input:
         S         =  healpix map
         FWHM      =  FWHM of low pass filter [radians]
@@ -732,7 +756,10 @@ def CentipedeHealpix(S, FWHM, FWHM_HPF, LEGS=3, NDIR=21, STUDENT=1, GPU=0, GPU_L
         NDIR      =  number of directions (over pi)
         STUDENT   =  if 1, normalise the data
         GPU       =  if 1, run on GPU
-        GPU_LOCAL =  override default value of 64 (local work group size)        
+        local     =  override default value of local work group size (32 for GPU, 8 for CPU)
+        platforms =  list of possible OpenCL platorms, default is arange(6)
+    Return:
+        SIG, PA, SS = significance map, position angle map, filtered input map
     """
     NPIX     = len(S)
     NSIDE    = int(sqrt(NPIX/12))
@@ -742,27 +769,14 @@ def CentipedeHealpix(S, FWHM, FWHM_HPF, LEGS=3, NDIR=21, STUDENT=1, GPU=0, GPU_L
     device   = None
     context  = None
     queue    = None
-    LOCAL    = 8
-    for iplatform in range(3):
-        try:
-            platform = cl.get_platforms()[iplatform]
-            if (GPU>0):
-                device   = platform.get_devices(cl.device_type.GPU)
-                LOCAL    = 32
-                if (GPU_LOCAL>0): LOCAL = GPU_LOCAL        
-            else:
-                device   = platform.get_devices(cl.device_type.CPU)
-                LOCAL    =  8
-            context  = cl.Context(device)
-            queue    = cl.CommandQueue(context)
-            break
-        except:
-            pass
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)
+    LOCAL    = [ 8, 32][GPU>0]
+    if (local>0): LOCAL = local
     #
     mf         =  cl.mem_flags
     OPT        =  " -D NSIDE=%d -D FWHM=%.3e -D FWHM_HPF=%.3e" % (NSIDE, FWHM, FWHM_HPF)
     OPT       +=  " -D LEGS=%d -D NDIR=%d -D STUDENT=%d" % (LEGS, NDIR, STUDENT)
-    source     =  file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_centipede_healpix.c').read()
+    source     =  open(INSTALL_DIR+'kernel_centipede_healpix.c').read()
     program    =  cl.Program(context, source).build(OPT)
     S_buf      =  cl.Buffer(context, mf.READ_ONLY, S.nbytes)
     SS_buf     =  cl.Buffer(context, mf.READ_WRITE, SS.nbytes)
@@ -793,37 +807,32 @@ def CentipedeHealpix(S, FWHM, FWHM_HPF, LEGS=3, NDIR=21, STUDENT=1, GPU=0, GPU_L
     
     
 
-def RollingHoughTransformHealpix(S, SCALE, K, THRESHOLD, GPU=0, NDIR=25, GPU_LOCAL=-1):
+def RollingHoughTransformHealpix(S, SCALE, K, THRESHOLD, NDIR=25, GPU=0, local=-1, platforms=arange(6)):
     """
     Rolling Hough Transform in allsky healpix map.
+    Usage:
+        RR; PA, SS = RollingHoughTransformHealpix(S, SCALE, K, THRESHOLD, NDIR=25, 
+                                                  GPU=0, local=-1, platforms=arange(6))
     Input:
         S         =  healpix allsky map
         SCALE     =  scale [radians]
         K         =  high pass filter using K*SCALE
         THRESHOLD =  threshold for ON pixels, fraction of SCALE
-        GPU_LOCAL =  override default value of 64 (local work group size)
+        local     =  override default value of local work group size (64 for GPU, 8 for CPU)
+        platforms =  list of possible OpenCL platorms, default is arange(6)        
     Returns:
         RR        =  significance
         PA        =  position angles
         SS        =  thresholded image
     """
     t0       = time.time()
-    platform = cl.get_platforms()[0]
-    if (GPU>0):
-        device   = platform.get_devices(cl.device_type.GPU)
-        LOCAL    = 64
-        if (GPU_LOCAL>0): LOCAL = GPU_LOCAL        
-    else:
-        device   = platform.get_devices(cl.device_type.CPU)
-        LOCAL    =  8
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)    
+    LOCAL    = [ 8, 64][GPU>0]
+    if (local>0): LOCAL = local
     #    
     NPIX     = len(S)
     NSIDE    = int(sqrt(NPIX/12))
     SS       = np.empty_like(S)
-    
-    context  = cl.Context(device)
-    queue    = cl.CommandQueue(context)
-    mf       = cl.mem_flags
     DK       = float(SCALE)                     # [radians]
     DW       = float(K*SCALE)
     PIX      = sqrt(4.0*pi/(12.0*NSIDE**2.0))   # [radians]
@@ -833,7 +842,7 @@ def RollingHoughTransformHealpix(S, SCALE, K, THRESHOLD, GPU=0, NDIR=25, GPU_LOC
     NPIX     = len(S)
     OPT      = " -D DK=%.4ef -D DW=%.4ef -D NDIR=%d -D NSIDE=%d -D PIX=%.4ef" % (DK, DW, NDIR, NSIDE,PIX)
     OPT     += " -D Z=%.4ef -D STEP=%.4ef -D NPIX=%d" % (THRESHOLD, STEP, NPIX)
-    source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_RHT_healpix.c').read()
+    source   = open(INSTALL_DIR+'kernel_RHT_healpix.c').read()
     program  = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds' % (time.time()-t0))
     #
@@ -851,8 +860,7 @@ def RollingHoughTransformHealpix(S, SCALE, K, THRESHOLD, GPU=0, NDIR=25, GPU_LOC
         GLOBAL =  ((GLOBAL/LOCAL)+1)*LOCAL
     SMOO(queue, [GLOBAL,], [LOCAL,], S_buf, SS_buf)
     cl.enqueue_copy(queue, SS, SS_buf)
-    print('--- smoothing       %5.2f seconds' % (time.time()-t0))
-    
+    print('--- smoothing       %5.2f seconds' % (time.time()-t0))    
     # RHT
     t0       = time.time()
     RHT      = program.R_kernel
@@ -863,55 +871,49 @@ def RollingHoughTransformHealpix(S, SCALE, K, THRESHOLD, GPU=0, NDIR=25, GPU_LOC
     PA       = np.empty_like(S)
     cl.enqueue_copy(queue, RR, RR_buf)
     cl.enqueue_copy(queue, PA, PA_buf)
-    print('--- RHT             %5.2f seconds' % (time.time()-t0))
-                                                
+    print('--- RHT             %5.2f seconds' % (time.time()-t0))                                                
     return RR, PA, SS
     
     
 
 
-def PatternMatchHealpix(S, FWHM, FWHM_HPF, PAT,
-                        NDIR=21, STUDENT=0, SYMMETRIC=0, DO_SMOOTH=0, GPU=0,
-                        GPU_LOCAL=-1):
+def PatternMatchHealpix(S, FWHM, FWHM_HPF, PAT, NDIR=21, STUDENT=0, SYMMETRIC=0, DO_SMOOTH=0, GPU=0, local=-1, platforms=arange(6)):
     """
-    Match pattern PAT on healpix map S.
+    Match pattern PAT on healpix map S.    
+    Usage:
+        SIG, PA, SS = PatternMatchHealpix(S, FWHM, FWHM_HPF, PAT, NDIR=21, STUDENT=0, SYMMETRIC=0, DO_SMOOTH=0, 
+                                          GPU=0, local=-1, platforms=arange(6))
     Input:
         S         =  allsky healpix map (must be in RING order)
         FWHM      =  FWHM [radians]
         FWHM_HPF  =  FWHM of high pass filter [radians]
-        PAT       =  the pattern
+        PAT       =  the pattern (2D array)
         NDIR      =  number of directions (over 2pi, or pi, if symmetric)
-        SYMMTRIC  =  should be true of left-right symmetric pattern
-        DO_SMOOTH =  do the filtering
-        GPU       =  if 1, use GPU
-        GPU_LOCAL =  override default value of 64 (local work group size)        
+        SYMMETRIC =  should be true for left-right symmetric pattern
+        DO_SMOOTH =  if >0, do filtering of input map
+        GPU       =  if 1, use GPU (default GPU=0)
+        local     =  override default value of 64 (local work group size)        
+        platforms =  list of possible OpenCL platorms, default is arange(6)        
+    Return:
+        SIG   =   ~significance map in healpix format
+        PA    =   map of position angles
+        SS    =   the filtered healpix map
     """
-    S         =  np.asarray(S, float32)
-    SS        =  np.empty_like(S)
+    S, SS     =  np.asarray(S, float32), np.asarray(S, float32)
     NPIX      =  len(S)
     NSIDE     =  int(sqrt(NPIX/12))    
     DIM       =  PAT.shape[0]
-    platform  =  cl.get_platforms()[0]
-    if (GPU>0):
-        device   = platform.get_devices(cl.device_type.GPU)
-        LOCAL    = 64
-        if (GPU_LOCAL>0): LOCAL = GPU_LOCAL        
-    else:
-        device   = platform.get_devices(cl.device_type.CPU)
-        LOCAL    =  8
-    context  = cl.Context(device)
-    queue    = cl.CommandQueue(context)
-    mf       = cl.mem_flags
-    OPT      = " -D NSIDE=%d -D FWHM=%.3e -D FWHM_HPF=%.3e" % (NSIDE, FWHM, FWHM_HPF)
-    OPT     += " -D DIM=%d -D NDIR=%d" % (DIM, NDIR)
-    OPT     += " -D STUDENT=%d -D SYMMETRIC=%d" % (STUDENT, SYMMETRIC)
-    source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_PM_healpix.c').read()
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)
+    LOCAL     =  [ 8, 64 ][GPU>0]
+    if (local>0): LOCAL = local
+    OPT      = " -D NSIDE=%d -D FWHM=%.3e -D FWHM_HPF=%.3e -D DIM=%d" % (NSIDE, FWHM, FWHM_HPF, DIM)
+    OPT     += " -D NDIR=%d -D STUDENT=%d -D SYMMETRIC=%d" % (NDIR, STUDENT, SYMMETRIC)
+    source   = open(INSTALL_DIR+'kernel_PM_healpix.c').read()
     program  = cl.Program(context, source).build(OPT)
     PAT_buf  = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=PAT)
     S_buf    = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
     SS_buf   = cl.Buffer(context, mf.READ_WRITE, SS.nbytes)
     if (DO_SMOOTH>0):
-        print('Smoothing')
         SMOO       = program.Smooth2
         SMOO.set_scalar_arg_dtypes([None, None])
         t0         = time.time()
@@ -925,10 +927,8 @@ def PatternMatchHealpix(S, FWHM, FWHM_HPF, PAT,
     PM         = program.PatternMatch
     PM.set_scalar_arg_dtypes([None, None, None, None])
     t0         = time.time()
-    if (DO_SMOOTH>0):
-        PM(queue, [NPIX,], [LOCAL,], PAT_buf, SS_buf, SIG_buf, PA_buf)
-    else:
-        PM(queue, [NPIX,], [LOCAL,], PAT_buf, S_buf, SIG_buf, PA_buf)
+    if (DO_SMOOTH>0):   PM(queue, [NPIX,], [LOCAL,], PAT_buf, SS_buf, SIG_buf, PA_buf)
+    else:               PM(queue, [NPIX,], [LOCAL,], PAT_buf,  S_buf, SIG_buf, PA_buf)
     cl.enqueue_copy(queue, SIG, SIG_buf)
     cl.enqueue_copy(queue, PA,  PA_buf)
     print('--- PatternMatch %5.2f seconds' % (time.time()-t0))
@@ -943,48 +943,113 @@ def PatternMatchHealpix(S, FWHM, FWHM_HPF, PAT,
 
 
 """
-These are more recent than code in MJ.Pattern !
-2016-10-27
+These are more recent than code in MJ.Pattern (2016-10-27).
 """
 
 
-def RollingHoughTransformBasic(F, DK, DW, FRAC, GPU=0, GPU_LOCAL=-1):
+def RollingHoughTransformBasic(F, DK, DW, FRAC, GPU=0, local=-1, platforms=arange(6)):
     """
     Calculate Rolling Hough Transform for image F.
-    R, THETA, dTHETA = RollingHoughTransform(F, DK, DW, FRAC, GPU=0)
+    Usage:
+        R, THETA, dTHETA = RollingHoughTransformBasic(F, DK, DW, FRAC, GPU=0, local=-1, platforms=arange(6))
     Input:
         F         =  pyfits image to be analysed
-        DK        =  size of convolution kernel
+        DK        =  size of convolution kernel [pixels]
         DW        =  diameter of the region [pixels]
         FRAC      =  fraction of ON pixels used as the threshold
         GPU       =  if >0, use GPU instead of CPU
-        GPU_LOCAL =  override default value of 64 (local work group size)
+        GPU_LOCAL =  override default value of local work group size (64 for GPU, 8 for CPU)
+        platforms =  list of possible OpenCL platorms, default is arange(6)        
+    Return:
+        R, THETA, dTHETA = significance map, position angle map, position angle error map
     """
-    t0       = time.time()
-    platform = cl.get_platforms()[0]
-    if (GPU>0):
-        device   = platform.get_devices(cl.device_type.GPU)
-        LOCAL    = 64        
-        if (GPU_LOCAL>0): LOCAL = GPU_LOCAL
-        if (GPU>1): device = (device[1],)        
-    else:
-        device   = platform.get_devices(cl.device_type.CPU)
-        LOCAL    =  8
-    N, M      = F[0].data.shape
-    context   = cl.Context(device)
-    queue     = cl.CommandQueue(context)
-    mf        = cl.mem_flags
-    THRESHOLD = int(FRAC*DW) ;
-    NDIR      = int(np.floor((3.14159/np.sqrt(2.0))*(DW-1.0)+1.0))
-    OPT       = " -D DK=%d -D DW=%d -D N=%d -D M=%d" % (DK, DW, N, M)
-    OPT      += " -D NDIR=%d  -D THRESHOLD=%d" % (NDIR, THRESHOLD)
+    t0         =  time.time()
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)    
+    LOCAL      =  [ 8, 64 ][GPU>0]
+    if (local>0): LOCAL = local
+    N, M       =  F[0].data.shape
+    THRESHOLD  =  int(FRAC*DW) ;
+    NDIR       =  int(np.floor((3.14159/np.sqrt(2.0))*(DW-1.0)+1.0))
+    OPT        =  " -D DK=%d -D DW=%d -D N=%d -D M=%d -D NDIR=%d -D THRESHOLD=%d" % (DK, DW, N, M, NDIR, THRESHOLD)
     # dummy parameters
-    OPT      += " -D BORDER=0 -D STEP=0 -D NL=0 -D NW=0 -D NPIX=0"
-    ## source    = file(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_mjRHT.c').read()
-    source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_RHT2.c').read()    
-    program   = cl.Program(context, source).build(OPT)
+    OPT       +=  " -D BORDER=0 -D STEP=0 -D NL=0 -D NW=0 -D NPIX=0"
+    source     =  open(INSTALL_DIR+'kernel_RHT2.c').read()    
+    program    =  cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
     #
+    S          =  np.asarray(np.ravel(F[0].data), np.float32)
+    SS         =  np.empty_like(S)
+    S_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
+    SS_buf     =  cl.Buffer(context, mf.READ_WRITE, S.nbytes)
+    INT_buf    =  cl.Buffer(context, mf.WRITE_ONLY, S.nbytes)
+    THETA_buf  =  cl.Buffer(context, mf.WRITE_ONLY, S.nbytes)
+    DTHETA_buf =  cl.Buffer(context, mf.WRITE_ONLY, S.nbytes)
+    # Smoothing of the map
+    SMOO       = program.Smooth
+    SMOO.set_scalar_arg_dtypes([None, None])
+    t0         = time.time()
+    GLOBAL     = (int((N*M)/64)+1)*64
+    SMOO(queue, [GLOBAL,], [LOCAL,], S_buf, SS_buf)
+    cl.enqueue_copy(queue, SS, SS_buf)
+    print('--- smoothing       %5.2f seconds' % (time.time()-t0))
+    if (0):
+        clf(),subplot(221),imshow(S.reshape(N,M)),colorbar()
+        subplot(222),imshow(SS.reshape(N,M)),colorbar(),show()
+        sys.exit()
+    # RHT
+    t0         =  time.time()
+    RHT        =  program.R_kernel_oneline
+    RHT.set_scalar_arg_dtypes([None, None, None, None])
+    t0         =  time.time()
+    RHT(queue, [GLOBAL,], [LOCAL,], SS_buf, INT_buf, THETA_buf, DTHETA_buf)
+    INT        =  np.empty_like(S)
+    THETA      =  np.empty_like(S)
+    DTHETA     =  np.empty_like(S)
+    cl.enqueue_copy(queue, INT,     INT_buf)
+    cl.enqueue_copy(queue, THETA,   THETA_buf)
+    cl.enqueue_copy(queue, DTHETA,  DTHETA_buf)
+    print('--- RHT             %5.2f seconds' % (time.time()-t0))
+    #
+    return  INT.reshape(N,M), THETA.reshape(N,M), DTHETA.reshape(N,M)
+
+
+
+
+def RollingHoughTransformOversampled(F, DK, DW, NW=1, STEP=1.0, FRAC=0.8, GPU=0, local=-1, platforms=arange(6)):
+    """
+    Calculate Rolling Hough Transform using oversampling (template element step < pixel size)
+    Usage:
+        R, THETA, dTHETA = RollingHoughTransformOversampled(F, DK, DW, NW=1, STEP=1.0, FRAC=0.8, 
+                                                            GPU=0, local=-1, platforms=arange(6))
+    Input:
+        F         =  pyfits image to be analysed
+        DK        =  size of convolution kernel (smaller than (2*NL+1)*STEP; should be odd ?)
+        DW        =  length of the bar [pixels]
+        NW        =  steps in each perpendicular direction (total is 2*NW+1)
+        STEP      =  step in pixels, values 0<STEP<1 mean oversampling
+        FRAC      =  fraction of positive samples used as the threshold
+        GPU       =  if >0, use GPU instead of CPU
+        local     =  override default value of local work group size (64 for GPU, 8 for CPU)
+        platforms =  list of possible OpenCL platorms, default is arange(6)        
+    Return:
+        R, T, dT  = significance, position angle, position angle error
+    """
+    t0       = time.time()
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)    
+    LOCAL    = [ 8, 64 ][GPU>0]
+    if (local>0): LOCAL = local
+    N, M      = F[0].data.shape
+    NL        = int( (DW/STEP-1.0)/2.0+0.5 )
+    NL        = max([NL, 1])
+    THRESHOLD = int(FRAC*(2*NL+1)*(2*NW+1)) ;
+    BORDER    = int(1.1+np.sqrt(NL**2+NW**2.0)*STEP)  # border avoidance
+    NDIR      = int(np.floor((3.14159/np.sqrt(2.0))*(DW-1.0)+1.0))    
+    OPT       = " -D DK=%d -D N=%d -D M=%d -D NDIR=%d -D THRESHOLD=%d" % (DK, N, M, NDIR, THRESHOLD)
+    OPT      += " -D BORDER=%d -D NL=%d -D NW=%d -D STEP=%.4f" % (BORDER, NL, NW, STEP)
+    OPT      += " -D DW=0 -D NPIX=0"  # dummy arguments
+    source    = open(INSTALL_DIR+'kernel_RHT2.c').read()        
+    program   = cl.Program(context, source).build(OPT)
+    print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
     S         = np.asarray(np.ravel(F[0].data), np.float32)
     SS        = np.empty_like(S)
     S_buf     = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
@@ -1006,92 +1071,6 @@ def RollingHoughTransformBasic(F, DK, DW, FRAC, GPU=0, GPU_LOCAL=-1):
         sys.exit()
     # RHT
     t0       = time.time()
-    RHT      = program.R_kernel_oneline
-    RHT.set_scalar_arg_dtypes([None, None, None, None])
-    t0       = time.time()
-    RHT(queue, [GLOBAL,], [LOCAL,], SS_buf, INT_buf, THETA_buf, DTHETA_buf)
-    INT      = np.empty_like(S)
-    THETA    = np.empty_like(S)
-    DTHETA   = np.empty_like(S)
-    cl.enqueue_copy(queue, INT,     INT_buf)
-    cl.enqueue_copy(queue, THETA,   THETA_buf)
-    cl.enqueue_copy(queue, DTHETA,  DTHETA_buf)
-    print('--- RHT             %5.2f seconds' % (time.time()-t0))
-    #
-    return  INT.reshape(N,M), THETA.reshape(N,M), DTHETA.reshape(N,M)
-
-
-
-
-def RollingHoughTransformOversampled(F, DK, DW, NW=1, STEP=1.0, FRAC=0.8, GPU=0, GPU_LOCAL=-1):
-    """
-    Calculate Rolling Hough Transform using oversampling.
-    R, THETA, dTHETA = RollingHoughTransformS(F, DK, NL, NW, STEP, FRAC, GPU=0)
-    Input:
-        F         =  pyfits image to be analysed
-        DK        =  size of convolution kernel (smaller than (2*NL+1)*STEP; should be odd ?)
-        DW        =  length of the bar [pixels]
-        NW        =  steps in each perpendicular direction (total is 2*NW+1)
-        STEP      =  step in pixels, values 0<STEP<1 mean oversampling
-        FRAC      =  fraction of positive samples used as the threshold
-        GPU       =  if >0, use GPU instead of CPU
-        GPU_LOCAL =  override default value of 64 (local work group size)        
-    Return:
-        R, T, dT  = significance, position angle, position angle error
-    """
-    t0       = time.time()
-    platform = cl.get_platforms()[0]
-    if (GPU>0):
-        device   = platform.get_devices(cl.device_type.GPU)
-        LOCAL    = 64
-        if (GPU_LOCAL>0): LOCAL = GPU_LOCAL        
-        if (GPU>1): device = (device[1],)        
-    else:
-        device   = platform.get_devices(cl.device_type.CPU)
-        LOCAL    =  8
-    N, M      = F[0].data.shape
-    context   = cl.Context(device)
-    queue     = cl.CommandQueue(context)
-    mf        = cl.mem_flags
-    ### DW        = (2.0*NL+1)*STEP
-    NL        = int( (DW/STEP-1.0)/2.0+0.5 )
-    NL        = max([NL, 1])
-    THRESHOLD = int(FRAC*(2*NL+1)*(2*NW+1)) ;
-    BORDER    = int(1.1+np.sqrt(NL**2+NW**2.0)*STEP)  # border avoidance
-    ##
-    NDIR      = int(np.floor((3.14159/np.sqrt(2.0))*(DW-1.0)+1.0))    
-    OPT       = " -D DK=%d -D N=%d -D M=%d" % (DK, N, M)
-    OPT      += " -D NDIR=%d  -D THRESHOLD=%d -D BORDER=%d" % (NDIR, THRESHOLD, BORDER)
-    OPT      += " -D NL=%d -D NW=%d -D STEP=%.4f" % (NL, NW, STEP)
-    # summy arguments
-    OPT      += " -D DW=0 -D NPIX=0"
-    print(OPT)
-    ## source    = file(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_mjRHT.c').read()
-    source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_RHT2.c').read()        
-    program   = cl.Program(context, source).build(OPT)
-    print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
-    #
-    S         = np.asarray(np.ravel(F[0].data), np.float32)
-    SS        = np.empty_like(S)
-    S_buf     = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
-    SS_buf    = cl.Buffer(context, mf.READ_WRITE, S.nbytes)
-    INT_buf   = cl.Buffer(context, mf.WRITE_ONLY, S.nbytes)
-    THETA_buf = cl.Buffer(context, mf.WRITE_ONLY, S.nbytes)
-    DTHETA_buf= cl.Buffer(context, mf.WRITE_ONLY, S.nbytes)
-    # Smoothing of the map
-    SMOO     = program.Smooth
-    SMOO.set_scalar_arg_dtypes([None, None])
-    t0       = time.time()
-    GLOBAL   = (int((N*M)/64)+1)*64
-    SMOO(queue, [GLOBAL,], [LOCAL,], S_buf, SS_buf)
-    cl.enqueue_copy(queue, SS, SS_buf)
-    print('--- smoothing       %5.2f seconds' % (time.time()-t0))
-    if (0):
-        clf(),subplot(221),imshow(S.reshape(N,M)),colorbar()
-        subplot(222),imshow(SS.reshape(N,M)),colorbar(),SHOW()
-        sys.exit()
-    # RHT
-    t0       = time.time()
     RHT      = program.R_kernel_substep
     RHT.set_scalar_arg_dtypes([None, None, None, None])
     t0       = time.time()
@@ -1103,49 +1082,41 @@ def RollingHoughTransformOversampled(F, DK, DW, NW=1, STEP=1.0, FRAC=0.8, GPU=0,
     cl.enqueue_copy(queue, THETA,   THETA_buf)
     cl.enqueue_copy(queue, DTHETA,  DTHETA_buf)
     print('--- RHT             %5.2f seconds' % (time.time()-t0))
-    #
     return  INT.reshape(N,M), THETA.reshape(N,M), DTHETA.reshape(N,M)
 
 
 
-def RollingHoughTransformExternalKernel(F, FT, DK, FRAC=0.8, GPU=0, GPU_LOCAL=-1):
+def RollingHoughTransformExternalKernel(F, FT, DK, FRAC=0.8, GPU=0, local=-1, platforms=arange(6)):
     """
     Calculate (Rolling Hough) Transform using external, precalculated kernels.
-    R, THETA, dTHETA = RollingHoughTransformS(F, DK, NL, NW, STEP, FRAC, GPU=0)
+    Usage:
+        R, THETA, dTHETA = RollingHoughTransformExternalKernel(F, FT, DK, FRAC=0.8, 
+                                                               GPU=0, local=-1, platforms=arange(6))
     Input:
         F         =  pyfits image to be analysed
         FT        =  template kernel, image dimensions [npix, npix, ntheta]
         DK        =  size of convolution kernel (smaller than (2*NL+1)*STEP; should be odd ?)
         FRAC      =  fraction of positive pixels used as the threshold
         GPU       =  if >0, use GPU instead of CPU
-        GPU_LOCAL =  override default value of 64 (local work group size)                
+        local     =  override default value of the local work group size (64 for GPU, 8 for CPU)
+        platforms =  list of possible OpenCL platorms, default is arange(6)        
+    Return:
+        R, THETA, dTHETA = significance, position angle, position angle uncertainty
     """
     npix, npix, ndir = FT[0].data.shape  # assume square images
     ###
-    t0       = time.time()
-    platform = cl.get_platforms()[0]
-    if (GPU>0):
-        device   = platform.get_devices(cl.device_type.GPU)
-        LOCAL    = 64
-        if (GPU_LOCAL>0): LOCAL = GPU_LOCAL                        
-        if (GPU>1): device = (device[1],)        
-    else:
-        device   = platform.get_devices(cl.device_type.CPU)
-        LOCAL    =  8
+    t0        = time.time()
+    platform, device, context, queue,  mf = InitCL(GPU, platforms)    
+    LOCAL     = [8, 64][GPU>0]
+    if (local>0): LOCAL = local
     N, M      = F[0].data.shape
-    context   = cl.Context(device)
-    queue     = cl.CommandQueue(context)
-    mf        = cl.mem_flags
-    THRESHOLD = FRAC * sum(np.ravel(FT[0].data[:,:,0]))      # fraction of potential maximum
+    THRESHOLD = FRAC * sum(np.ravel(FT[0].data[:,:,0]))     # fraction of potential maximum
     BORDER    = 1+int(np.sqrt(2.0)*0.5*npix)
     OPT       = " -D DK=%d -D N=%d -D M=%d" % (DK, N, M)
     OPT      += " -D NDIR=%d -D THRESHOLD=%.3ff -D BORDER=%d" % (ndir, THRESHOLD, BORDER)
-    OPT      += " -D NPIX=%d" % npix
-    # dummy arguments
-    OPT      += " -D NL=0 -D NW=0 -D STEP=0 -D DW=0"
-    print(OPT)
-    # source    = file(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_mjRHT.c').read()
-    source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_RHT2.c').read()        
+    OPT      += " -D NPIX=%d" % npix    
+    OPT      += " -D NL=0 -D NW=0 -D STEP=0 -D DW=0"        # dummy arguments
+    source    = open(INSTALL_DIR+'kernel_RHT2.c').read()        
     program   = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
     #
@@ -1168,7 +1139,7 @@ def RollingHoughTransformExternalKernel(F, FT, DK, FRAC=0.8, GPU=0, GPU_LOCAL=-1
     print('--- smoothing       %5.2f seconds' % (time.time()-t0))
     if (0):
         clf(),subplot(221),imshow(S.reshape(N,M)),colorbar()
-        subplot(222),imshow(SS.reshape(N,M)),colorbar(),SHOW()
+        subplot(222),imshow(SS.reshape(N,M)),colorbar(),show()
         sys.exit()
     # RHT
     t0       = time.time()
@@ -1185,6 +1156,5 @@ def RollingHoughTransformExternalKernel(F, FT, DK, FRAC=0.8, GPU=0, GPU_LOCAL=-1
     print('--- RHT             %5.2f seconds' % (time.time()-t0))
     #
     return  INT.reshape(N,M), THETA.reshape(N,M), DTHETA.reshape(N,M)
-
 
 
