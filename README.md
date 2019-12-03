@@ -1,12 +1,10 @@
 
-#ISM 
+# ISM - programs for interstellar medium studies 
 
 ## SOC
 
-The directory *SOC* containsthe SOC continuum radiative transfer
-program implemented with Python and OpenCL. For more detailed
-background and documentation, see 
-http://www.interstellarmedium.org/radiative-transfer/soc/
+The directory *SOC* contains the SOC continuum radiative transfer
+program implemented with Python and OpenCL. 
 
 The main script for dust emission calculations is ASOC.py. Note that
 the map orientations have changed since the previous versions (called
@@ -37,7 +35,15 @@ script MA2E.jl corresponds to A2E_MABU.py.
 
 Practical examples of the end-to-end calculations will be added here
 in the near future. For the moment, one can examine (or even try to
-run) the script TEST_LIB.py
+run) the script TEST_LIB.py that includes examples of calculations
+with equilibrium temperature dust, with stochastically heated dust,
+possibly with spatially varying abundances and possibly sped up by the
+use of "library" methods.
+
+For more detailed background and documentation, see 
+* http://www.interstellarmedium.org/radiative-transfer/soc/
+* Juvela M.: SOC program for dust continuum radiative transfer, 2019,
+  A&A 622, A79
 
 
 
@@ -66,4 +72,4 @@ require a working OpenCL environment.
 For further information, see
 * http://www.interstellarmedium.org/nicer-extinction-maps/
 * http://www.interstellarmedium.org/extinction/ 
-and the references mentioned there.
+  and the references mentioned there.
