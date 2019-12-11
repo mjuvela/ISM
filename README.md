@@ -43,7 +43,7 @@ use of "library" methods.
 For more detailed background and documentation, see 
 * http://www.interstellarmedium.org/radiative-transfer/soc/
 * Juvela M.: SOC program for dust continuum radiative transfer, 2019,
-  A&A 622, A79
+  A&A 622, A79, https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..79J
 
 
 
@@ -55,7 +55,9 @@ of these, the script test_TM.py will run both routines on the provided
 FITS image. The expected output is shown in the included test_TM.png.
 For further information, see 
 * http://www.interstellarmedium.org/template-matching
-* Juvela M.: Pattern matching methods for the analysis of interstellar cloud structure, 2016, A&A 593, A58)
+* Juvela M.: Pattern matching methods for the analysis of interstellar
+cloud structure, 2016, A&A 593, A58),
+https://ui.adsabs.harvard.edu/abs/2016A%26A...593A..58J
 * http://www.interstellarmedium.org/rht-rolling-hough-transform/
 
 
@@ -73,3 +75,25 @@ For further information, see
 * http://www.interstellarmedium.org/nicer-extinction-maps/
 * http://www.interstellarmedium.org/extinction/ 
   and the references mentioned there.
+
+
+
+## FITS
+
+The directory *FITS* will contain programs related to the handling of
+FITS images. At the moment there is a draft program for the resampling
+of FITS images using the Drizzle algorithm (for example the optional
+shrinking of imput-image pixels is not yet implemented). The call
+
+ResampleImage.py g.fits A.fits B.fits
+
+should resample g.fits onto the pixels defined by the header of of the
+B.fits FITS image. The result would be written as a new FITS file
+B.fits. A.fits was produced from g.fits with the Montage program
+so that and the above-written B.fits should be similar (except for
+the borders, see the first link below).
+
+For more information,see
+* http://www.interstellarmedium.org/tools-for-fits-images/
+* the original publication on the Drizzle algorithm: Fruchter & Hook,
+2002, PASP 112, 144; https://ui.adsabs.harvard.edu/abs/2002PASP..114..144F
