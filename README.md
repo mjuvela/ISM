@@ -5,13 +5,13 @@ Most of the programs require a working OpenCL environment and the
 installation of pyOpenCL (see
 https://mathema.tician.de/software/pyopencl/).
 
-Apart from SOC, the other programs assume that the source tree exist
+Apart from SOC, the other programs assume that the source tree exists
 under one's own home directory, in ~/GITHUB. If the files are
-elsewhere, one can set an environmental variable ISM_DIRECTORY. Thus,
-ISM_DIRECTORY should point to a directory that contains ISM as a
+elsewhere, one can set an environmental variable ISM_DIRECTORY. 
+ISM_DIRECTORY should point to the directory that contains ISM as a
 subdirectory (which then contains Defs.py and further subdirectories
-FITS, TM, etc.). If ISM_DIRECTORY is not set, that is implicitly the
-same as having ISM_DIRECTORY equal to ~/GITHUB.
+FITS, TM, etc.). If ISM_DIRECTORY is not set, that is the same as
+having ISM_DIRECTORY equal to ~/GITHUB.
 
 
 ## SOC
@@ -20,11 +20,12 @@ The directory *SOC* contains the SOC continuum radiative transfer
 program implemented with Python and OpenCL. 
 
 The main script for dust emission calculations is ASOC.py. Note that
-the map orientations have changed since the previous versions (called
-SOC.py). The main script for dust scattering calculations is ASOCS.py.
-When the program is called, it tries to figure out the location of the
-source code and the kernel routines (*.c). These should always remain
-in the same directory.
+the map orientations have changed since the previous versions (that
+was called SOC.py). The main script for dust scattering calculations
+is ASOCS.py. When the program is called, it tries to figure out the
+location of the source code and the kernel routines (*.c). These
+should always remain in the same directory. ASOC.py and ASOC.py are
+development versions (unstable).
 
 make_dust.py is a sample script showing how to convert DustEM files to
 the inputs needed by SOC, including the simple combined dust
@@ -32,7 +33,7 @@ description (tmp.dust) and the corresponding scattering function file
 (tmp.dsc) used by SOC.
 
 To deal with the emission from stochastically heated grains, one uses
-the "GSET" format dust files written by make_dust.py. In addition,
+"GSET" format dust files written by make_dust.py. In addition,
 * A2E_pre.py writes "solver files" for single dust components
 * A2E.py solves emission using these "solver files"
 * A2E_MABU.py can be used to simplify this when a run includes several 
@@ -78,13 +79,13 @@ https://ui.adsabs.harvard.edu/abs/2016A%26A...593A..58J
 
 ## Extinction
 
-The directory *Extinction* includes some routines for the
-calculation of extinction maps based on the (near-infrared)
-reddening of background stars. The sample script test_Nicer.py
-should download input data (photometry for 2Mass stars) from the
-web, calculate an extinction map for a region specified in the
-script, and write the results as FITS files. The programs again
-require a working OpenCL environment.
+The directory *Extinction* includes some routines for the calculation
+of extinction maps based on the (near-infrared) reddening of
+background stars. The sample script test_Nicer.py should download
+input data (photometry for 2Mass stars) from the web, calculate an
+extinction map for a region specified in the script, and write the
+results to a FITS files. The programs again require a working OpenCL
+environment.
 
 For further information, see
 * http://www.interstellarmedium.org/nicer-extinction-maps/
@@ -95,26 +96,25 @@ For further information, see
 
 ## FITS
 
-The directory *FITS* will contain programs related to the handling of
-FITS images. At the moment there is a draft program for the resampling
-of FITS images using the Drizzle algorithm (for example the optional
-shrinking of imput-image pixels is not yet implemented). 
-
-If one executes
+The directory *FITS* contains programs related to the handling of FITS
+images. At the moment there is a draft program for the resampling of
+FITS images using the Drizzle algorithm (for example the optional
+shrinking of input-image pixels is not yet implemented). The execution
+of 
 
 python test_drizzle.py
 
-it should run a series of tests, comparing the run times of
+should run a series of tests, comparing the run times of
 Montage.reproject (assuming that one has installed montage_wrapper)
-and the OpenCL routine run on CPU and on GPU (assuming one has those
-available). Furthermore, the call
+and the OpenCL routine that is run on CPU and on GPU (assuming one has
+those available). Furthermore, the call
 
-ResampleImage.py  g.fits A.fita B.fits
+ResampleImage.py  g.fits A.fits B.fits
 
-will resample the FITS image g.fits onto the pixels defined in the
-header of the file A.fits, writing the result as the new file B.fits.
-If one has already run test_drizzle.py, g.fits and A.fits should
-already axist. A.fits was produced from g.fits with the Montage
+will resample the FITS image g.fits onto the pixels defined by the
+header of the file A.fits, writing the result as a new file B.fits. If
+one has successfully run test_drizzle.py, g.fits and A.fits should
+already exist. A.fits was there produced from g.fits with the Montage
 program so that A.fits and the file B.fits, created by the above
 ResampleImage call, should be similar (except for the borders, see the
 first link below).
