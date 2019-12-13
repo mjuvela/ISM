@@ -1,6 +1,19 @@
 
 # ISM - programs for interstellar medium studies 
 
+Most of the programs require a working OpenCL environment and the
+installation of pyOpenCL (see
+https://mathema.tician.de/software/pyopencl/).
+
+Apart from SOC, the other programs assume that the source tree exist
+under one's own home directory, in ~/GITHUB. If the files are
+elsewhere, one can set an environmental variable ISM_DIRECTORY. Thus,
+ISM_DIRECTORY should point to a directory that contains ISM as a
+subdirectory (which then contains Defs.py and further subdirectories
+FITS, TM, etc.). If ISM_DIRECTORY is not set, that is implicitly the
+same as having ISM_DIRECTORY equal to ~/GITHUB.
+
+
 ## SOC
 
 The directory *SOC* contains the SOC continuum radiative transfer
@@ -8,8 +21,10 @@ program implemented with Python and OpenCL.
 
 The main script for dust emission calculations is ASOC.py. Note that
 the map orientations have changed since the previous versions (called
-SOC.py). The main script for dust scattering calculations is
-ASOCS.py.
+SOC.py). The main script for dust scattering calculations is ASOCS.py.
+When the program is called, it tries to figure out the location of the
+source code and the kernel routines (*.c). These should always remain
+in the same directory.
 
 make_dust.py is a sample script showing how to convert DustEM files to
 the inputs needed by SOC, including the simple combined dust
@@ -83,15 +98,26 @@ For further information, see
 The directory *FITS* will contain programs related to the handling of
 FITS images. At the moment there is a draft program for the resampling
 of FITS images using the Drizzle algorithm (for example the optional
-shrinking of imput-image pixels is not yet implemented). The call
+shrinking of imput-image pixels is not yet implemented). 
 
-ResampleImage.py g.fits A.fits B.fits
+If one executes
 
-should resample g.fits onto the pixels defined by the header of of the
-B.fits FITS image. The result would be written as a new FITS file
-B.fits. A.fits was produced from g.fits with the Montage program
-so that and the above-written B.fits should be similar (except for
-the borders, see the first link below).
+python test_drizzle.py
+
+it should run a series of tests, comparing the run times of
+Montage.reproject (assuming that one has installed montage_wrapper)
+and the OpenCL routine run on CPU and on GPU (assuming one has those
+available). Furthermore, the call
+
+ResampleImage.py  g.fits A.fita B.fits
+
+will resample the FITS image g.fits onto the pixels defined in the
+header of the file A.fits, writing the result as the new file B.fits.
+If one has already run test_drizzle.py, g.fits and A.fits should
+already axist. A.fits was produced from g.fits with the Montage
+program so that A.fits and the file B.fits, created by the above
+ResampleImage call, should be similar (except for the borders, see the
+first link below).
 
 For more information,see
 * http://www.interstellarmedium.org/tools-for-fits-images/

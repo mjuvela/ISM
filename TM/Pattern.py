@@ -1,53 +1,8 @@
-import os, sys
-# !!! directory where the routines and the kernel *.c files can be found
-INSTALL_DIR = '/home/mika/GITHUB/ISM/TM/'
-sys.path.append(INSTALL_DIR)
-from TM_aux import *
+from ISM.Defs import *
 
 """
 Routines related to template matching and RHT-like search of elongated structures in images.
 """
-
-
-
-def InitCL(GPU=0, platforms=[], sub=0):
-    """
-    OpenCL initialisation, searching for the requested CPU or GPU device.
-    Usage:
-        platform, device, context, queue, mf = InitCL(GPU=0, platforms=[], sub=0)
-    Input:
-        GPU       =  if >0, try to return a GPU device instead of CPU
-        platforms =  optional array of possible platform numbers, default [0, 1, 2, 3, 4, 5]
-        sub       =  optional number of threads for a subdevice (CPU only, first subdevice returned)
-    """
-    platform, device, context, queue = None, None, None, None
-    possible_platforms = range(6)
-    if (len(platforms)>0):
-        possible_platforms = platforms
-    device = []
-    for iplatform in possible_platforms:
-        print("try platform %d..." % iplatform)
-        try:
-            platform     = cl.get_platforms()[iplatform]
-            if (GPU>0):
-                device   = platform.get_devices(cl.device_type.GPU)
-            else:
-                device   = platform.get_devices(cl.device_type.CPU)
-            if (sub>0):
-                # try to make subdevices with sub threads, return the first one
-                dpp       =  cl.device_partition_property
-                device    =  [device[0].create_sub_devices( [dpp.EQUALLY, sub] )[0],]
-            context   =  cl.Context(device)
-            queue     =  cl.CommandQueue(context)
-            break
-        except:
-            pass
-    print(".... device ....")
-    print(device)
-    return platform, device, context, queue,  cl.mem_flags
-                
-                    
-                    
 
 
 def RHT_ave_angle(si, co):
@@ -55,9 +10,6 @@ def RHT_ave_angle(si, co):
     T[nonzero(T>0.5*pi)] -= pi   # make angle east from north
     return T
             
-
-
-
 
 
 def RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0, local=-1, platforms=arange(6)):
@@ -82,7 +34,7 @@ def RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0, local=-1, platforms=arang
     print("NDIR %d" % NDIR)
     OPT      = " -D DK=%d -D DW=%d -D N=%d -D M=%d" % (DK, DW, N, M)
     OPT     += " -D NDIR=%d  -D Z=%.5e " % (NDIR, THRESHOLD)
-    source   = open(INSTALL_DIR+'kernel_RHT.c').read()
+    source   = open(ISM_DIRECTORY+"/ISM/TM/kernel_RHT.c").read()
     program  = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
     #
@@ -138,7 +90,7 @@ def LIC(T, fwhm, GPU=0, local=-1, platforms=arange(6)):
     N, M     = T.shape
     mf       = cl.mem_flags
     OPT      = "-D N=%d -D M=%d -D FWHM=%.3f" % (N, M, fwhm)
-    source   = open(INSTALL_DIR+'kernel_LIC.c').read()
+    source   = open(ISM_DIRECTORY+"/ISM/TM/kernel_LIC.c").read()
     program  = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds' % (time.time()-t0))
     #
@@ -192,7 +144,7 @@ def Centipede(F, FWHM_AM=0.0, LEGS=3, STUDENT=1, NDIR=17, K_HPF=2.0, FWHM_PIX=-1
     platform, device, context, queue,  mf = InitCL(GPU, platforms)
     OPT      = " -D FWHM=%.3f -D FWHM_HPF=%.3f -D N=%d -D M=%d" % (FWHM, FWHM_HPF, N, M)
     OPT     += " -D LEGS=%d -D NDIR=%d -D STUDENT=%d" % (LEGS, NDIR, STUDENT)
-    source   =  open(INSTALL_DIR+'kernel_centipede.c').read()
+    source   =  open(ISM_DIRECTORY+"/ISM/TM/kernel_centipede.c").read()
     program  = cl.Program(context, source).build(OPT)
     print('--- initialisation    %5.2f seconds' % (time.time()-t0))
     #
@@ -404,7 +356,7 @@ def FTrack(S, P, TOP, BTM, FWHM=5.0, delta=40.0*DEGREE_TO_RADIAN, OVERLAP=2, REP
     if (local>0): LOCAL = local
     OPT      =  "-D FWHM=%.3ff -D N=%d -D M=%d -D BTM=%.3ff -D MAXPOS=%d -D OVERLAP=%d -D REPEL=%.2f" % \
     (FWHM, N, M, BTM, MAXPOS, OVERLAP, REPEL)
-    source   =  open(INSTALL_DIR+'kernel_ftrack.c').read()
+    source   =  open(ISM_DIRECTORY+"/ISM/TM/kernel_ftrack.c").read()
     program  =  cl.Program(context, source).build(OPT)
     print('--- initialisation    %5.2f seconds' % (time.time()-t0))
     S_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
@@ -540,7 +492,7 @@ def FTrack2(S, P, TOP, BTM, FWHM=5.0, DTHETA=40.0*DEGREE_TO_RADIAN, OVERLAP=2, R
     if (local>0): LOCAL = local
     OPT      =  "-D FWHM=%.3ff -D N=%d -D M=%d -D BTM=%.3ff -D MAXPOS=%d -D OVERLAP=%d -D REPEL=%.2f \
     -D STEP=%.3f -D DTHETA=%.5f" %  (FWHM, N, M, BTM, MAXPOS, OVERLAP, REPEL, STEP, DTHETA)
-    source   =  open(INSTALL_DIR+'kernel_ftrack2.c').read()
+    source   =  open(ISM_DIRECTORY+"/ISM/TM/kernel_ftrack2.c").read()
     program  =  cl.Program(context, source).build(OPT)
     print('--- initialisation    %5.2f seconds' % (time.time()-t0))
     S_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
@@ -691,7 +643,7 @@ def PatternMatch(F, FWHM_AM=0.0, FILTER=1, STUDENT=1, PAT=[], THRESHOLD=0.7, GPU
     OPT      = " -D FWHM=%.3e -D FWHM_HPF=%.3e -D N=%d -D M=%d" % (FWHM, FWHM_HPF, N, M)
     OPT     += " -D DIM0=%d -D DIM1=%d -D NDIR=%d -D SYMMETRIC=%d" % (DIM0, DIM1, NDIR, SYMMETRIC)
     OPT     += " -D STUDENT=%d -D STEP=%.4f -D AAVE=%d" % (STUDENT, STEP, AAVE)    
-    source   = open(INSTALL_DIR+'kernel_PM.c').read()
+    source   = open(ISM_DIRECTORY+"/ISM/TM/kernel_PM.c").read()
     program  = cl.Program(context, source).build(OPT)
     print(OPT)
     print('--- initialisation    %5.2f seconds' % (time.time()-t0))
@@ -776,7 +728,7 @@ def CentipedeHealpix(S, FWHM, FWHM_HPF, LEGS=3, NDIR=21, STUDENT=1, GPU=0, local
     mf         =  cl.mem_flags
     OPT        =  " -D NSIDE=%d -D FWHM=%.3e -D FWHM_HPF=%.3e" % (NSIDE, FWHM, FWHM_HPF)
     OPT       +=  " -D LEGS=%d -D NDIR=%d -D STUDENT=%d" % (LEGS, NDIR, STUDENT)
-    source     =  open(INSTALL_DIR+'kernel_centipede_healpix.c').read()
+    source     =  open(ISM_DIRECTORY+"/ISM/TM/kernel_centipede_healpix.c").read()
     program    =  cl.Program(context, source).build(OPT)
     S_buf      =  cl.Buffer(context, mf.READ_ONLY, S.nbytes)
     SS_buf     =  cl.Buffer(context, mf.READ_WRITE, SS.nbytes)
@@ -842,7 +794,7 @@ def RollingHoughTransformHealpix(S, SCALE, K, THRESHOLD, NDIR=25, GPU=0, local=-
     NPIX     = len(S)
     OPT      = " -D DK=%.4ef -D DW=%.4ef -D NDIR=%d -D NSIDE=%d -D PIX=%.4ef" % (DK, DW, NDIR, NSIDE,PIX)
     OPT     += " -D Z=%.4ef -D STEP=%.4ef -D NPIX=%d" % (THRESHOLD, STEP, NPIX)
-    source   = open(INSTALL_DIR+'kernel_RHT_healpix.c').read()
+    source   = open(ISM_DIRECTORY+"/ISM/TM/kernel_RHT_healpix.c").read()
     program  = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds' % (time.time()-t0))
     #
@@ -908,7 +860,7 @@ def PatternMatchHealpix(S, FWHM, FWHM_HPF, PAT, NDIR=21, STUDENT=0, SYMMETRIC=0,
     if (local>0): LOCAL = local
     OPT      = " -D NSIDE=%d -D FWHM=%.3e -D FWHM_HPF=%.3e -D DIM=%d" % (NSIDE, FWHM, FWHM_HPF, DIM)
     OPT     += " -D NDIR=%d -D STUDENT=%d -D SYMMETRIC=%d" % (NDIR, STUDENT, SYMMETRIC)
-    source   = open(INSTALL_DIR+'kernel_PM_healpix.c').read()
+    source   = open(ISM_DIRECTORY+"/ISM/TM/kernel_PM_healpix.c").read()
     program  = cl.Program(context, source).build(OPT)
     PAT_buf  = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=PAT)
     S_buf    = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
@@ -973,7 +925,7 @@ def RollingHoughTransformBasic(F, DK, DW, FRAC, GPU=0, local=-1, platforms=arang
     OPT        =  " -D DK=%d -D DW=%d -D N=%d -D M=%d -D NDIR=%d -D THRESHOLD=%d" % (DK, DW, N, M, NDIR, THRESHOLD)
     # dummy parameters
     OPT       +=  " -D BORDER=0 -D STEP=0 -D NL=0 -D NW=0 -D NPIX=0"
-    source     =  open(INSTALL_DIR+'kernel_RHT2.c').read()    
+    source     =  open(ISM_DIRECTORY+"/ISM/TM/kernel_RHT2.c").read()
     program    =  cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
     #
@@ -1047,7 +999,7 @@ def RollingHoughTransformOversampled(F, DK, DW, NW=1, STEP=1.0, FRAC=0.8, GPU=0,
     OPT       = " -D DK=%d -D N=%d -D M=%d -D NDIR=%d -D THRESHOLD=%d" % (DK, N, M, NDIR, THRESHOLD)
     OPT      += " -D BORDER=%d -D NL=%d -D NW=%d -D STEP=%.4f" % (BORDER, NL, NW, STEP)
     OPT      += " -D DW=0 -D NPIX=0"  # dummy arguments
-    source    = open(INSTALL_DIR+'kernel_RHT2.c').read()        
+    source    = open(ISM_DIRECTORY+"/ISM/TM/kernel_RHT2.c").read()        
     program   = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
     S         = np.asarray(np.ravel(F[0].data), np.float32)
@@ -1116,7 +1068,7 @@ def RollingHoughTransformExternalKernel(F, FT, DK, FRAC=0.8, GPU=0, local=-1, pl
     OPT      += " -D NDIR=%d -D THRESHOLD=%.3ff -D BORDER=%d" % (ndir, THRESHOLD, BORDER)
     OPT      += " -D NPIX=%d" % npix    
     OPT      += " -D NL=0 -D NW=0 -D STEP=0 -D DW=0"        # dummy arguments
-    source    = open(INSTALL_DIR+'kernel_RHT2.c').read()        
+    source    = open(ISM_DIRECTORY+"/ISM/TM/kernel_RHT2.c").read()        
     program   = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds:: DK %d DW %d' % (time.time()-t0, DK, DW))
     #

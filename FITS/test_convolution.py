@@ -1,8 +1,13 @@
+import os, sys
+ISM_DIRECTORY = os.path.expanduser('~/GITHUB')
+try:
+    ISM_DIRECTORY = os.environ(['ISM_DIRECTORY'])
+except:
+    pass
+sys.path.append(ISM_DIRECTORY)
+import ISM.Defs
+from   ISM.FITS.FITS import *
 
-import os, sys, time
-sys.path.append(os.path.realpath(__file__))
-from matplotlib.pylab import *
-from FITS import *
 
 
 # Make a FITS image

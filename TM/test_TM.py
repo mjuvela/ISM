@@ -1,7 +1,14 @@
-INSTALL_DIR = '/home/mika/GITHUB/ISM/TM'
 import os, sys
-sys.path.append(INSTALL_DIR)
-from Pattern import *
+ISM_DIRECTORY = os.path.expanduser('~/GITHUB')
+try:
+    ISM_DIRECTORY = os.environ(['ISM_DIRECTORY'])
+except:
+    pass
+sys.path.append(ISM_DIRECTORY)
+import ISM.Defs
+from   ISM.FITS.FITS import *    
+from   ISM.TM.Pattern import *
+
 
 if (1):
     GPU    =   1
@@ -10,7 +17,7 @@ else:
     GPU    =   0
     LOCAL  =   8
     
-F = fits.open("PSW.fits")
+F = pyfits.open("PSW.fits")
 
 figure(1, figsize=(12,4.5))
 subplots_adjust(left=0.05, right=0.95, bottom=0.12, top=0.92, wspace=0.25, hspace=0.25)

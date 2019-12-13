@@ -1,32 +1,7 @@
-import os, sys, time
-import numpy as np
-from   astropy import wcs
-from   astropy.io import fits as pyfits
-import pyopencl as cl
+from ISM.Defs import *
 
 
-# directory where the kernel files *.c can be found
-INSTALL_DIR = os.path.dirname(os.path.realpath(__file__))
-
-ARCSEC_TO_DEGREE =  (1.0/3600.0)
-DEGREE_TO_RADIAN =  0.0174532925199432958
-ARCMIN_TO_RADIAN =  (2.9088820e-4)
-ARCSEC_TO_RADIAN =  (4.8481368e-6)
-HOUR_TO_RADIAN   =  (0.261799387)
-MINUTE_TO_RADIAN =  (4.3633231e-3)
-SECOND_TO_RADIAN =  (7.2722052e-5)
-
-RADIAN_TO_DEGREE =  57.2957795130823208768
-RADIAN_TO_ARCMIN =  3437.746771
-RADIAN_TO_ARCSEC =  206264.8063
-RADIAN_TO_HOUR   =  3.819718634
-RADIAN_TO_MINUTE =  229.1831181
-RADIAN_TO_SECOND =  13750.98708
-
-ARCMIN_TO_DEGREE =   (1.0/60.0)
-DEGREE_TO_ARCMIN =   60.0
-DEGREE_TO_ARCSEC =   3600.0
-
+print("*** IMPORT FITS.py ***")
 
 
 def CopyFits(F, input_hdu=0):
@@ -193,7 +168,7 @@ def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=1):
     LOCAL   =  [4, 32][GPU>0]
     GLOBAL  =  (1+(NN*MM)//LOCAL)*LOCAL
     OPT     =  "-D N=%d -D M=%d -D NN=%d -D MM=%d -D LOCAL=%d -D STEP=%d -D Mc=%d -D Nc=%d" % (N, M, NN, MM, LOCAL, cstep, Mc, Nc)
-    source  =  open(INSTALL_DIR+"/kernel_resample_image.c").read()
+    source  =  open(ISM_DIRECTORY+"/ISM/FITS/kernel_resample_image.c").read()
     program =  cl.Program(context, source).build(OPT)
     Sampler =  program.Sampler
     Sampler.set_scalar_arg_dtypes([None, None, None, None])        
@@ -290,7 +265,7 @@ def ConvolveFitsPyCL(F, fwhm, fwhm_orig=None, hdu=0, dF=None, TAG=0, GPU=False, 
     GLOBAL    =  int((np.floor((N*M)/64)+1)*64)
     OPT       =  '-D N=%d -D M=%d -D NPIX=%d -D K=%.5ef -D WDIM=%d -D GLOBAL=%d -D MASKED_VALUE=%.2ef' % \
                   (N, M, N*M, K, WDIM, GLOBAL, masked_value)
-    source    =  open(INSTALL_DIR+"/kernel_convolve.c").read()
+    source    =  open(ISM_DIRECTORY+"/ISM/FITS/kernel_convolve.c").read()
     program   =  cl.Program(context, source).build(OPT)
     Con       =  None
     if (TAG==0):
@@ -363,7 +338,7 @@ def ConvolveFitsBeamPyCL(F, P, hdu=0, dF=None, GPU=False, masked_value=0.0):
     GLOBAL    =  int((np.floor((N*M)/64)+1)*64)
     OPT       =  '-D N=%d -D M=%d -D NPIX=%d -D K=0.0f -D WDIM=%d -D GLOBAL=%d -D MASKED_VALUE=%.3ef' % \
                   (N, M, N*M, WDIM, GLOBAL, masked_value)
-    source    =  open(INSTALL_DIR+"/kernel_convolve.c").read()
+    source    =  open(ISM_DIRECTORY+"/ISM/FITS/kernel_convolve.c").read()
     program   =  cl.Program(context, source).build(OPT)
     ####
     Con       =  None
@@ -425,7 +400,7 @@ def ConvolveMapBeamPyCL(F, P, dF=None, GPU=False, masked_value=0.0):
     GLOBAL    =  int((np.floor((N*M)/64)+1)*64)
     OPT       =  '-D N=%d -D M=%d -D NPIX=%d -D K=0.0f -D WDIM=%d -D GLOBAL=%d -D MASKED_VALUE=%.4ef' % \
                   (N, M, N*M, WDIM, GLOBAL, masked_value)
-    source    =  open(INSTALL_DIR+"/kernel_convolve.c").read()
+    source    =  open(ISM_DIRECTORY+"/ISM/FITS/kernel_convolve.c").read()
     program   =  cl.Program(context, source).build(OPT)
     Con       =  None
     Con       =  program.Con
@@ -444,3 +419,88 @@ def ConvolveMapBeamPyCL(F, P, dF=None, GPU=False, masked_value=0.0):
     return X
 
 
+
+def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=5, threads=1):
+    """
+    Reproject pyfits image A onto the pixels in pyfits image B.
+    Input:
+        A, B    =   source and target pyfits objects
+        GPU     =   if >0, use GPU instead of CPU
+        platforms = array of potential OpenCL platforms, default is [0, 1, 2, 3, 4, 5]
+        cstep   =   calculate coordinates for the input image only at intervals of 
+                    cstep pixels -- kernel will use linear interpolation for the other pixels
+        threads =   if >1, use multiprocessing to start this many parallel threads
+                    (for the initial coordinate transformations only)
+    Return:
+        reprojected image is put to B
+    """    
+    DO_TIMINGS =  1
+    if (DO_TIMINGS):
+        tP, tB, tK = 0.0, 0.0, 0.0
+        t0 = time.time()
+    # (Xin,Yin) = positions of image A pixels, given in pixel coordinates of the image B system
+    N,  M    =  A[0].data.shape
+    NN, MM   =  B[0].data.shape
+    Mc, Nc   =  (M-1)//cstep+2, (N-1)//cstep+2   # number of points on coordinate grid
+    Yin, Xin =  np.indices((Nc, Mc), np.float32)
+    tmp1     =  wcs.WCS(header=A[0].header)
+    tmp2     =  wcs.WCS(header=B[0].header)
+    if (threads<2):
+        ra, de   =  tmp1.wcs_pix2world(Xin*cstep, Yin*cstep, 0)
+        tmp      =  wcs.WCS(header=B[0].header)
+        Xin, Yin =  tmp2.wcs_world2pix(ra, de, 0)  # pixel coordinates on target image
+        Xin, Yin =  np.asarray(np.ravel(Xin), np.float32), np.asarray(np.ravel(Yin), np.float32)
+    else:
+        npix     =  Nc*Mc
+        manager  =  mp.Manager()
+        yin      =  mp.Array('f', npix)
+        xin      =  mp.Array('f', npix)
+        no       =  npix//threads
+        ###
+        def fun(x, y, tmp1, tmp2, a, b):
+            ra, de          =  tmp1.wcs_pix2world(x[a:b], y[a:b], 0)
+            x[a:b], y[a:b]  =  tmp2.wcs_world2pix(ra, de, 0)
+        ###
+        PROC = []
+        xin[:]   =  cstep*np.ravel(Xin)
+        yin[:]   =  cstep*np.ravel(Yin)
+        for i in range(threads):
+            a, b =  i*no, (i+1)*no+1
+            if (i==(threads-1)): b = npix
+            p = mp.Process(target=fun, args=(xin, yin, tmp1, tmp2, a, b))
+            PROC.append(p)
+            p.start()
+        for i in range(threads):
+            PROC[i].join()    
+        Xin, Yin =  np.asarray(np.ravel(xin), np.float32), np.asarray(np.ravel(yin), np.float32)
+    if (DO_TIMINGS):        
+        tP = time.time()-t0
+        t0 = time.time()
+    # OpenCL initialisations
+    platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=0)
+    LOCAL   =  [4, 32][GPU>0]
+    GLOBAL  =  (1+(NN*MM)//LOCAL)*LOCAL
+    OPT     =  "-D N=%d -D M=%d -D NN=%d -D MM=%d -D LOCAL=%d -D STEP=%d -D Mc=%d -D Nc=%d" % (N, M, NN, MM, LOCAL, cstep, Mc, Nc)
+    source  =  open(ISM_DIRECTORY+"/ISM/FITS/kernel_resample_image.c").read()
+    program =  cl.Program(context, source).build(OPT)
+    queue.finish()
+    if (DO_TIMINGS):
+        tB = time.time()-t0
+        t0 = time.time()
+    Sampler =  program.Sampler
+    Sampler.set_scalar_arg_dtypes([None, None, None, None])        
+    S       =  np.asarray(A[0].data.copy(), np.float32)
+    SS      =  np.zeros(NN*MM, np.float32)    
+    S_buf   =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
+    SS_buf  =  cl.Buffer(context, mf.WRITE_ONLY,  4*NN*MM)    
+    Xin_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=Xin) # Xin[N,M]
+    Yin_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=Yin) # Yin[N,M]
+    queue.finish()
+    Sampler(queue, [GLOBAL,], [LOCAL,], Xin_buf, Yin_buf, S_buf, SS_buf)
+    cl.enqueue_copy(queue, SS, SS_buf)
+    queue.finish()
+    B[0].data = SS.reshape(NN,MM)
+    B[0].data[np.nonzero(B[0].data==0.0)] = np.NaN # undefined pixels were set to 0.0, now NaN
+    if (DO_TIMINGS):
+        tK = time.time()-t0
+        return tP, tB, tK  # python, build, and kernel timings

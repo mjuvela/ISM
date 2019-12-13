@@ -1,36 +1,7 @@
-from MJ.mjDefs import *
-import time
-import numpy as np
-import pyopencl as cl
-from   numpy import *
-from   matplotlib.pylab import *
-from   MJ.Aux.Dust import *
-from   MJ.Aux.ColourCorrect import *
-import threading
 
-"""
-2017-06-03  --- using purely 250um as the reference wavelength !!!
-"""
-
-
-def InitCL(GPU=0, platforms=[0,1,2,3,4]):
-    platform, device, context, queue = None, None, None, None
-    for iplatform in platforms:
-        try:
-            platform = cl.get_platforms()[iplatform]
-            if (GPU>0):
-                device   = platform.get_devices(cl.device_type.GPU)
-            else:
-                device   = platform.get_devices(cl.device_type.CPU)
-            context   =  cl.Context(device)
-            queue     =  cl.CommandQueue(context)
-            print("InitCL: GPU=%d, platform=%d" % (GPU, iplatform))
-            break
-        except:
-            pass
-    print("   ", device[0])
-    return platform, device, context, queue,  cl.mem_flags
-
+# we must already have ISM_DIRECTORY defined and included in sys.path
+from    ISM.mjDefs import *
+import  threading
 
 
 
@@ -109,8 +80,7 @@ def MBB_fit_CL(F, S, dS, GPU=False, FIXED_BETA=-1.0,
     OPT        = \
     " -D N=%d -D NF=%d -D FIXED_BETA=%d -D TMIN=%.3ff -D TMAX=%.3ff -D BMIN=%.3ff -D BMAX=%.3ff -D KK=%.6ff -D KMIN=%.6ff -D NCC=%d -D DO_CC=%d" % \
     (N, NF, FIXED_BETA, TMIN, TMAX, BMIN, BMAX, KK, KMIN, NCC, len(FILTERS)>0)
-    ## source   = file(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_MBB_MCMC_RNG_2.c').read()
-    source     = file(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_fit_MBB.c").read()
+    source     = open(ISM_DIRECTORY+"/MBB/kernel_fit_MBB.c").read()
     program    = cl.Program(context, source).build(OPT)
     # Allocate buffers
     F_buf      = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=F)
@@ -319,7 +289,7 @@ def RunMCMC(F, S, dS, GPU=False, BURNIN=1000, SAMPLES=10000, THIN=20, WIN=200, \
     -D TMIN=%.3ff -D TMAX=%.3ff -D BMIN=%.3ff -D BMAX=%.3ff -I ./ -D METHOD=%d -D USE_COV=%d %s -D SUMMARY=%d" % \
     (N, NF, SAMPLES, THIN, BURNIN, (FIXED_BETA>0.0), WIN, USE_HD, TMIN, TMAX, BMIN, BMAX, 
     METHOD, USE_COV, ADD, SUMMARY)  
-    source     = file(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_MBB_MCMC.c").read()
+    source     = open(ISM_DIRECTORY+"/MBB/kernel_MBB_MCMC.c").read()
     program    = cl.Program(context, source).build(OPT)
     # Allocate buffers
     F_buf      = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=F)
@@ -639,7 +609,7 @@ def MBB_HMCMC_RAM_CL(F, S, dS, GPU=0, TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
         print("*** MBB_HMCMC_RAM_CL: parameter HIER must be 0, 1, or 2")
         sys.exit()
     NG         =  [ 5, 9 ][HIER>1]    # number of global parameters
-    source     = file(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_MBB_HMCMC_RAM.c").read()
+    source     = open(ISM_DIRECTORY+"/MBB/kernel_MBB_HMCMC_RAM.c").read()
     OPT     =  " -D N=%d -D NF=%d -D SAMPLES=%d -D THIN=%d -D BURNIN=%d -D STUDENT=%d -D HIER=%d -D HRAM=%d \
     -D TMIN=%.3ff -D TMAX=%.3ff -D BMIN=%.3ff -D BMAX=%.3ff -I ./ -D LOCAL=%d -D NG=%d" % \
     (N, NF, SAMPLES, THIN, BURNIN, STUDENT, HIER, HRAM, TMIN, TMAX, BMIN, BMAX, LOCAL, NG)
@@ -799,10 +769,9 @@ def MBB_HMCMC_GIBBS_CL(F, S, dS, GPU=0, TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
     LOCAL    =  [ 1, 32][GPU>0]
     GLOBAL   =  [ N, (N//64+1)*64 ][GPU>0]
     platform, device, context, queue, mf = InitCL(GPU, platforms)
-    # source     = file(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_MBB_HMCMC_RAM.c").read()
     DETMIN   =  1.0e-29  # was 1e-29  1e-30 was working, test 1e-29 again
     DETMIN   =  1.0e-32
-    source   =  open(HOMEDIR+"starformation/Python/MJ/MJ/Aux/kernel_MBB_HMCMC_GIBBS.c").read()
+    source   =  open(ISM_DIRECTORY+"/MBB/kernel_MBB_HMCMC_GIBBS.c").read()
     OPT      =  " -D N=%d -D NF=%d -D SAMPLES=%d -D STUDENT=%d -D HIER=%d -D DETMIN=%.3ef -D DOUBLE=%d  \
     -D TMIN=%.5ff -D TMAX=%.5ff -D BMIN=%.5ff -D BMAX=%.5ff -I ./ -D NG=%d -D LOCAL=%d -D LITER=%d \
     -I%s -D SEED=%.6ff" % \
@@ -1089,7 +1058,7 @@ def MBB_HMCMC_BASIC_CL(F, S, dS, GPU=0, TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
         print("*** MBB_HMCMC_BASIC_CL: parameter HIER must be 0, 1, or 2")
         sys.exit()
     NG = [0, 5, 9][HIER]  # number of global parameters
-    source     = file(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_MBB_HMCMC_BASIC.c").read()
+    source     = open(ISM_DIRECTORY+"/MBB/kernel_MBB_HMCMC_BASIC.c").read()
     OPT     =  " -D N=%d -D NF=%d -D NG=%d -D NP=%d -D SAMPLES=%d -D THIN=%d -D BURNIN=%d -D STUDENT=%d -D HIER=%d -D STEP_SCALE=%.5ef \
     -D TMIN=%.5ff -D TMAX=%.5ff -D BMIN=%.5ff -D BMAX=%.5ff -I /home/mika/starformation/Python/MJ/MJ/Aux -D LOCAL=%d -D GLOBAL=%d -D DOUBLE=%d" % \
     (N, NF, NG, NG+3*N, SAMPLES, THIN, BURNIN, STUDENT, HIER, STEP_SCALE, TMIN, TMAX, BMIN, BMAX, LOCAL, GLOBAL, (DOUBLE>0))

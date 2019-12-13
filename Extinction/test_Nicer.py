@@ -1,10 +1,13 @@
 import os, sys
-
-# INSTALL_DIR is needed to find the kernel files that must be in the same directory as this script
-INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__)) 
-sys.path.append(INSTALL_DIR)
-from Nicer import *
-
+ISM_DIRECTORY = os.path.expanduser('~/GITHUB')
+try:
+    ISM_DIRECTORY = os.environ(['ISM_DIRECTORY'])
+except:
+    pass
+sys.path.append(ISM_DIRECTORY)
+from ISM.Extinction import *
+from ISM.Extinction.Nicer import *
+from ISM.FITS.FITS import MakeEmptyFitsDim
 
 # Select a target cloud
 ra0  = HMS2RAD( 15, 39, 42.0)

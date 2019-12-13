@@ -1,135 +1,16 @@
-# import aplpy
-import matplotlib.pylab as pl
-from   astropy import wcs
-from   astropy import units
-from   astropy.coordinates import SkyCoord
-from   numpy.linalg import solve
-from   scipy.interpolate import interp1d
-import time, numpy
-import pyopencl as cl
-from numpy import *
-from astropy.io import fits as pyfits
+# ISM_DIRECTORY must have been defined and added to the path
+from   ISM.Defs import *
+import ISM.FITS
 
 
-
-
-ARCSEC_TO_DEGREE =  (1.0/3600.0)
-DEGREE_TO_RADIAN =  0.0174532925199432958
-ARCMIN_TO_RADIAN =  (2.9088820e-4)
-ARCSEC_TO_RADIAN =  (4.8481368e-6)
-HOUR_TO_RADIAN   =  (0.261799387)
-MINUTE_TO_RADIAN =  (4.3633231e-3)
-SECOND_TO_RADIAN =  (7.2722052e-5)
-
-RADIAN_TO_DEGREE =  57.2957795130823208768
-RADIAN_TO_ARCMIN =  3437.746771
-RADIAN_TO_ARCSEC =  206264.8063
-RADIAN_TO_HOUR   =  3.819718634
-RADIAN_TO_MINUTE =  229.1831181
-RADIAN_TO_SECOND =  13750.98708
-
-ARCMIN_TO_DEGREE =   (1.0/60.0)
-DEGREE_TO_ARCMIN =   60.0
-DEGREE_TO_ARCSEC =   3600.0
-
-
-def HMS2RAD(h, m, s):
-    # Convert hour, minute, and second to radians
-    if (h>=0): 
-        return  (h+(1.0*m)/60.0+(1.0*s)/3600.0)*HOUR_TO_RADIAN
-    else:    # someone uses negative hours ?
-        return  -(-(1.0*h)+(1.0*m)/60.0+(1.0*s)/3600.0)*HOUR_TO_RADIAN
-
-    
-def DMS2RAD(d, m, s):
-    # Convert degree, arcmin, arcsec to radians
-    # If  -1<DEC<0.0, d must be float so that we have it as -0.0
-    # ok as long as -0.0 has STRING REPRESENTATION WITH MINUS SIGN INCLUDED
-    if (d==0.0):
-        sss = '%.1f' % d
-        if (sss.find('-')>=0):  # d was -0.0 !!
-            return -(-(1.0*d)+(1.0*m)/60.0+(1.0*s)/3600.0)*DEGREE_TO_RADIAN            
-    if (d>=0):
-        return ((1.0*d)+(1.0*m)/60.0+(1.0*s)/3600.0)*DEGREE_TO_RADIAN
-    else:
-        return -(-(1.0*d)+(1.0*m)/60.0+(1.0*s)/3600.0)*DEGREE_TO_RADIAN
-
-    
-def RAD2HMS(x):
-    xx  =  abs(x*RADIAN_TO_SECOND)
-    h   =  int(xx/3600)
-    xx -=  h*3600.0 
-    h   =  h % 24
-    m   =  int(xx/60) 
-    s   =  xx-m*60.0 
-    if (abs(s-60.0)<0.1):
-        s  = 0.0 
-        m += 1 
-        if (m==60):
-            m  = 0 
-            h += 1 
-        if (h==24):
-            h  = 0
-    return (h, m, s)
-
-
-def RAD2DMS(x):
-    xx  =  abs(x*RADIAN_TO_ARCSEC) 
-    d   =  int(xx/3600)
-    xx -=  d*3600.0 
-    m   =  int(xx/60) 
-    s   =  xx-m*60.0 
-    if (abs(s-60.0)<0.01):
-        s  = 0.0 
-        m += 1 
-        if (m==60):
-            m  = 0 
-            d += 1
-    if (x<0.0):
-        d = -d 
-    return (d, m, s)
-
-
-def STR_HMS2RAD(s):
-    """
-    Convert string 'h m s' into radians
-    """
-    ss = s.lower().replace(':', ' ')
-    ss = ss.replace('h',' ').replace('m', ' ').replace('s', ' ').replace(':', ' ').split()
-    h, m, s = float(ss[0]), float(ss[1]), float(ss[2])
-    return HMS2RAD(h,m,s)
-
-
-def STR_DMS2RAD(s):
-    """
-    Convert string 'd am as' into radians    
-    """
-    ss = s.lower().replace(':', ' ')
-    ss = ss.replace('d',' ').replace('m', ' ').replace('s', ' ').replace('\'',' ').replace('"', ' ').replace(':', ' ').split()
-    d, am, ars = float(ss[0]), float(ss[1]), float(ss[2])
-    # if -1.0<DEC<0.0, d=-0.0 => sign should be correctly interpreted in DMS2RAD
-    res = DMS2RAD(d,am,ars)
-    if (ss[0].find('-')>=0): 
-        if (res>0.0):
-            print('*'*80)
-            print('ERROR IN STR_DMS2RAD !!!!   %s --> %.7f' % (s, res))
-            print('*'*80)
-        res = -abs(res)
-    return res
-
-
-
-
-#==========================================================================================
-# WCS routines
-#==========================================================================================
+print("*** IMPORT Nicer_aux.py ***")
 
 
 # from old WCS  !!
-WCS_J2000    = 1  #    J2000(FK5) right ascension and declination   
-WCS_B1950    = 2  #    B1950(FK4) right ascension and declination   
-WCS_GALACTIC = 3  #    Galactic longitude and latitude   
-WCS_ECLIPTIC = 4  #    Ecliptic longitude and latitude   
+# WCS_J2000    = 1  #    J2000(FK5) right ascension and declination   
+# WCS_B1950    = 2  #    B1950(FK4) right ascension and declination   
+# WCS_GALACTIC = 3  #    Galactic longitude and latitude   
+# WCS_ECLIPTIC = 4  #    Ecliptic longitude and latitude   
 
 
 
@@ -166,7 +47,7 @@ def PIX2WCS_ALL(header, radians=True):
     """
     M     = int(header['NAXIS1'])  # columns  =  longitude = X
     N     = int(header['NAXIS2'])  # rows     =  latitude  = Y
-    Y, X  = numpy.indices((N,M), numpy.float32)
+    Y, X  = np.indices((N,M), np.float32)
     return PIX2WCS(header, X.copy(), Y.copy(), radians=radians) # arguments ~ (NAXIS1, NAXIS2)
     
     
@@ -340,36 +221,6 @@ def get_fits_pixel_size(header, radians=True):
         return d
     else:
         return d*RADIAN_TO_DEGREE
-
-    
-def MakeEmptyFitsDim(lon, lat, pix, m, n, sys_req='fk5'):
-    """
-    Make an empty fits object.
-    Inputs:
-        lon, lat  = centre coordinates of the field [radians]
-        pix       = pixel size [radians]
-        m, n      = width and height in pixels
-        sys_req   = coordinate system, 'fk5' or 'galactic'
-    """
-    A         = zeros((n, m), float32)
-    hdu       = pyfits.PrimaryHDU(A)
-    F         = pyfits.HDUList([hdu])
-    F[0].header.update(CRVAL1 =  lon*RADIAN_TO_DEGREE)
-    F[0].header.update(CRVAL2 =  lat*RADIAN_TO_DEGREE)
-    F[0].header.update(CDELT1 = -pix*RADIAN_TO_DEGREE)
-    F[0].header.update(CDELT2 =  pix*RADIAN_TO_DEGREE)
-    F[0].header.update(CRPIX1 =  0.5*(m+1))
-    F[0].header.update(CRPIX2 = 0.5*(n+1))
-    if ((sys_req==WCS_GALACTIC)|(sys_req=='galactic')):
-        F[0].header.update(CTYPE1   = 'GLON-TAN')
-        F[0].header.update(CTYPE2   = 'GLAT-TAN')
-        F[0].header.update(COORDSYS = 'GALACTIC')
-    else:
-        F[0].header.update(CTYPE1   = 'RA---TAN')
-        F[0].header.update(CTYPE2   = 'DEC--TAN')
-        F[0].header.update(COORDSYS = 'EQUATORIAL')
-        F[0].header.update(EQUINOX  = 2000.0)
-    return F
 
     
 

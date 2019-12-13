@@ -1,11 +1,7 @@
 #!/usr/bin/python
 import os, sys, numpy
-
-### sys.path.append(INSTALL_DIR)
+# one must have already defined ISM_DIRECTORYand added that  to the path !!
 from Nicer_aux import *
-INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__)) 
-sys.path.append(INSTALL_DIR)
-
 
 
 def read_2mass_file(filename, version=-1, allstars=False, Qflg=False, Eflg=False):
@@ -495,7 +491,7 @@ def get_nicer_extinctions_OpenCL(PHOT, dPHOT, EX_AV, REFCOL, REFCOV, GPU=0, plat
     LOCAL      =  [8, 32][GPU>0]
     if (local>0): LOCAL = local
     OPT        = " -D STARS=%d -D BANDS=3 -D COLOURS=2 -D CLIP_UP=0 -D CLIP_DOWN=0 -D NPIX=0 -D FWHM=1e-10f" % N
-    source     =  open(INSTALL_DIR+"/kernel_Nicer.c").read()
+    source     =  open(ISM_DIRECTORY+"/ISM/Extinction/kernel_Nicer.c").read()
     program    =  cl.Program(context, source).build(OPT)
     ##
     k          =  asarray(EX_AV, float32)
@@ -553,7 +549,7 @@ def get_smoothed_values_OpenCL(COO, AV, dAV, LON, LAT, FWHM, CLIP_UP, CLIP_DOWN,
     if (local>0): LOCAL = local
     OPT      = "-D STARS=%d -D FWHM=%.6ef -D CLIP_UP=%.5ef -D CLIP_DOWN=%.5e -D TRUE_ERROR=%d -D NPIX=%d -D BANDS=3 -D COLOURS=2" % \
                   (STARS,      FWHM,         CLIP_UP,         CLIP_DOWN,        TRUE_ERROR,      NPIX)
-    source   =  open(INSTALL_DIR+'/kernel_Nicer.c').read()
+    source   =  open(ISM_DIRECTORY+"/ISM/Extinction/kernel_Nicer.c").read()
     program  =  cl.Program(context, source).build(OPT)
     ##
     RA_buf   =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(COO[:,0].copy(), float32))

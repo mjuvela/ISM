@@ -1,10 +1,4 @@
-from   MJ.mjDefs import *
-from   MJ.WCS import get_fits_pixel_size
-import time
-import numpy as np
-import pyopencl as cl
-from   MJ.Aux.FITS import CopyFits
-from   MJ.WCS import WCS2PIX, PIX2WCS_ALL, PIX2WCS
+from ISM.Defs import *
 
 
 def AbsolutePA(F):
@@ -79,7 +73,7 @@ def AngleDispersionFunction(F, R1, R2, GPU=0, FAST_DISTANCE=0):
     queue       = cl.CommandQueue(context)
     mf          = cl.mem_flags
     OPT         = "-D NPIX=%d -D R1=%.5e -D R2=%.5e -D FAST_DISTANCE=%d" % (NPIX, R1, R2, FAST_DISTANCE)
-    source      = file(HOMEDIR+'/starformation/Python/MJ/MJ/Pattern/kernel_ADF.c').read()
+    source      = opene(ISM_DIRECTORY+'/ISM/Pattern/kernel_ADF.c').read()
     program     = cl.Program(context, source).build(OPT)
     print('--- initialisation  %5.2f seconds' % (time.time()-t0))
     #

@@ -1,5 +1,4 @@
 
 
-from MJ.Pattern import *
-from MJ.Pattern.Pattern import *
+from ISM.TM.Pattern import *
 
