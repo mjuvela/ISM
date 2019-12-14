@@ -1,3 +1,7 @@
+
+// #define ID (152*256+8)
+
+
 float PixelCrossSection(float *Xin, float *Yin) {
    // Return the cross section of the target pixel x=0.0-1.0, y=0.0-1.0
    // and the input pixel that has corners at (Xin, Yin)
@@ -23,30 +27,30 @@ float PixelCrossSection(float *Xin, float *Yin) {
    xb  =  sqrt(c*c+d*d) ;          //  length of the second side
    x   =  (a*c+b*d)/(xa*xb) ;      //  cosine of the angle between the two sides
    area  =  xa*xb*sqrt(1.0f-x*x) ; //  pixel area   
-   inside    = 0 ;              // number of input pixel corners that are inside the target pixel
-   crossings = 0 ;              // number of crossings with the top and bottom of the target pixel
-   for(int i=0; i<4; i++) {     // loop over the sides of the input pixel
+   inside    = 0 ;                 //  number of input pixel corners that are inside the target pixel
+   crossings = 0 ;                 //  number of crossings with the top and bottom of the target pixel
+   for(int i=0; i<4; i++) {        //  loop over the sides of the input pixel
       x  =  Xin[i] ;   y = Yin[i] ;
       // check if the corner i is inside the target pixel
       if ((x>=0.0f)&&(x<=1.0f)&&(y>=0.0f)&&(y<=1.0f))  inside += 1 ;
       // check if the side i -> i+1 crosses an edge of the target pixel
       a     =  Xin[(i+1)%4]-x ;       
-      c     =  Yin[(i+1)%4]-y ;           // (a,c) is the vector along the edge i of the input pixel
-      if (fabs(c)>1.0e-6f) {              // y is not constant => check for crossingwith the top and bottom borders
+      c     =  Yin[(i+1)%4]-y ;              // (a,c) is the vector along the edge i of the input pixel
+      if (fabs(c)>1.0e-6f) {                 // y is not constant => check for crossing with the top and bottom borders
          alpha =  (0.0f-y)/c ;
-         if ((alpha>0.0f)&&(alpha<1.0f))  { // the side does cross correct y=0 lines
-            b = x+alpha*a  ;                // x-coordinate of the crossing
-            if ((b>0.0f)&&(b<1.0f)) {       // crossing inside the target pixel
+         if ((alpha>=0.0f)&&(alpha<=1.0f)) { // the side does cross correct y=0 lines
+            b = x+alpha*a  ;                 // x-coordinate of the crossing
+            if ((b>=0.0f)&&(b<=1.0f)) {      // crossing inside the target pixel
                XX[NP]  =  b ;    NP++ ;  crossings += 1 ;
-               // if (id==0) printf("CROSS AT %7.2f\n", x+alpha*a) ;
+               // if (id==ID) printf("(1) CROSS AT %7.2f\n", x+alpha*a) ;
             } 
          }
          alpha =   (1.0f-y)/c ;
-         if ((alpha>0.0f)&&(alpha<1.0f))  { // does cross with the top of the target pixel
+         if ((alpha>=0.0f)&&(alpha<=1.0f)) { // does cross with the top of the target pixel
             b = x+alpha*a ;
-            if ((b>0.0f)&&(b<1.0f)) {
+            if ((b>=0.0f)&&(b<=1.0f)) {
                XX[NP]  =  b  ;  NP++ ;     crossings += 1 ;
-               // if (id==0) printf("CROSS AT %7.2f\n", x+alpha*a) ;
+               // if (id==ID) printf("(2) CROSS AT %7.2f\n", x+alpha*a) ;
             }
          } 
       }
@@ -55,12 +59,12 @@ float PixelCrossSection(float *Xin, float *Yin) {
          alpha =  (0.0f-x)/a ;
          if ((alpha>0.0)&&(alpha<1.0))  { // side crosses the x=0.0 lines
             b =  y+alpha*c ;
-            if ((b>0.0f)&&(b<1.0f))  crossings++ ;  // that crossing inside the target pixel
+            if ((b>=0.0f)&&(b<=1.0f))  crossings++ ;  // that crossing inside the target pixel
          }
          alpha =  (1.0f-x)/a ;
-         if ((alpha>0.0)&&(alpha<1.0))  { // side crosses the x=1.0 line
+         if ((alpha>=0.0)&&(alpha<=1.0))  { // side crosses the x=1.0 line
             b = y+alpha*c ;
-            if ((b>0.0f)&&(b<1.0f))  crossings++ ;
+            if ((b>=0.0f)&&(b<=1.0f))  crossings++ ;
          }
       }
    } // for i --- loop over II sides
@@ -89,7 +93,7 @@ float PixelCrossSection(float *Xin, float *Yin) {
    for(int i=0; i<4; i++) {
       if ((Xin[i]>xmin)&&(Xin[i]<xmax)&&(Yin[i]>0.0f)&&(Yin[i]<1.0f)) {
          XX[NP] = Xin[i] ;    NP++ ;
-         // if (id==0) printf(" add corner %7.2f\n", Xin[i]) ;
+         // if (id==ID) printf("(3) add corner %7.2f\n", Xin[i]) ;
       }
    }   
    // All vertex points are now in XX but they need to be still sorted
@@ -102,6 +106,16 @@ float PixelCrossSection(float *Xin, float *Yin) {
       }
       XX[j+1] = a ;
    }      
+
+#if 0   
+   if (id==ID) {
+      printf("A===========================================================================================\n") ;
+      for(int i=0; i<4; i++) printf("#1   %7.4f %7.4f\n",  Xin[i], Yin[i]) ;    
+      for(int i=0; i<NP; i++) printf(" %7.4f ", XX[i]) ;
+      printf("\n") ;
+   }
+#endif
+   
    // Calculate the y-values for each XX point
    for(int i=0; i<NP; i++) {          // for each XX[i], find the y-values at input pixel boundaries
       a = 1.0e10f ; b = -1.0e10f ;    // reused for minimum and maximum y values
@@ -110,25 +124,43 @@ float PixelCrossSection(float *Xin, float *Yin) {
          ya  =  Yin[II] ;
          dx  =  Xin[(II+1)%4]-xa ;
          dy  =  Yin[(II+1)%4]-ya ;
-         if (fabs(dx)<1.0e-6f) continue ;  // skip vertical sides, there will be two other horizontal lines?
-         // if (id==ID) printf("   === x=%.3f  SIDE %d\n", XX[i], II) ;
-         alpha =  (XX[i]-xa)/dx ;     // relative distance from the beginning of the side
-         if ((alpha>-0.000001f)&&(alpha<=1.000001f)) { // this side extends over XX[i]
-            c =  ya + alpha*dy ;      // y value at the crossing
-            b =  max(b, c) ;       // maximum y value for the input pixel at position XX[i]
-            a =  min(a, c) ;       // minimum y value
+         if (fabs(dx)<5.0e-6f) continue ;  // skip vertical sides, there will be two other horizontal lines?
+         alpha =  (XX[i]-xa)/dx ;          // relative distance from the beginning of the side
+         // if (id==ID) printf(" *** alpha *** %.3f\n", alpha) ;
+         if ((alpha>=-0.00001f)&&(alpha<=1.00001f)) { // this side extends over XX[i]
+            c =  ya + alpha*dy ;             // y value at the crossing
+            b =  max(b, c) ;                 // maximum y value for the input pixel at position XX[i]
+            a =  min(a, c) ;                 // minimum y value
+#if 0
+            if (id==ID) {
+               printf(" === X = %7.4f - %7.4f,    Y = %7.4f - %7.4f\n", xa, xa+dx, ya, ya+dy) ;
+               printf(" === a = %7.4f  <=  c = %7.4f = %7.4f + %7.4f x %7.4f\n", a, c, ya, alpha, dy) ;
+            }
+#endif
          }
       }
       b = min(1.0f, b) ;    a = max(0.0f, a) ; // min of maxs and max of mins
       YY[i] = clamp(b-a, 0.0f, 1.0e10f) ;
    }
+
+#if 0
+   if (id==ID) {
+      for(int i=0; i<NP; i++) {
+         printf("                 XX = %.3f       YY = %.3f\n", XX[i], YY[i]) ;
+      }
+      printf("O===========================================================================================\n") ;
+   }
+#endif
+   
    // Integrate the area, cross section between the pixels
    area = 0.0f ;
    for(int i=1; i<NP; i++) {
       area += (XX[i]-XX[i-1])*0.5f*(YY[i]+YY[i-1]) ;
+      // if (id==ID)  printf("#2  %6d   %7.4f %7.4f   %7.4f %7.4f    area + %7.4f = %7.4f\n\n", id, XX[i-1], YY[i-1], XX[i], YY[i], (XX[i]-XX[i-1])*0.5f*(YY[i]+YY[i-1]), area) ;
    }
    return area ;
 }
+
 
 
 
@@ -193,16 +225,8 @@ __kernel void Sampler(__global float  *Xin,   //  Xin[ N, M]  X-coordinates of i
          jy    =  Yin[i   + (k+1)*M] - Yin[i + k*M] ;  //  dy/dj
 #endif
          
-//  * 0.499  => max relative error wrt Montage ~ a few times 1e-3, no outliers
-//    0.4999                                                 1e-4, no outliers 
-//    0.50      max relative error even smaller... in some maps one pixel with rerr up to a few per cent
-//              is this natural... if there is a large difference in the neighbouring pixels 
-//              and one does include or does not include a bit of neighbouring pixel in the overlap??
-//    0.50f     compared to 0.50, the number of outliers is doubled!!! 
-//              such sensitivity to the exact value of the corner positions looks like a bug (?)
-//    0.4999f   still five outliers in test_drizzle_errors.py (compared to none with 0.4999 !!!)
-//              no difference between CPU and GPU, always significant difference between 0.4999 and 0.4999f ???
-#define QQ (0.4999*Q)  
+
+#define QQ (0.5f*Q)  
          X[0]  =  x - QQ*ix - QQ*jx - (I-0.5f) ;    // lower left  corner, relative to target pixel corner
          X[1]  =  x + QQ*ix - QQ*jx - (I-0.5f) ;    // lower right corner
          X[2]  =  x + QQ*ix + QQ*jx - (I-0.5f) ;    // upper right corner

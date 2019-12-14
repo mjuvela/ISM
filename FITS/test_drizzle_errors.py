@@ -16,8 +16,7 @@ Compare results to Montage.reproject, for different latitude, different pixel si
 """
 
 np.random.seed(12345)
-offx     =  -1.3001*ARCMIN_TO_RADIAN
-offy     =  -1.2000*ARCMIN_TO_RADIAN
+
 scale    =  1.0
 factor   =  1.0
 threads  =  1
@@ -64,6 +63,8 @@ for row in range(4):
         pix = PIXEL_SIZES[col]*ARCSEC_TO_RADIAN
         
         # Generate the input map
+        offx =  1.3*pix
+        offy = -0.8*pix
         A = MakeEmptyFitsDim(1.0,      LAT*DEGREE_TO_RADIAN,      pix,   N, M)
         B = MakeEmptyFitsDim(1.0,      LAT*DEGREE_TO_RADIAN,      pix,   N, M)
         G = MakeEmptyFitsDim(1.0+offx, LAT*DEGREE_TO_RADIAN+offy, pix,   N, M)
@@ -79,6 +80,7 @@ for row in range(4):
         G[0].data[:,-3:] = 0.0
         if (1):  # rotate the input image
             rot = 30*DEGREE_TO_RADIAN
+            rot = 0.0*DEGREE_TO_RADIAN
             G[0].header['CD1_1'] =  G[0].header['CDELT1']*cos(rot)
             G[0].header['CD1_2'] = -G[0].header['CDELT2']*sin(rot)
             G[0].header['CD2_1'] =  G[0].header['CDELT1']*sin(rot)
@@ -119,10 +121,10 @@ for row in range(4):
         X    =  (B[0].data[m]-A[0].data[m]) / B[0].data[m]
         err  =   max(abs(X))        
         
-        if (1):
+        if (cstep==8):
             merr = nonzero( abs((B[0].data-A[0].data)/B[0].data) == err)
             print("MAXIMUM ERROR AT:", merr, " rerr = ", err)
-        
+            #sys.exit()
         
         m    =  nonzero( abs((B[0].data-A[0].data) / B[0].data)==err )        
         text(0.65, 0.73, r'$\rm max(r)=$', transform=ax.transAxes)

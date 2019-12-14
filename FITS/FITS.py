@@ -430,7 +430,7 @@ def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=5, threads=1, shrink=1
         GPU     =   if >0, use GPU instead of CPU
         platforms = array of potential OpenCL platforms, default is [0, 1, 2, 3, 4, 5]
         cstep   =   calculate coordinates for the input image only at intervals of 
-                    cstep pixels -- kernel will use linear interpolation for the other pixels
+                    cstep [integer] pixels -- kernel will use linear interpolation for the other pixels
         threads =   if >1, use multiprocessing to start this many parallel threads
                     (for the initial coordinate transformations only)
         shrink  =   factor by which the input image pixels are shrunk before calculating pixel overlap
