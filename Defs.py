@@ -161,3 +161,6 @@ def InitCL(GPU=0, platforms=[], sub=0, verbose=False):
         print(device)
     return platform, device, context, queue,  cl.mem_flags
 
+
+
+

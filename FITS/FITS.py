@@ -143,15 +143,16 @@ def InitCL(GPU=0, platforms=[], sub=0, verbose=False):
 
 
 
-def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=1):
+def ReprojectOld(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=1, shrink=1.0):
     """
     Reproject pyfits image A onto the pixels in pyfits image B.
     Input:
         A, B   =   source and target pyfits objects
         GPU    =   if >0, use GPU instead of CPU
         platforms = array of potential OpenCL platforms, default is [0, 1, 2, 3, 4, 5]
-        cstep  =   calculate coordinates for the input image only at intervals of 
+        cstep  =   calculate coordinates for the input image only at intervals of
                    cstep pixels -- kernel will use linear interpolation for the other pixels
+        shrink =   factor by which to skrink the input pixels before overlap calculation
     """    
     # (Xin,Yin) = positions of image A pixels, given in pixel coordinates of the image B system
     N,  M    =  A[0].data.shape
@@ -167,7 +168,8 @@ def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=1):
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=0)
     LOCAL   =  [4, 32][GPU>0]
     GLOBAL  =  (1+(NN*MM)//LOCAL)*LOCAL
-    OPT     =  "-D N=%d -D M=%d -D NN=%d -D MM=%d -D LOCAL=%d -D STEP=%d -D Mc=%d -D Nc=%d" % (N, M, NN, MM, LOCAL, cstep, Mc, Nc)
+    OPT     =  "-D N=%d -D M=%d -D NN=%d -D MM=%d -D LOCAL=%d -D STEP=%d -D Mc=%d -D Nc=%d -D Q=%.4ef" % \
+    (N, M, NN, MM, LOCAL, cstep, Mc, Nc, shrink)
     source  =  open(ISM_DIRECTORY+"/ISM/FITS/kernel_resample_image.c").read()
     program =  cl.Program(context, source).build(OPT)
     Sampler =  program.Sampler
@@ -420,7 +422,7 @@ def ConvolveMapBeamPyCL(F, P, dF=None, GPU=False, masked_value=0.0):
 
 
 
-def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=5, threads=1):
+def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=5, threads=1, shrink=1.0):
     """
     Reproject pyfits image A onto the pixels in pyfits image B.
     Input:
@@ -431,6 +433,7 @@ def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=5, threads=1):
                     cstep pixels -- kernel will use linear interpolation for the other pixels
         threads =   if >1, use multiprocessing to start this many parallel threads
                     (for the initial coordinate transformations only)
+        shrink  =   factor by which the input image pixels are shrunk before calculating pixel overlap
     Return:
         reprojected image is put to B
     """    
@@ -480,7 +483,8 @@ def Reproject(A, B, GPU=0, platforms=[0,1,2,3,4,5], cstep=5, threads=1):
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=0)
     LOCAL   =  [4, 32][GPU>0]
     GLOBAL  =  (1+(NN*MM)//LOCAL)*LOCAL
-    OPT     =  "-D N=%d -D M=%d -D NN=%d -D MM=%d -D LOCAL=%d -D STEP=%d -D Mc=%d -D Nc=%d" % (N, M, NN, MM, LOCAL, cstep, Mc, Nc)
+    OPT     =  "-D N=%d -D M=%d -D NN=%d -D MM=%d -D LOCAL=%d -D STEP=%d -D Mc=%d -D Nc=%d -D Q=%.4ef" % \
+    (N, M, NN, MM, LOCAL, cstep, Mc, Nc, shrink)
     source  =  open(ISM_DIRECTORY+"/ISM/FITS/kernel_resample_image.c").read()
     program =  cl.Program(context, source).build(OPT)
     queue.finish()

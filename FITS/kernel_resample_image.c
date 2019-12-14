@@ -76,7 +76,7 @@ float PixelCrossSection(float *Xin, float *Yin) {
       //  if both alpha and beta in [0,1], corner (x,y) was inside the input pixel => all corners inside input pixel
       beta   =  ( x*c - y*a - Xin[0]*c + Yin[0]*a )   /  ( b*c-a*d ) ;
       alpha  =  ( x - Xin[0] - beta*b ) / a ;
-      if ((alpha>0.0)&&(alpha<1.0)&&(beta>0.0)&&(beta<1.0)) {
+      if ((alpha>0.0f)&&(alpha<1.0f)&&(beta>0.0f)&&(beta<1.0f)) {
          return 1.0f ;    // target pixel completely inside the input pixel => return the full area of the target pixel
       } else {
          return 0.0f ;    // no crossings between the edges and all corners outside input pixel => no overlap
@@ -172,7 +172,7 @@ __kernel void Sampler(__global float  *Xin,   //  Xin[ N, M]  X-coordinates of i
    x  =   Yin[k+1]  -  Yin[k] ;
    y  =   Xin[k+1]  -  Xin[k] ;
    x  =   sqrt(x*x+y*y)/STEP ; 
-   int delta =  (int)(2.0f+0.5f/x) ;   // number of steps in the input image ... x is still the pixel size
+   int delta =  (int)(2.1f+0.5f/x) ;   // number of steps in the input image ... x is still the pixel size
    // Calculate area-weighted average of the input pixels
    float W=0.0f, SUM=0.0f ;   
    for(int j=max(0, j0-delta); j<=min(N-1, j0+delta); j++) {  // loop over pixels of the input image
@@ -192,14 +192,25 @@ __kernel void Sampler(__global float  *Xin,   //  Xin[ N, M]  X-coordinates of i
          jx    =  Xin[i   + (k+1)*M] - Xin[i + k*M] ;  //  dx/dj
          jy    =  Yin[i   + (k+1)*M] - Yin[i + k*M] ;  //  dy/dj
 #endif
-         X[0]  =  x - 0.5*ix - 0.5*jx - (I-0.5f) ;    // lower left  corner, relative to target pixel corner
-         X[1]  =  x + 0.5*ix - 0.5*jx - (I-0.5f) ;    // lower right corner
-         X[2]  =  x + 0.5*ix + 0.5*jx - (I-0.5f) ;    // upper right corner
-         X[3]  =  x - 0.5*ix + 0.5*jx - (I-0.5f) ;    // upper left  corner
-         Y[0]  =  y - 0.5*iy - 0.5*jy - (J-0.5f) ;
-         Y[1]  =  y + 0.5*iy - 0.5*jy - (J-0.5f) ;
-         Y[2]  =  y + 0.5*iy + 0.5*jy - (J-0.5f) ;
-         Y[3]  =  y - 0.5*iy + 0.5*jy - (J-0.5f) ;
+         
+//  * 0.499  => max relative error wrt Montage ~ a few times 1e-3, no outliers
+//    0.4999                                                 1e-4, no outliers 
+//    0.50      max relative error even smaller... in some maps one pixel with rerr up to a few per cent
+//              is this natural... if there is a large difference in the neighbouring pixels 
+//              and one does include or does not include a bit of neighbouring pixel in the overlap??
+//    0.50f     compared to 0.50, the number of outliers is doubled!!! 
+//              such sensitivity to the exact value of the corner positions looks like a bug (?)
+//    0.4999f   still five outliers in test_drizzle_errors.py (compared to none with 0.4999 !!!)
+//              no difference between CPU and GPU, always significant difference between 0.4999 and 0.4999f ???
+#define QQ (0.4999*Q)  
+         X[0]  =  x - QQ*ix - QQ*jx - (I-0.5f) ;    // lower left  corner, relative to target pixel corner
+         X[1]  =  x + QQ*ix - QQ*jx - (I-0.5f) ;    // lower right corner
+         X[2]  =  x + QQ*ix + QQ*jx - (I-0.5f) ;    // upper right corner
+         X[3]  =  x - QQ*ix + QQ*jx - (I-0.5f) ;    // upper left  corner
+         Y[0]  =  y - QQ*iy - QQ*jy - (J-0.5f) ;
+         Y[1]  =  y + QQ*iy - QQ*jy - (J-0.5f) ;
+         Y[2]  =  y + QQ*iy + QQ*jy - (J-0.5f) ;
+         Y[3]  =  y - QQ*iy + QQ*jy - (J-0.5f) ;
          x     =  PixelCrossSection(X, Y) ;
          W    +=  x ;
          SUM  +=  x*S[i+j*M] ;
