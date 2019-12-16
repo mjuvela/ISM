@@ -5,7 +5,7 @@ using OpenCL, Printf, Mmap #, PyPlot
 using DelimitedFiles, Statistics
 
 ICELL   =  0
-GPU     =  false
+GPU     =  true
 NSTOCH  =  999
 NB      =  [ 43, 23, 13]     # bins on each level of the library tree
 NB      =  [ 67, 32, 15]
@@ -16,6 +16,7 @@ DFRAC   =  0.0               # fraction left to be solved directly
 USELIB  =  false
 INTERP  =  false             # interpolation in the tree
 USEHASH =  false             # use hash instead of tree - BACTH can be arbitrary !!
+WITH_X  =  false
 
 if (USEHASH)
   BATCH = 4096
@@ -48,6 +49,7 @@ end
 
 
 # Read solver dump file
+@printf("Reading solver file: %s\n", ARGS[1])
 FP      =  open(ARGS[1], "r")
 NFREQ   =  read(FP, Int32)                     # NFREQ
 FREQ    =  zeros(Float32, NFREQ)
@@ -64,7 +66,11 @@ K_ABS   =  sum(SK_ABS, dims=2)                 # sum over sizes
 # since 2018-12-29 also SOC absorbed.data starts with [ cells, nfreq ] only
 fpA      = open(ARGS[2], "r+")                 # absorbed 
 CELLS    = read(fpA, Int32)
-NFREQ    = read(fpA, Int32)
+nfreq    = read(fpA, Int32)
+if (nfreq!=NFREQ)
+  @printf("Solver file %s has %d and the absorption file %d frequencies ?\n", ARGS[1], NFREQ, nfreq)
+  exit(0)
+end
 ABSORBED = Mmap.mmap(fpA, Matrix{Float32}, (NFREQ, CELLS))   # FREQ faster
 if true   # Necessary to avoid huge emission in rare cells ???
   ABSORBED[NFREQ,:] = clamp.(ABSORBED[NFREQ,:], 0.0, 0.2*ABSORBED[NFREQ-1,:])  # FREQ faster
@@ -89,24 +95,24 @@ NIP         =  30000  # number of interpolation points for the lookup tables (eq
 
 
 # solve using GPU
-
+platform = cl.platforms()[1]
 t0 = time()
 if (GPU>0)
-  device = cl.devices(cl.CL_DEVICE_TYPE_GPU)[1]
-  LOCAL  = 32
+  device = cl.devices(platform, cl.CL_DEVICE_TYPE_GPU)[1]
+  LOCAL  = Int32(32)
 else
-  device = cl.devices(cl.CL_DEVICE_TYPE_CPU)[1]
-  LOCAL  = 8
+  device = cl.devices(platform, cl.CL_DEVICE_TYPE_CPU)[1]
+  LOCAL  = Int32(4)
 end
 context = cl.Context(device)
 queue   = cl.CmdQueue(context)
 
-GLOBAL      =  max(BATCH, 64*LOCAL)
+GLOBAL      =  Int32(max(BATCH, 64*LOCAL))
 if (GLOBAL%64!=0)
   GLOBAL  = Int32((floor(GLOBAL/64)+1)*64)
 end
 
-OPT         =  "-D NE=$NE -D LOCAL=$LOCAL -D NFREQ=$NFREQ -D CELLS=$CELLS -D NIP=$NIP"
+OPT         =  "-D NE=$NE -D LOCAL=$LOCAL -D NFREQ=$NFREQ -D CELLS=$CELLS -D NIP=$NIP -D WITH_X=0"
 OPT        *=  @sprintf(" -D FACTOR=%.4ef", FACTOR)
 
 source      =  open(homedir()*"/starformation/SOC/kernel_A2E.c") do file read(file, String)  end
@@ -123,8 +129,10 @@ AF_buf      =  cl.Buffer(Float32, context, :r,  NFREQ)
 ABS_buf     =  cl.Buffer(Float32, context, :r,  BATCH*NFREQ)
 EMIT_buf    =  cl.Buffer(Float32, context, :rw, BATCH*NFREQ)
 A_buf       =  cl.Buffer(Float32, context, :rw, BATCH*(Int32(floor(NE*NE-NE)/2))) # lower triangle only
-X_buf       =  cl.Buffer(Float32, context, :w,  BATCH*NE)    # no initial values -> write only
 
+if (false)
+  X_buf       =  cl.Buffer(Float32, context, :w,  BATCH*NE)    # no initial values -> write only
+end
 
 if (NSTOCH<NSIZE)   # Prepare to solve equilibrium temperature emission for larger grains
   TTT_buf   =  cl.Buffer(Float32, context, :r,   4*NIP)
@@ -419,7 +427,7 @@ function solve_with_tree(T, ICELLS, INT, isize)
   # solve the emission for all cells mentioned in the tree leaves
   global NFREQ, BATCH, GLOBAL, LOCAL
   global SK_ABS, S_FRAC
-  global queue, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, AF_buf, ABS_buf, EMIT_buf, A_buf, X_buf
+  global queue, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, AF_buf, ABS_buf, EMIT_buf, A_buf ## , X_buf
   
   AF    =  Array{Float64}(SK_ABS[:,isize]) ./ Array{Float64}(K_ABS[:])     # => E per grain
   AF  ./=  S_FRAC[isize]*GD      # "invalid value encountered in divide"
@@ -470,7 +478,7 @@ function solve_with_tree(T, ICELLS, INT, isize)
   cl.write!(queue, ABS_buf, tmp)
   cl.finish(queue)
   queue(DoSolve, GLOBAL, LOCAL,  Int32(batch),   Int32(isize-1),  Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
-  Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+  Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)  ######    X_buf)
   cl.finish(queue)
   tmp[:]  =  cl.read(queue, EMIT_buf)        # BATCH*NFREQ
   dt = time()-t0 
@@ -556,7 +564,7 @@ function solve_with_tree(T, ICELLS, INT, isize)
     cl.write!(queue, ABS_buf, tmp)
     cl.finish(queue)
     queue(DoSolve, GLOBAL, LOCAL,  Int32(batch),   Int32(isize-1),  Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
-    Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+    Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)  ####   X_buf)
     cl.finish(queue)
     tmp[:]  =  cl.read(queue, EMIT_buf)        # BATCH*NFREQ
     # add to EMITTED
@@ -581,7 +589,7 @@ function solve_with_hash(isize, ABSORBED, EMITTED)
   # solve the emission for all cells mentioned in the tree leaves
   global NFREQ, BATCH, GLOBAL, LOCAL
   global SK_ABS, S_FRAC
-  global queue, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, AF_buf, ABS_buf, EMIT_buf, A_buf, X_buf  
+  global queue, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, AF_buf, ABS_buf, EMIT_buf, A_buf ## , X_buf  
 
 
   freq   =  readdlm("freq.dat")[:,1]
@@ -670,7 +678,7 @@ function solve_with_hash(isize, ABSORBED, EMITTED)
         cl.finish(queue)
         queue(DoSolve, GLOBAL, LOCAL,  Int32(BATCH),   Int32(isize-1),  
         Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf,
-        Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+        Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)  ##,   X_buf)
         cl.finish(queue)
         solved += BATCH
         # copy results to EMITTED
@@ -691,7 +699,7 @@ function solve_with_hash(isize, ABSORBED, EMITTED)
     cl.write!(queue, ABS_buf, tmp)
     cl.finish(queue)
     queue(DoSolve, GLOBAL, LOCAL,  Int32(unsolved),   Int32(isize-1),  Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
-    Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+    Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)  ##   X_buf)
     cl.finish(queue)
     tmp[:]  =  cl.read(queue, EMIT_buf)        # BATCH*NFREQ
     for iun = 1:unsolved
@@ -737,7 +745,7 @@ function solve_with_tree_ip(T, ICELLS, INT, isize)
   # solve the emission for all cells mentioned in the tree leaves
   global NFREQ, BATCH, GLOBAL, LOCAL
   global SK_ABS, S_FRAC
-  global queue, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, AF_buf, ABS_buf, EMIT_buf, A_buf, X_buf
+  global queue, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, AF_buf, ABS_buf, EMIT_buf, A_buf ##, X_buf
   
   AF    =  Array{Float64}(SK_ABS[:,isize]) ./ Array{Float64}(K_ABS[:])     # => E per grain
   AF  ./=  S_FRAC[isize]*GD      # "invalid value encountered in divide"
@@ -786,7 +794,7 @@ function solve_with_tree_ip(T, ICELLS, INT, isize)
   cl.write!(queue, ABS_buf, tmp)
   cl.finish(queue)
   queue(DoSolve, GLOBAL, LOCAL,  Int32(batch),   Int32(isize-1),  Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
-  Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+  Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf) ##   X_buf)
   cl.finish(queue)
   tmp[:]  =  cl.read(queue, EMIT_buf)        # BATCH*NFREQ
   # at this point tmp_2d[NFREQ, batch] contains the emissions for the current size, all cells in the library tree
@@ -831,7 +839,7 @@ function solve_with_tree_ip(T, ICELLS, INT, isize)
     cl.write!(queue, ABS_buf, tmp)
     cl.finish(queue)
     queue(DoSolve, GLOBAL, LOCAL,  Int32(batch),   Int32(isize-1),  Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
-    Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+    Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf) ##   X_buf)
     cl.finish(queue)
     tmp[:]  =  cl.read(queue, EMIT_buf)        # BATCH*NFREQ
     # add to EMITTED
@@ -916,20 +924,27 @@ end
 
 
 
-
-function process_size_stochastic(isize)
-  println("isize = ", isize)
-  global NFREQ, BATCH, GLOBAL, LOCAL
-  global SK_ABS, S_FRAC
-  global queue, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, AF_buf, ABS_buf, EMIT_buf, A_buf, X_buf
+# @@
+function process_size_stochastic(isize::Int64
+  , NFREQ::Int32, BATCH::Int32, GLOBAL::Int32, LOCAL::Int32
+  , SK_ABS::Array{Float32,2}, K_ABS::Array{Float32, 2}, S_FRAC::Array{Float32,1},
+  queue::OpenCL.cl.CmdQueue, Iw_buf::OpenCL.cl.Buffer, L1_buf::OpenCL.cl.Buffer, 
+  L2_buf::OpenCL.cl.Buffer, Tdown_buf::OpenCL.cl.Buffer, EA_buf::OpenCL.cl.Buffer, 
+  Ibeg_buf::OpenCL.cl.Buffer, AF_buf::OpenCL.cl.Buffer, ABS_buf::OpenCL.cl.Buffer, 
+  EMIT_buf::OpenCL.cl.Buffer, A_buf::OpenCL.cl.Buffer,
+  ABSORBED::Array{Float32,2}, EMITTED::Array{Float32,2})
   
+  println("process_size_stochastic isize = ", isize)
+  #  A2E.py does this in 16.8 seconds while this julia routine takes 24.3 seconds.
+  #  The loop below (without IO and preparations) is already slower than the whole Python calculation.
+  #  Even specifying the types of all input parameters, julia is 30% slower compared to python.
+  # t0    =  time()
   AF    =  Array{Float64}(SK_ABS[:,isize]) ./ Array{Float64}(K_ABS[:])     # => E per grain
   AF  ./=  S_FRAC[isize]*GD      # "invalid value encountered in divide"
   AF    =  Array{Float32}(clamp.(AF, 1.0e-32, 1.0e+100))
   if true
     AF[isfinite.(AF).==false] .= 1.0e-30
-  end    
-  
+  end      
   cl.write!(queue, AF_buf,   AF)      # AF
   noIw  =  read(FP, Int32)
   Iw    =  zeros(Float32, noIw)
@@ -950,33 +965,31 @@ function process_size_stochastic(isize)
   Ibeg  =   zeros(Int32, NFREQ)
   read!(FP, Ibeg)
   cl.write!(queue, Ibeg_buf,  Ibeg)   # Ibeg
-  cl.finish(queue)
-  
-  
+  cl.finish(queue)    
   # Loop over the cells, BATCH cells per kernel call
-  tmp     = zeros(Float32, NFREQ*BATCH)
-  tmp_2d  = reshape(tmp,   Int64(NFREQ), Int64(BATCH))
+  # tmp     = zeros(Float32, NFREQ*BATCH)
+  # tmp_2d  = reshape(tmp,   Int64(NFREQ), Int64(BATCH))
   emit    = zeros(Float32, NFREQ*BATCH)
   emit_2d = reshape(emit,  Int64(NFREQ), Int64(BATCH))
-  
-  for icell in 1:BATCH:CELLS
-    t00   =  time()            
+  # @printf("INITIAL = %.2f SECONDS\n", time()-t0)  # --- time spent in this first part is insignificant
+  # t0 = time()
+  for icell = 1:BATCH:CELLS
+    ## t00   =  time()            
     batch =  min(BATCH, CELLS-icell+1)     # actual number of cells
-    tmp_2d[:, 1:batch]  =  ABSORBED[:, icell:(icell+batch-1)]
-    # @printf("Process %d:%d  ... %d cells\n", icell, icell+batch-1, batch)
-    cl.write!(queue, ABS_buf, tmp)
+    ## tmp_2d[:, 1:batch]  =  ABSORBED[:, icell:(icell+batch-1)]
+    ## cl.write!(queue, ABS_buf, tmp)
+    cl.write!(queue, ABS_buf, ABSORBED[:, icell:(icell+batch-1)])
+    queue(DoSolve, GLOBAL, LOCAL,  Int32(batch),   Int32(isize-1),  Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf,
+    Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf) ##   X_buf)
     cl.finish(queue)
-    queue(DoSolve, GLOBAL, LOCAL,  Int32(batch),   Int32(isize-1),  Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
-    Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
-    cl.finish(queue)
-    emit[:]  =  cl.read(queue, EMIT_buf)        # BATCH*NFREQ
+    emit[:]  =  cl.read(queue, EMIT_buf)           # BATCH*NFREQ
     EMITTED[:, icell:(icell+batch-1)] += emit_2d[:, 1:batch]       # contribution of current dust, current size
     if (icell==0)
       @printf("   SIZE %2d/%2d  icell %6d/%6d  %7.2f s/%d %.3e s/cell/size",
       isize, NSIZE, icell, CELLS, time.time()-t00, batch, (time.time()-t00)/batch)
-    end
-    
+    end    
   end # -- for icell
+  ## @printf("LOOP = %.2f SECONDS\n", time()-t0)
 end # process_size
 
 
@@ -1161,7 +1174,12 @@ else
     # Direct solution for all cells
     for isize = 1:NSIZE
       if (GPU>=0)
-        process_size_stochastic(isize)
+        ## @@
+        ## process_size_stochastic(isize)
+        process_size_stochastic(isize
+        ,NFREQ, BATCH, GLOBAL, LOCAL, SK_ABS, K_ABS, S_FRAC,
+        queue, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, AF_buf, ABS_buf, EMIT_buf, A_buf,
+        ABSORBED, EMITTED)
       else
         process_size_stochastic_julia(isize, NFREQ, NE, SK_ABS, S_FRAC, ABSORBED, EMITTED)
       end
