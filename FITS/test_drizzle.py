@@ -11,17 +11,25 @@ import  montage_wrapper as montage
 
 
 """
-Resample an image onto the pixels of another image using Montage reproject()  and
-compare run times with the  OpenCL routine that is run on CPU or on GPU. In this
-script we assume that we have two GPUSs -- we check the run times with one and then
-with the other (see the platform parameters of the OpenCL Reproject routine).
-   speedup   CPU         =  61.804 /  14.50   =    4.3
-   speedup   GPU/Intel   =  61.804 /   4.403  =   14.0
-   speedup   GPU/NVidia  =  61.804 /   1.299  =   47.6
+Resample an image onto the pixels of another image using Montage
+reproject() and compare run times with the OpenCL routine Reproject()
+that is run on CPU or on GPU. In this script we assume that we have
+two GPUs - see the use of the platform parameters below. The observed 
+speedup of Reproject() relative Montage (single thread) was for large
+images:    
+    CPU, 4 cores                =   4.2
+    GPU, integrated Intel GPU   =  17.3
+    GPU, external GTX-1080 Ti   =  48.0
+    
+Dell XPS-13 with:
+    CPU  = Intel(R) Core(TM) i7-8550U CPU @ 1.80GHz,
+    GPU1 = Intel Corporation UHD Graphics 620 (rev 07)
+    GPU2 = NVIDIA Corporation GP102 [GeForce GTX 1080 Ti] (rev a1)
+           in external Razer Core X Chroma enclosure, via Thunderbolt 3
 """
 
 CSTEP    =  10
-SLEEP    =  2   # we may sleep before each calculation, to reduce throttling (?)
+SLEEP    =   5   # optionally sleep before calls, to reduce CPU throttling
 np.random.seed(12345)
 offx     =  -1.3001*ARCMIN_TO_RADIAN
 offy     =  -1.2000*ARCMIN_TO_RADIAN
@@ -29,11 +37,11 @@ scale    =  1.0
 factor   =  1.0
 threads  =  1
 
-# DIMS =  np.asarray(np.logspace(np.log10(32.0), np.log10(16384.2), 10),  int32)
+DIMS =  np.asarray(np.logspace(np.log10(32.0), np.log10(16384.2), 10),  int32)
 # DIMS =  np.asarray(np.logspace(np.log10(32.0), np.log10( 8192.2),  9),  int32)
 # DIMS =  np.asarray(np.logspace(np.log10(32.0), np.log10( 4096.2),  8),  int32)
 # DIMS =  np.asarray(np.logspace(np.log10(32.0), np.log10(1024.1), 6), int32)
-DIMS =  np.asarray(np.logspace(np.log10(32.0), np.log10(512.1), 5), int32)
+# DIMS =  np.asarray(np.logspace(np.log10(32.0), np.log10(512.1), 5), int32)
 TA   =  np.zeros(len(DIMS), np.float32)
 TC   =  np.zeros((len(DIMS), 4), np.float32)   # tP, tB, tK, TC
 TG1  =  np.zeros((len(DIMS), 4), np.float32)   # tP, tB, tK, TC
@@ -63,27 +71,30 @@ for III in range(len(DIMS)):  # loop over different map sizes
     G.writeto('g.fits', overwrite=True)
     
     # Run montage.reproject
-    time.sleep(SLEEP)
-    t0 = time.time()
-    A[0].header.totextfile('ref.header', overwrite=True)
-    montage.reproject('g.fits', 'A.fits', 'ref.header', exact_size=True, factor=factor)
-    TA[III] = time.time()-t0
-
+    if (N<10000): # laptop tmp directory was running out of space for larger images...
+        time.sleep(SLEEP)  # sleep before and after Montage, to avoid (reduce) CPU throttling
+        t0 = time.time()
+        A[0].header.totextfile('ref.header', overwrite=True)
+        montage.reproject('g.fits', 'A.fits', 'ref.header', exact_size=True, factor=factor)
+        TA[III] = time.time()-t0
+    
     # Run the OpenCL routine on CPU
-    time.sleep(SLEEP)    
+    time.sleep(SLEEP)
     t0 = time.time()
     tP, tB, tK  = Reproject(G, B, GPU=0, platforms=[0,1,2,3,4], cstep=CSTEP, threads=threads)  # CPU
     TC[III, 0 ] = time.time()-t0
     TC[III, 1:] = [tP, tB, tK]
+
+    if (1):
+        # Run the OpenCL routine on the first GPU --- assuming that is platform 0
+        if (N<10000):  #  i915 bug prevents long runs on Intel GPU??
+            time.sleep(SLEEP)
+            t0 = time.time()
+            tP, tB, tK  = Reproject(G, B, GPU=1, platforms=[0,], cstep=CSTEP, threads=threads)  # Intel HD Graphics
+            TG1[III, 0 ] = time.time()-t0
+            TG1[III, 1:] = [tP, tB, tK]            
     
-    # Run the OpenCL routine on the first GPU --- assuming that is platform 0
-    time.sleep(SLEEP)    
-    t0 = time.time()
-    tP, tB, tK  = Reproject(G, B, GPU=1, platforms=[0,], cstep=CSTEP, threads=threads)  # Intel HD Graphics
-    TG1[III, 0 ] = time.time()-t0
-    TG1[III, 1:] = [tP, tB, tK]            
-    
-    if (0):
+    if (1):
         # Run the OpenCL routine on the second GPU --- assuming that is platform 1
         time.sleep(SLEEP)    
         t0 = time.time()
@@ -101,19 +112,22 @@ np.asarray(res, np.float32).tofile('drizzle_timings.dat')
 
 figure(1, figsize=(8,6))
 rc('font', size=9)
-loglog(DIMS, TA, 'ks-', lw=3, ms=10, label='Montage')
+m = nonzero(TA>0.0)
+loglog(DIMS[m], TA[m], 'ks-', lw=3, ms=10, label='Montage')
 
 loglog(DIMS, TC[:,0], 'bo-', lw=3, ms=10, label='CL/CPU')
 loglog(DIMS, TC[:,1], 'b:')
 loglog(DIMS, TC[:,2], 'b-.')
 loglog(DIMS, TC[:,3], 'b--')
 
-loglog(DIMS, TG1[:,0], 'ro-', lw=3, ms=10, label='CL/GPU1')
-loglog(DIMS, TG1[:,1], 'r:',  label='Python')
-loglog(DIMS, TG1[:,2], 'r-.', label='Build')
-loglog(DIMS, TG1[:,3], 'r--', label='Kernel')
+m = nonzero(TG1[:,0]>0.0)
+loglog(DIMS[m], TG1[:,0][m], 'ro-', lw=3, ms=10, label='CL/GPU1')
+if (1):
+    loglog(DIMS[m], TG1[:,1][m], 'r:',  label='Python')
+    loglog(DIMS[m], TG1[:,2][m], 'r-.', label='Build')
+    loglog(DIMS[m], TG1[:,3][m], 'r--', label='Kernel')
 
-if (0):
+if (1):
     loglog(DIMS, TG2[:,0], 'go-', lw=3, ms=10, label='CL/GPU2')
     loglog(DIMS, TG2[:,1], 'g:',  label='Python')
     loglog(DIMS, TG2[:,2], 'g-.', label='Build')

@@ -5,8 +5,8 @@ try:
 except:
     pass
 sys.path.append(ISM_DIRECTORY)
-from ISM.mjDefs import *
-from ISM.FITS import *
+from ISM.Defs      import *
+from ISM.FITS.FITS import *
 
 
 if (len(sys.argv)<4):
@@ -16,7 +16,7 @@ if (len(sys.argv)<4):
     sys.exit()
 A = pyfits.open(sys.argv[1])
 B = pyfits.open(sys.argv[2])
-Reproject(A, B, threads=4)
+Reproject(A, B, threads=4, cstep=4)
 B.writeto(sys.argv[3], overwrite=True)
 
 
