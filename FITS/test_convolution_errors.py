@@ -14,7 +14,6 @@ from    astropy.convolution import Gaussian2DKernel
 from    scipy.signal import convolve as scipy_convolve
 import  time
 import  numpy as np
- 
 
 N            =  256   # map size
 pix          =  10.0*ARCSEC_TO_RADIAN
@@ -35,7 +34,6 @@ if (0):
     CL = ConvolveFitsBeamPyCL(FITS, kernel, border='ignore')[0].data.copy()
 else:
     CL = ConvolveFitsBeamPyCL(FITS, kernel, border='nearest')[0].data.copy()
-
     
 figure(1, figsize=(8,6))
 rc('font', size=9)
@@ -43,7 +41,7 @@ subplots_adjust(left=0.09, right=0.94, bottom=0.09, top=0.95, wspace=0.26, hspac
     
 subplot(221)
 imshow(AP)
-title("AP=aplpy.convolve")
+title("AP=astropy.convolve")
 colorbar()
 
 subplot(222)
@@ -63,9 +61,7 @@ imshow(X)
 title("(CL-AP)/AP")
 colorbar()
 
-
 savefig('test_convolution_errors.png')
 
 show()
-
     
