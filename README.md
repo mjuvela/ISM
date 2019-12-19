@@ -120,6 +120,9 @@ ResampleImage call, should be similar (except for the borders, see the
 first link below).
 
 For more information,see
-* http://www.interstellarmedium.org/tools-for-fits-images/
+* http://www.interstellarmedium.org/tools-for-fits-images/ , including
+discussion on convolution with OpenCL
 * the original publication on the Drizzle algorithm: Fruchter & Hook,
 2002, PASP 112, 144; https://ui.adsabs.harvard.edu/abs/2002PASP..114..144F
+* http://www.interstellarmedium.org/mad-median-absolute-deviation/ 
+discussion of the maximum absolute deviation (MAD) computations with OpenCL
