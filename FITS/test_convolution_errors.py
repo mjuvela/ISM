@@ -36,6 +36,11 @@ if (0):
 else:
     CL = ConvolveFitsBeamPyCL(FITS, kernel, border='nearest')[0].data.copy()
 
+    
+figure(1, figsize=(8,6))
+rc('font', size=9)
+subplots_adjust(left=0.09, right=0.94, bottom=0.09, top=0.95, wspace=0.26, hspace=0.3)
+    
 subplot(221)
 imshow(AP)
 title("AP=aplpy.convolve")

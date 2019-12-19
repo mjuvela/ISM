@@ -15,7 +15,7 @@ from    scipy.signal import convolve as scipy_convolve
 import  time
 import  numpy as np
  
-SLEEP        =  10     # optionally sleep between calls (reduce CPU throttling)
+SLEEP        =  10     # optionally sleep between calls (to reduce CPU throttling)
 N            =  1280   # map size
 pix          =  10.0*ARCSEC_TO_RADIAN
 FITS         =  MakeEmptyFitsDim(1.0, 0.0, pix, N, N)
@@ -24,6 +24,7 @@ FITS[0].data =  clip(FITS[0].data, 1.0, 10.0)
 
 
 fwhm_values = asarray([2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0], float32)
+fwhm_values = asarray([2.0, 4.0, 8.0, 16.0, 32.0 ], float32)
 # fwhm_values = asarray([2.0, 4.0, 8.0], float32)
 TIME = zeros((len(fwhm_values), 6), float32)
 
@@ -39,13 +40,13 @@ if (1): # redo the computations
             print("kernel dimensions must be odd") 
             sys.exit()
             
-        for iprog in range(6):
+        for iprog in range(5):
             do_it = 1
             if (i>0):
                 if (TIME[i-1,iprog]>10.0):
                     do_it = 0  # it was already taking too long
                     TIME[i, iprog] = 1e10
-            if (1): # we have problem on the Intel GPU -- i915 bug prevents long runs ??
+            if (0): # we have problem on the Intel GPU -- i915 bug prevents long runs ??
                 if ((iprog==4)&(fwhm_pix>32)): do_it = False
             if (do_it):
                 time.sleep(SLEEP)
@@ -58,10 +59,10 @@ if (1): # redo the computations
                     C = astropy_convolve(FITS[0].data.copy(), kernel)
                 elif (iprog==3):
                     # ConvolveFitsPyCL(F, fwhm_rad, fwhm_orig=0.0, RinFWHM=1.7, GPU=0, platforms=[2,])
-                    D = ConvolveFitsBeamPyCL(FITS, kernel, GPU=0, platforms=[2,])[0].data.copy()
+                    D = ConvolveFitsBeamPyCL(FITS, kernel, GPU=0)[0].data.copy()
                 elif (iprog==4):  # on my system Intel GPU
                     # ConvolveFitsPyCL(F, fwhm_rad, fwhm_orig=0.0, RinFWHM=1.7, GPU=1, platforms=[0,])
-                    E = ConvolveFitsBeamPyCL(FITS, kernel, GPU=1, platforms=[0,])[0].data.copy()
+                    E = ConvolveFitsBeamPyCL(FITS, kernel, GPU=1)[0].data.copy()
                 elif (iprog==5):  # on my system NVidia GPU
                     # ConvolveFitsPyCL(F, fwhm_rad, fwhm_orig=0.0, RinFWHM=1.7, GPU=1, platforms=[1,])
                     F = ConvolveFitsBeamPyCL(FITS, kernel, GPU=1, platforms=[1,])[0].data.copy()
@@ -99,12 +100,13 @@ m = nonzero((TIME[:,3]<9999.0)&(TIME[:,3]>0.001))
 loglog(fwhm_values[m], TIME[:,3][m], 'co-', label='CL/CPU')
 m = nonzero((TIME[:,4]<9999.0)&(TIME[:,4]>0.001))
 loglog(fwhm_values[m], TIME[:,4][m], 'mo-', label='CL/GPU1')
-m = nonzero((TIME[:,5]<9999.0)&(TIME[:,5]>0.001))
-loglog(fwhm_values[m], TIME[:,5][m], 'ro-', label='CL/GPU2')
+if (0):  # when second GPU included in the tests
+    m = nonzero((TIME[:,5]<9999.0)&(TIME[:,5]>0.001))
+    loglog(fwhm_values[m], TIME[:,5][m], 'ro-', label='CL/GPU2')
 legend(loc='upper left')
 xlabel("FWHM [pixels]")
 ylabel("Time (s)")
-savefig('test_convolution_timings.png')
+#savefig('test_convolution_timings.png')
 
 show()
 

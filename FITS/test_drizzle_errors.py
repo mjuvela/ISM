@@ -10,6 +10,8 @@ from    ISM.FITS.FITS import MakeEmptyFitsDim, Reproject
 import  montage_wrapper as montage
 import  scipy
 from    scipy import ndimage
+import matplotlib.ticker as ticker
+
 
 """
 Compare results to Montage.reproject, for different latitude, different pixel size.
@@ -17,6 +19,7 @@ Compare results to Montage.reproject, for different latitude, different pixel si
 
 np.random.seed(12345)
 
+GPU      =  1    # set >0 to use GPU
 scale    =  1.0
 factor   =  1.0
 threads  =  1
@@ -72,7 +75,7 @@ for row in range(4):
         J, I      = indices((N, M), np.float32)
         for i in range(1000):
             K          =  4.0*log(2.0)/(clip(2.0+1.0*randn(), 2.0, 99)**2.0)
-            G[0].data +=  100.0*rand()*exp(-K*((J-N*rand())**2.0+(I-M*rand())**2.0))
+            G[0].data +=  98.0*rand()*exp(-K*((J-N*rand())**2.0+(I-M*rand())**2.0))
         G[0].data        = clip(G[0].data, 1.0, +100.0)
         G[0].data[0:3,:] = 0.0
         G[0].data[-3:,:] = 0.0
@@ -80,7 +83,6 @@ for row in range(4):
         G[0].data[:,-3:] = 0.0
         if (1):  # rotate the input image
             rot = 30*DEGREE_TO_RADIAN
-            rot = 0.0*DEGREE_TO_RADIAN
             G[0].header['CD1_1'] =  G[0].header['CDELT1']*cos(rot)
             G[0].header['CD1_2'] = -G[0].header['CDELT2']*sin(rot)
             G[0].header['CD2_1'] =  G[0].header['CDELT1']*sin(rot)
@@ -93,7 +95,7 @@ for row in range(4):
         A = pyfits.open('A.fits')
 
         # Run the OpenCL routine
-        Reproject(G, B, GPU=1, cstep=cstep, shrink=1.0)
+        Reproject(G, B, GPU=GPU, cstep=cstep, shrink=1.0)
         
 
         # ignore the borders .... note that pixel values may be very small for the last pixels
@@ -108,19 +110,20 @@ for row in range(4):
         m    =  nonzero(MASK>0.98)   # ignoring anything close to map *and* coverage edges
 
         ax   =  subplot(4, 4, 1+col+4*row)
-        X    =  B[0].data[m]-A[0].data[m]
+        if (0):  # plot absolute error
+            X    =  B[0].data[m]-A[0].data[m]
+        else:    # plot relative error
+            X    =  (B[0].data[m]-A[0].data[m])/(A[0].data[m])
         a, b =  min(X), max(X)
         d    =  0.1*(b-a)
         hist(asarray(X, float32), bins=linspace(a, b, 40), log=True)
         xlim(a-d, b+d)
-        
         err  = max(abs(X))
         text(0.06, 0.73, r'$\rm max(\Delta)=$', transform=ax.transAxes)
         text(0.06, 0.58, '%.1e' % err, transform=ax.transAxes)
 
         X    =  (B[0].data[m]-A[0].data[m]) / B[0].data[m]
-        err  =   max(abs(X))        
-        
+        err  =   max(abs(X))
         if (cstep==8):
             merr = nonzero( abs((B[0].data-A[0].data)/B[0].data) == err)
             print("MAXIMUM ERROR AT:", merr, " rerr = ", err)
@@ -129,9 +132,16 @@ for row in range(4):
         m    =  nonzero( abs((B[0].data-A[0].data) / B[0].data)==err )        
         text(0.65, 0.73, r'$\rm max(r)=$', transform=ax.transAxes)
         text(0.65, 0.58, '%.1e' % err, transform=ax.transAxes)
-
         title("cstep=%d, pix=%.0f''" % (cstep, PIXEL_SIZES[col]), size=9)
-
+        if (0):
+            ax.ticklabel_format(axis='x', style='sci', scilimits=(0,0), useOffset=False, useMathText=True)
+        if (0):
+            ax.xaxis.set_major_formatter(ticker.FormatStrFormatter("%.1e"))
+            xticks(rotation=30, ha='right')
+        if (1):
+            f = ticker.ScalarFormatter(useOffset=False, useMathText=True)
+            g = lambda x,pos : "${}$".format(f._formatSciNotation('%1.10e' % x))
+            plt.gca().xaxis.set_major_formatter(ticker.FuncFormatter(g))
         if (0):
             A.writeto('A.fits', overwrite=True)
             B.writeto('B.fits', overwrite=True)

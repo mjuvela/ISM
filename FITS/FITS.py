@@ -587,3 +587,48 @@ def convolve_map_fast(A, fwhm, radius=5.0):
     # keep the sign of real part, use amplitude of the complex number
     tmp     = sign(real(tmp))*abs(tmp)
     return tmp
+
+
+
+def MADFilterCL(X, R1, R2, circle=0, GPU=0, platforms=[0,1,2,3,4,5]):
+    """
+    Median absolute deviation filter on a full  2D image.
+    Input:
+        X      = 2D numpy array
+        R1, R2 = inner and outer radius of the annulus [int32], if circle=True,
+                 otherwise only R2 is used and the footprint is 1+2*R2 pixels squared
+        circle = if >0, footprint is circular instead of a full square
+        GPU    = if >0, use GPU instead of CPU
+        platforms = optional list of possible OpenCL platforms
+    Return:
+        image of MAD-filtered values
+    """
+    platform, device, context, queue, mf = InitCL(GPU, platforms=platforms)
+    LOCAL    =  [ 8, 64 ][GPU>0]
+    N, M     =  X.shape
+    NFOOT    =  int((1+2*R2)**2.0)    # maximum number of pixels under the footprint
+    OPT      =  " -D N=%d -D M=%d -D R1=%d -D R2=%d -D CIRCLE=%d -D NFOOT=%d -D LOCAL=%d" % \
+    (N, M, R1, R2, circle, NFOOT, LOCAL)
+    # print(OPT)
+    source   =  open(ISM_DIRECTORY+'/ISM/FITS/kernel_Median.c').read()
+    program  =  cl.Program(context, source).build(OPT)    
+    t0       =  time.time()
+    S        =  asarray(X, float32)
+    SS       =  np.empty_like(S)
+    S_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)
+    SS_buf   =  cl.Buffer(context, mf.READ_WRITE, S.nbytes)
+    ###
+    D        =  asarray([701, 301, 132, 57, 23, 10, 4, 1], int32)
+    ###
+    t0       =  time.time()
+    GLOBAL   = (int((N*M)/64)+1)*64    
+    D        =  asarray(D[nonzero(D<100)], int32)  # truncate the gap sequence to values < (1+2*D)**2
+    D_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=D)
+    MAD      =  program.MAD
+    MAD.set_scalar_arg_dtypes([None, None, None])
+    MAD(queue, [GLOBAL,], [LOCAL,], S_buf, D_buf, SS_buf)        
+    cl.enqueue_copy(queue, SS, SS_buf)
+    t2       =  time.time()-t0
+    return SS
+
+
