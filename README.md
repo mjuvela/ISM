@@ -130,7 +130,7 @@ algorithm with OpenCL
 
 
 
-** MBB - Modified blackbody fits
+## MBB - Modified blackbody fits
 
 The directory contains comparisons between modified blackbody fits
 with Scipy leastsq and a simplistic OpenCL routine. There are further
