@@ -1,13 +1,13 @@
 
 # we must already have ISM_DIRECTORY defined and included in sys.path
-from    ISM.mjDefs import *
+from    ISM.Defs import *
+from    ISM.FITS.FITS import CopyFits
 import  threading
 
 
 
-def MBB_fit_CL(F, S, dS, GPU=False, FIXED_BETA=-1.0, 
-               TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
-               FILTERS=[], CCDATA=[], get_CC=False, TOL=0.0001):
+def MBB_fit_CL(F, S, dS, FIXED_BETA=-1.0, TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
+               FILTERS=[], CCDATA=[], get_CC=False, TOL=0.0001, GPU=0, platforms=[0,1,2,3,4,5]):
     """
     Do normal chi2 fitting to estimate intensity, temperature, spectral index.
     Usage:
@@ -16,7 +16,6 @@ def MBB_fit_CL(F, S, dS, GPU=False, FIXED_BETA=-1.0,
         F          =   vector of frequencies [Hz]
         S          =   observed brightness, S[Npix, Nfreq]
         dS         =   error estimates of S values
-        GPU        =   if True, use GPU (default=False)
         FIXED_BETA =   if >0, keep spectral index fixed beta==FIXED_BETA
         TMIN, TMAX =   limits of acceptable temperature values
         BMIN, BMAX =   limits of acceptable spectral index values
@@ -25,6 +24,9 @@ def MBB_fit_CL(F, S, dS, GPU=False, FIXED_BETA=-1.0,
                        if given, these are used instead of recalculating from FILTERS
                        Note -- one must still give FILTERS if colour corrections are required
         get_CC     =   if True, only CCDATA calculated and returned
+        TOL        =    tolerance, default is 0.0001
+        GPU        =   if True, use GPU, default is False
+        platforms  =   possible OpenCL platforms, default [0,1,2,3,4,5]
     Return:
         I, T, B    =   vectors of 250um intensity, colour temperature, opacity spectral index
         If get_CC=True, return (C, None, None) where CC s an array of colour correction factors, 
@@ -70,7 +72,7 @@ def MBB_fit_CL(F, S, dS, GPU=False, FIXED_BETA=-1.0,
         return CCDATA, None, None
     # OpenCL initialisations
     t00         =  time.time()
-    platform, device, context, queue, mf = InitCL(GPU)
+    platform, device, context, queue, mf = InitCL(GPU, platforms=platforms)
     LOCAL       =  [ 8, 64 ][GPU>0]
     ###
     # Initial step size 10%, after each refinement smaller by a factor of K,
@@ -80,7 +82,7 @@ def MBB_fit_CL(F, S, dS, GPU=False, FIXED_BETA=-1.0,
     OPT        = \
     " -D N=%d -D NF=%d -D FIXED_BETA=%d -D TMIN=%.3ff -D TMAX=%.3ff -D BMIN=%.3ff -D BMAX=%.3ff -D KK=%.6ff -D KMIN=%.6ff -D NCC=%d -D DO_CC=%d" % \
     (N, NF, FIXED_BETA, TMIN, TMAX, BMIN, BMAX, KK, KMIN, NCC, len(FILTERS)>0)
-    source     = open(ISM_DIRECTORY+"/MBB/kernel_fit_MBB.c").read()
+    source     = open(ISM_DIRECTORY+"/ISM/MBB/kernel_fit_MBB.c").read()
     program    = cl.Program(context, source).build(OPT)
     # Allocate buffers
     F_buf      = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=F)
@@ -97,7 +99,7 @@ def MBB_fit_CL(F, S, dS, GPU=False, FIXED_BETA=-1.0,
     B          = asarray( 1.8*ones(N), float32)
     if (FIXED_BETA>0.0): 
         B[:] = FIXED_BETA
-    I          = asarray(S[:,ifreq]*MBB_function_250(um2f(250.0),T,B)/MBB_function_250(F[ifreq],T,B), float32)
+    I          = asarray(S[:,ifreq]*ModifiedBlackbody_250(um2f(250.0),T,B)/ModifiedBlackbody_250(F[ifreq],T,B), float32)
     cl.enqueue_copy(queue, I_buf, I)
     cl.enqueue_copy(queue, T_buf, T)
     cl.enqueue_copy(queue, B_buf, B)    
@@ -117,8 +119,8 @@ def MBB_fit_CL(F, S, dS, GPU=False, FIXED_BETA=-1.0,
 
 
 
-def MBB_fit_CL_FITS(FREQ, FITS, dFITS, GPU=0, TMIN=7.0, TMAX=40.0, BMIN=0.5, BMAX=3.5, 
-                    FIXED_BETA=-1.6, FILTERS=[], CCDATA=[], get_CC=False):
+def MBB_fit_CL_FITS(FREQ, FITS, dFITS, TMIN=7.0, TMAX=40.0, BMIN=0.5, BMAX=3.5,
+                    FIXED_BETA=-1.6, FILTERS=[], CCDATA=[], get_CC=False, TOL=0.0001, GPU=0, platforms=[0,1,2,3,4,5]):
     """
     Wrapper for MBB_fit_CL, using FITS images as the input instead of data vectors.
     Also returns I(250um), T, and beta as FITS images.
@@ -130,7 +132,6 @@ def MBB_fit_CL_FITS(FREQ, FITS, dFITS, GPU=0, TMIN=7.0, TMAX=40.0, BMIN=0.5, BMA
         FREQ       =   vector of frequencies [Hz]
         FITS       =   list of FITS images
         dFITS      =   list of FITS images with error estimates
-        GPU        =   if True, use GPU (default=False)
         FIXED_BETA =   if >0, keep spectral index fixed beta==FIXED_BETA
         TMIN, TMAX =   limits of acceptable temperature values
         BMIN, BMAX =   limits of acceptable spectral index values
@@ -139,9 +140,11 @@ def MBB_fit_CL_FITS(FREQ, FITS, dFITS, GPU=0, TMIN=7.0, TMAX=40.0, BMIN=0.5, BMA
                        if given, these are used instead of recalculating from FILTERS
                        Note -- one must still give FILTERS if colour corrections are required
         get_CC     =   if True, only CCDATA calculated => the returned values are (CC, None, None) !
+        GPU        =   if True, use GPU (default=False)
+        platforms  =   possuible OpenCL platforms, default is [0, 1, 2, 3, 4, 5]
     Return:
-        I, T, B    =   vectors of 250um intensity, colour temperature, opacity spectral index
-        If get_CC==True, retrurned values are
+        FI, FT, FB  =   pyfits images of 250um intensity, colour temperature, and opacity spectral index
+        If get_CC==True, returned values are
         CC, None, None  =  CC being an array of colour correction factors, 
                            can be reused as long as bands and parameter limits remain the same        
     """
@@ -153,13 +156,14 @@ def MBB_fit_CL_FITS(FREQ, FITS, dFITS, GPU=0, TMIN=7.0, TMAX=40.0, BMIN=0.5, BMA
         S[:,i]  = ravel(FITS[i][0].data)
         dS[:,i] = ravel(dFITS[i][0].data)
     ###
-    I, T, B = MBB_fit_CL(FREQ, S, dS, GPU=GPU, TMIN=TMIN, TMAX=TMAX, BMIN=BMIN, BMAX=BMAX, 
-                         FIXED_BETA=FIXED_BETA, FILTERS=FILTERS, CCDATA=CCDATA, get_CC=get_CC)
+    I, T, B = MBB_fit_CL(FREQ, S, dS, TMIN=TMIN, TMAX=TMAX, BMIN=BMIN, BMAX=BMAX, 
+                         FIXED_BETA=FIXED_BETA, FILTERS=FILTERS, CCDATA=CCDATA, get_CC=get_CC, TOL=TOL,
+                         GPU=GPU, platforms=platforms)
     if (get_CC): return I, None, None   # I = colour correction factors, return immediately ...
     # ... otherwise (I, T, B) are the fitted values for each pixel
-    FI = CopyEmptyFits(FITS[0])
-    FT = CopyEmptyFits(FITS[0])
-    FB = CopyEmptyFits(FITS[0])
+    FI = CopyFits(FITS[0])
+    FT = CopyFits(FITS[0])
+    FB = CopyFits(FITS[0])
     FI[0].data = I.reshape(n,m)
     FT[0].data = T.reshape(n,m)
     FB[0].data = B.reshape(n,m)
@@ -256,7 +260,7 @@ def RunMCMC(F, S, dS, GPU=False, BURNIN=1000, SAMPLES=10000, THIN=20, WIN=200, \
             INI[:,2] = 1.8            
         # Estimate 250um intensity based on the closest frequency point X -->  S250 = SX * MBB(F250) / MBB(FX)
         ifreq =  argmin(abs(um2f(250.0)-F))
-        INI[:,0] = S[:,ifreq] * MBB_function_250(um2f(250.0),INI[:,1],INI[:,2]) / MBB_function_250(F[ifreq], INI[:,1], INI[:,2])
+        INI[:,0] = S[:,ifreq] * ModifiedBlackbody_250(um2f(250.0),INI[:,1],INI[:,2]) / ModifiedBlackbody_250(F[ifreq], INI[:,1], INI[:,2])
         
     X = None
     if (ML): # calculate chi2 minimum solution
@@ -289,7 +293,7 @@ def RunMCMC(F, S, dS, GPU=False, BURNIN=1000, SAMPLES=10000, THIN=20, WIN=200, \
     -D TMIN=%.3ff -D TMAX=%.3ff -D BMIN=%.3ff -D BMAX=%.3ff -I ./ -D METHOD=%d -D USE_COV=%d %s -D SUMMARY=%d" % \
     (N, NF, SAMPLES, THIN, BURNIN, (FIXED_BETA>0.0), WIN, USE_HD, TMIN, TMAX, BMIN, BMAX, 
     METHOD, USE_COV, ADD, SUMMARY)  
-    source     = open(ISM_DIRECTORY+"/MBB/kernel_MBB_MCMC.c").read()
+    source     = open(ISM_DIRECTORY+"/ISM/MBB/kernel_MBB_MCMC.c").read()
     program    = cl.Program(context, source).build(OPT)
     # Allocate buffers
     F_buf      = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=F)
@@ -609,7 +613,7 @@ def MBB_HMCMC_RAM_CL(F, S, dS, GPU=0, TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
         print("*** MBB_HMCMC_RAM_CL: parameter HIER must be 0, 1, or 2")
         sys.exit()
     NG         =  [ 5, 9 ][HIER>1]    # number of global parameters
-    source     = open(ISM_DIRECTORY+"/MBB/kernel_MBB_HMCMC_RAM.c").read()
+    source     = open(ISM_DIRECTORY+"/ISM/MBB/kernel_MBB_HMCMC_RAM.c").read()
     OPT     =  " -D N=%d -D NF=%d -D SAMPLES=%d -D THIN=%d -D BURNIN=%d -D STUDENT=%d -D HIER=%d -D HRAM=%d \
     -D TMIN=%.3ff -D TMAX=%.3ff -D BMIN=%.3ff -D BMAX=%.3ff -I ./ -D LOCAL=%d -D NG=%d" % \
     (N, NF, SAMPLES, THIN, BURNIN, STUDENT, HIER, HRAM, TMIN, TMAX, BMIN, BMAX, LOCAL, NG)
@@ -771,7 +775,7 @@ def MBB_HMCMC_GIBBS_CL(F, S, dS, GPU=0, TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
     platform, device, context, queue, mf = InitCL(GPU, platforms)
     DETMIN   =  1.0e-29  # was 1e-29  1e-30 was working, test 1e-29 again
     DETMIN   =  1.0e-32
-    source   =  open(ISM_DIRECTORY+"/MBB/kernel_MBB_HMCMC_GIBBS.c").read()
+    source   =  open(ISM_DIRECTORY+"/ISM/MBB/kernel_MBB_HMCMC_GIBBS.c").read()
     OPT      =  " -D N=%d -D NF=%d -D SAMPLES=%d -D STUDENT=%d -D HIER=%d -D DETMIN=%.3ef -D DOUBLE=%d  \
     -D TMIN=%.5ff -D TMAX=%.5ff -D BMIN=%.5ff -D BMAX=%.5ff -I ./ -D NG=%d -D LOCAL=%d -D LITER=%d \
     -I%s -D SEED=%.6ff" % \
@@ -1058,7 +1062,7 @@ def MBB_HMCMC_BASIC_CL(F, S, dS, GPU=0, TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
         print("*** MBB_HMCMC_BASIC_CL: parameter HIER must be 0, 1, or 2")
         sys.exit()
     NG = [0, 5, 9][HIER]  # number of global parameters
-    source     = open(ISM_DIRECTORY+"/MBB/kernel_MBB_HMCMC_BASIC.c").read()
+    source     = open(ISM_DIRECTORY+"/ISM/MBB/kernel_MBB_HMCMC_BASIC.c").read()
     OPT     =  " -D N=%d -D NF=%d -D NG=%d -D NP=%d -D SAMPLES=%d -D THIN=%d -D BURNIN=%d -D STUDENT=%d -D HIER=%d -D STEP_SCALE=%.5ef \
     -D TMIN=%.5ff -D TMAX=%.5ff -D BMIN=%.5ff -D BMAX=%.5ff -I /home/mika/starformation/Python/MJ/MJ/Aux -D LOCAL=%d -D GLOBAL=%d -D DOUBLE=%d" % \
     (N, NF, NG, NG+3*N, SAMPLES, THIN, BURNIN, STUDENT, HIER, STEP_SCALE, TMIN, TMAX, BMIN, BMAX, LOCAL, GLOBAL, (DOUBLE>0))
@@ -1193,3 +1197,156 @@ def MBB_HMCMC_BASIC_CL(F, S, dS, GPU=0, TMIN=5.0, TMAX=40.0, BMIN=0.4, BMAX=4.5,
     print("*** FINAL STATE => %12.8f" % sum(PS[:,SAMPLES-1]))
     return PS, STEP, lnP0   #  lnP0 is the probability for the last sample in PS
 
+
+
+
+####################################################################################################
+
+####################################################################################################
+
+####################################################################################################
+
+
+from scipy.optimize import leastsq
+
+
+def ModifiedBlackbody_250(f, T, beta):
+    """
+    Return value of modified black body B(T)*f^beta at given frequency f [Hz],
+    the returned values are normalized with the value at 250um.
+    """
+    return ((f/1.19917e+12)**(3.0E0+beta)) * (exp(H_K*1.19917e+12/T)-1.0) / (exp(H_K*f/T)-1.0)
+
+
+
+def Delta_fix_beta(p, f, S, dS, beta):
+    """
+    Given a modified blackbody curve with parameters p = [ I, T ],
+    observed frequencies f and intensities S+-dS, return normalised residuals.
+    p = [ I, T], emissivity index beta is kept constant.
+    Note:
+        Reference wavelength 250um = as defined in ModifiedBlackbody_250() routine !
+    """
+    # print 'p f S dS beta', p, f, S, dS, beta
+    I  = p[0]*ModifiedBlackbody_250(f, p[1], beta)   # model predictions
+    I  = (I-S)/dS
+    return I/len(I)
+
+
+def Deriv_fix_beta(p, f, S, dS, beta):
+    """
+    Return derivatives - NOT TESTED
+    """
+    D  = zeros((len(S), 2), float32)
+    for i in range(len(S)):
+        D[i,0] = ModifiedBlackbody_250(f, p[1], beta)/dS[i]
+        D[i,1] = D[i,0] * H_K/(p[1]*p[1]) / (1.0-exp(-H_K*f[i]/p[1]))
+    return D
+
+
+
+def Delta_fix_T(p, f, S, dS, fixed_T):
+    """
+    Given a modified blackbody curve with parameters p = [ I200, beta ],
+    observed frequencies f and intensities S+-dS, return chi2 error.
+    p = [ I, T], emissivity index beta is kept constant.
+    """
+    I  = p[0]*ModifiedBlackbody_250(f, fixed_T, p[1])
+    I  = (I-S)/dS
+    return I/len(I)
+
+
+def Deriv_fix_T(p, f, S, dS, fixed_T):
+    """
+    Return derivatives - NOT TESTED
+    """
+    f0 = um2f(200.0)
+    D  = zeros((len(S), 2), float32)
+    for i in range(len(S)):
+        D[i,0] = ModifiedBlackbody_250(f[i], fixed_T, p[1])/dS[i]   #  d/dI
+        D[i,1] = D[i,0] *  p[1] * (f0/f[i])                     #  d/dbeta
+    return D
+
+
+
+def Delta_free(p, f, S, dS, beta):
+    """
+    Given a modified blackbody curve with parameters p = [ I250, T, beta ],
+    observed frequencies f and intensities S+-dS, return normalised residuals.
+    Note:
+        Reference wavelength 250um = as defined in ModifiedBlackbody_250() routine !
+    """
+    I   =  p[0]*ModifiedBlackbody_250(f, p[1], p[2])   # model predictions
+    I   =  (I-S)/dS
+    return I/len(I)
+
+
+
+
+
+def FitModifiedBlackbody_simple(um, FF, dFF, I250, T, beta, fix_T=False, fix_beta=False,
+                        Tmin=3.0, Tmax=35.0, beta_min=0.5, beta_max=4.0, 
+                        xtol=1.0e-5, ftol=1.0e-9):
+    """
+    Usage:
+        p     = FitModifiedBlackbody(um, S, dS, I200, T, beta, fix_T=False, fix_beta=False)
+    Input:
+        um       = vector of wavelenths [um]
+        S        = intensity values
+        FF       = pyfits images at different wavelengths
+        I250     = initial value for 250um intensity (input, array)
+        T        = initial value for temperature [K], scalar
+        beta     = initial value for spectral index, scalar
+        fix_T    = if True, keep temperature fixed
+        fix_beta = if True, keep spectral index fixed
+        Tmin, Tmax         = temperature values cut to this interval
+        beta_min, beta_max = spectral indices cut to this interval
+    Returns:
+        Three pyfits images (even when T or beta is kept fixed):
+            250um intensity, colour temperature, spectral index
+    """
+    f   = C_LIGHT/(1.0e-4*asarray(um))
+    NF  = len(f)
+    tmp = None 
+    N, M = FF[0][0].data.shape
+    SS   = zeros((N*M, NF), float32)
+    dSS  = zeros((N*M, NF), float32)
+    for iband in range(NF):
+        SS[:, iband] = ravel(FF[iband][0].data)
+        if (dFF):
+            dSS[:, iband] = ravel(dFF[iband][0].data)
+    I250 = ravel(I250)
+    beta = 1.8
+    # Results will go to FITS images, one for 250um intensity, one for colour temperature, one fore spectral index
+    res = zeros((N*M, 3), float32)
+    for ipix in range(N*M):
+        S    = SS[ipix, :]
+        dS   = dSS[ipix,:]
+        if (fix_T):        #  T fixed
+            p0  = [ I250[ipix], max(beta_min, min(beta_max, beta)) ]
+            if (0):
+                p1  = fmin(BBChi2_fix_T, p0, args=(f, S, dS, T), disp=0)
+            else:
+                # p1, p1Con = leastsq(Delta_fix_T, p0, args=(f, SS, dS, beta), Dfun=Deriv_fix_T)
+                p1, p1Con = leastsq(Delta_fix_T, p0, args=(f, S, dS, beta), Dfun=None)
+            res[ipix, :] = [ p1[0], T, beta ]                
+        elif (fix_beta):   # BETA fixed
+            p0  = [ I250[ipix], max(Tmin, min(Tmax, T)) ]
+            if (0):
+                p1  = fmin(BBChi2_fix_beta, p0, args=(f, S, dS, beta), disp=0)
+            else:         
+                # p1, p1Con = leastsq(Delta_fix_beta, p0, args=(f, S, dS, beta), Dfun=Deriv_fix_beta, disp=0)
+                p1, p1Con = leastsq(Delta_fix_beta, p0, args=(f, S, dS, beta), Dfun=None, disp=0)
+            res[ipix, :] = [ p1[0], p1[1], beta ]
+        else:              # T and BETA both free
+            p0  = [ I250[ipix], max(Tmin, min(Tmax, T)), max(beta_min, min(beta_max, beta)) ]
+            p1, p1Con = leastsq(Delta_free, p0, args=(f, S, dS, beta), Dfun=None)
+            res[ipix, :] = p1
+    ###
+    FI, FT, FB = CopyFits(FF[0]), CopyFits(FF[0]), CopyFits(FF[0])
+    FI[0].data = res[:,0].reshape(N, M)
+    FT[0].data = res[:,1].reshape(N, M)
+    FB[0].data = res[:,2].reshape(N, M)
+    return FI, FT, FB
+    
+    
