@@ -3,7 +3,7 @@ import scipy
 
 
 
-def CopyFits(F, input_hdu=0):
+def CopyFits(F, input_hdu=0, new_data=[]):
     """
     Return a copy of the provided FITS object, with only a single header unit
     Usage:
@@ -17,7 +17,11 @@ def CopyFits(F, input_hdu=0):
     hdu      = pyfits.PrimaryHDU(np.asarray(F[input_hdu].data.copy(), np.float32))
     hdulist  = pyfits.HDUList([hdu])
     hdulist[0].header = F[input_hdu].header.copy()
-    hdulist[0].data   = 1.0*F[input_hdu].data
+    if (len(new_data)>0):
+        hdulist[0].data   = new_data.copy()
+    else:
+        hdulist[0].data   = 1.0*F[input_hdu].data
+    hdulist.verify('fix')
     return hdulist
 
 

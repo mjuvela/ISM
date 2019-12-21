@@ -15,6 +15,42 @@ except:
     pass
 
 
+# the following in cgs system !!
+C_LIGHT          = 2.99792458E10
+C_LIGHT_SI       = 2.99792458E8
+AMU              = 1.6605E-24 
+H_K              = 4.799243348e-11 ## 4.7995074E-11 
+BOLTZMANN        = 1.3806488e-16
+BOLTZMANN_SI     = 1.3806488e-23
+STEFAN_BOLTZMANN = 5.670373e-5
+SB_SI            = 5.670373e-8
+CGS_TO_JY_SR     = 1e23          # erg/cm2/sr/Hz = CGS_TO_JY_SR * Jy/sr
+PLANCK           = 6.62606957e-27 
+PLANCK_SI        = 6.62606957e-34
+M0               = 1.99e33
+MJupiter         = 1.9e30        # [g]
+GRAV             = 6.67e-8
+GRAV_SI          = 6.673e-11
+PARSEC           = 3.0857E18
+LIGHTYEAR        = 9.4607e17
+LIGHTYEAR_SI     = 9.4607e15
+ELECTRONVOLT     = 1.6022e-12
+AU               = 149.597871e11
+RSUN             = 6.955e10
+RSUN_SI          = 6.955e8
+DSUN             = 1.496e13  # cm
+DSUN_SI          = 1.496e11  # 1.496e8 km
+MSUN             = 1.9891e33
+MSUN_SI          = 1.9891e30
+M_EARTH          = 5.972e27
+LSUN             = 3.839e33
+LSUN_SI          = 3.839e26
+TSUN             = 5778.0
+MJUPITER         = 1.9e30
+H_C2             = PLANCK/(C_LIGHT*C_LIGHT)
+H_C2_GHz         = PLANCK/(C_LIGHT*C_LIGHT)*1.0e27
+
+
 ARCSEC_TO_DEGREE =  (1.0/3600.0)
 DEGREE_TO_RADIAN =  0.0174532925199432958
 ARCMIN_TO_RADIAN =  (2.9088820e-4)
@@ -162,5 +198,18 @@ def InitCL(GPU=0, platforms=[], sub=0, verbose=False):
     return platform, device, context, queue,  cl.mem_flags
 
 
+
+def um2f(um):
+    """
+    Convert wavelength [um] to frequency [Hz]
+    """
+    return C_LIGHT/(um*1.0e-4)
+
+
+def f2um(f):
+    """
+    Convert frequency [Hz] to wavelenth [um]
+    """
+    return 1.0e4*C_LIGHT/f
 
 
