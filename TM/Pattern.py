@@ -24,6 +24,8 @@ def RollingHoughTransform(F, DK, DW, THRESHOLD, GPU=0, local=-1, platforms=arang
         THRESHOLD =  fraction of SCALE for ON pixels
         local     =  override default value of local work group size (64 for GPU, 8 for CPU)
         platforms =  array of platoforms (integers), default is arange(6)
+    Return:
+        R, SIN, COS, T, SS
     """
     t0       = time.time()
     platform, device, context, queue,  mf = InitCL(GPU, platforms)

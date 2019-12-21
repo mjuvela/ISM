@@ -94,7 +94,7 @@ For further information, see
 
 
 
-## FITS
+## FITS  - tools for FITS images
 
 The directory *FITS* contains programs related to the handling of FITS
 images. At the moment there is a draft program for the resampling of
@@ -127,3 +127,18 @@ discusses the implementation of the median absolute deviation (MAD)
 algorithm with OpenCL
 * the original publication on the Drizzle algorithm: Fruchter & Hook,
 2002, PASP 112, 144; https://ui.adsabs.harvard.edu/abs/2002PASP..114..144F
+
+
+
+** MBB - Modified blackbody fits
+
+The directory contains comparisons between modified blackbody fits
+with Scipy leastsq and a simplistic OpenCL routine. There are further
+examples of modified blackbody fits with Markov chain Monte Carlo. The
+results are discussed at 
+* http://www.interstellarmedium.org/mcmc/
+
+
+
+
+

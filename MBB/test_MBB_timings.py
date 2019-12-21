@@ -18,7 +18,7 @@ NN     =  asarray(logspace(0.5, 3.0, 7), int32)
 RES    =  zeros((len(NN), 4), float32)
 
 
-for itest in range(len(NN)):
+for itest in range(0, len(NN)):
     N       =  NN[itest]
     M       =  NN[itest]    
     J, I    =  indices((N,M))
@@ -55,8 +55,13 @@ for itest in range(len(NN)):
     t0 = time.time()
     CI, CT, CB = MBB_fit_CL_FITS(freq, FF, dFF, GPU=1, platforms=[1,])
     RES[itest, 3] = time.time()-t0
-
-
+    
+    if (0): #
+        PT.writeto('PT.fits', overwrite=True)
+        PB.writeto('PB.fits', overwrite=True)
+        CT.writeto('CT.fits', overwrite=True)
+        CB.writeto('CB.fits', overwrite=True)
+        sys.exit()
     
     
 figure(1, figsize=(8,7))

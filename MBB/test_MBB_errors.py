@@ -44,7 +44,7 @@ for iband in range(len(um)):
 PI, PT, PB = FitModifiedBlackbody_simple(um, FF, dFF, FF[1][0].data.copy(), 15.0, 1.8)
 
 # Fit the MBB spectra with the OpenCL routine
-CI, CT, CB = MBB_fit_CL_FITS(freq, FF, dFF, GPU=0, TMIN=7.0, TMAX=40.0, BMIN=0.5, BMAX=3.5, TOL=0.0001)
+CI, CT, CB = MBB_fit_CL_FITS(freq, FF, dFF, GPU=0, TMIN=7.0, TMAX=40.0, BMIN=0.5, BMAX=3.5)
 
 
 figure(1, figsize=(8,7))
