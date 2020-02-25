@@ -289,7 +289,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
 -D ROI_STEP=%d -D ROI_NSIDE=%d -D WITH_ROI_LOAD=%d -D WITH_ROI_SAVE=%d \
 -D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I%s \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
--D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D WITH_COLDEN=%d -D MINLOS=%.3ef -D MAXLOS=%.3ef \
+-D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D SAVE_TAU=%.4ef -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D METHOD=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
 -D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d" % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD, FACTOR,
@@ -298,7 +298,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
    USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, INSTALL_DIR, 
    USER.POLSTAT, int(USER.STEP_WEIGHT[0]), USER.STEP_WEIGHT[1], int(USER.STEP_WEIGHT[2]), 
    int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1],
-   USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, len(USER.file_colden)>1, USER.MINLOS, USER.MAXLOS,
+   USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, USER.savetau_freq, USER.MINLOS, USER.MAXLOS,
    USER.FFS, NODIR, USER.METHOD, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
    ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT )
 print(ARGS)
@@ -2591,8 +2591,8 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     # USER.LIB_MAPS =>  emission and maps will both be only for the USER.FSELECT frequencies
     #                   then REMIT_I1==0, REMIT_I2==ONFREQ-1
     print("MAP_SLOW")
-    MAP_buf     = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
-    COLDEN_buf  = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
+    MAP_buf      = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
+    SAVETAU_buf  = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
     # source      = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map.c").read()
     source      = open(INSTALL_DIR+"/kernel_ASOC_map.c").read()
     program_map = cl.Program(context[0], source).build(ARGS+' -D NSIDE=%d' % (USER.NPIX['x']))
@@ -2615,7 +2615,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         # LCELLS  OFF   PAR   DENS  ABS           SCA
         None,     None, None, None, np.float32,   np.float32,
         # 13                    14                      15     16       17
-        # CENTRE                INTOBS                  OPT    COLDEN   ROI
+        # CENTRE                INTOBS                  OPT    SAVETAU  ROI
         clarray.cltypes.float3, clarray.cltypes.float3, None,  None,    None])
         ROI_LIM_buf = cl.Buffer(context[0], mf.READ_ONLY, 4*6)  # ROI[6], int32 limits
         cl.enqueue_copy(commands[0], ROI_LIM_buf, asarray(USER.ROI, int32))
@@ -2631,7 +2631,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         # LCELLS   OFF    PAR    DENS   ABS          SCA    
         None,      None,  None,  None,  np.float32,  np.float32,
         # 13                     14                       15     16    
-        # CENTRE                 INTOBS                   OPT    COLDEN
+        # CENTRE                 INTOBS                   OPT    SAVETAU
         clarray.cltypes.float3,  clarray.cltypes.float3,  None,  None  ])
     if (USER.NPIX['y']<=0):   # Healpix map
         GLOBAL = int((1+floor((12*USER.NPIX['x']**2)/LOCAL))*LOCAL)
@@ -2669,7 +2669,16 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         
         if (USER.LIB_MAPS):
             print(" LIB_MAPS ---- map %d, frequency %d in the full frequency grid" % (OIFREQ, IFREQ))
-        
+
+
+        if (len(USER.SINGLE_MAP_FREQ)>0): # user picks individual map frequencies
+            ii = argmin(abs(FREQ-USER.SINGLE_MAP_FREQ))
+            if ((abs(FREQ-USER.SINGLE_MAP_FREQ[ii])/FREQ)>0.005):
+                print("      UM %6.2f ---NOT--- IN SINGLE_MAP_FREQ, CLOSEST %.2f um" % (f2um(FREQ), f2um(USER.SINGLE_MAP_FREQ[ii])))
+                continue
+            print("   *** DOING SINGLE_MAP_FREQ[%d] = %.3e = %6.1f um" % (ii, FREQ, f2um(FREQ)))
+
+            
         # optical parameters
         if (WITH_ABU>0): # ABS, SCA, G are vectors... precalculated into OPT
             OPT[:,:] = 0.0
@@ -2714,22 +2723,31 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 # 7            8           9           10           11      12       13            
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0],  USER.MAPCENTRE,
                 # 14         15          16          17      
-                USER.INTOBS, OPT_buf[0], COLDEN_buf, ROI_LIM_buf)
+                USER.INTOBS, OPT_buf[0], SAVETAU_buf, ROI_LIM_buf)
             else:  # the same without ROI
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAP_buf, EMIT_buf[0], ODIR[idir], RA[idir], DE[idir],
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0], USER.MAPCENTRE,
-                USER.INTOBS, OPT_buf[0], COLDEN_buf)
+                USER.INTOBS, OPT_buf[0], SAVETAU_buf)
             cl.enqueue_copy(commands[0], MAP, MAP_buf)  # copy result to MAP
             # write the frequency maps to the files (whatever the size of MAP)
             asarray(MAP,float32).tofile(fpmap[idir])  # directly all the selected frequencies
-            if (first_loop):
+            if ((first_loop)&(USER.savetau_freq<=0.0)):
                 # Save column density only after the calculation of the first frequency
-                fp       = open("%s.%d" %  (USER.file_colden, idir), "wb")
+                fp       = open("%s.%d" %  (USER.file_savetau, idir), "wb")
                 asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
-                cl.enqueue_copy(commands[0], MAP, COLDEN_buf) # same number of pixels as MAP
+                cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 asarray(MAP, float32).tofile(fp)
                 fp.close()
+            if (USER.savetau_freq>0.0):  # save optical depth for frequency USER.savetau_freq
+                if (abs((USER.savetau_freq-FREQ)/FREQ) < 0.01 ): # save computed tau value for this frequency
+                    print("******** WRITING THE OPTICAL DEPTH MAP !!!!!!!!!!!!!!!!!!!!!!! *******************")
+                    fp       = open("%s.%d" %  (USER.file_savetau, idir), "wb")
+                    asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
+                    cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
+                    asarray(MAP, float32).tofile(fp)
+                    fp.close()            
+            
         first_loop = False
         # end of -- for idir
     # end of -- for IFREQ
@@ -2799,8 +2817,8 @@ if ((not(MAP_HIER))&(USER.NPIX['y']<0)): # Healpix map
         asarray([itmp, LEVELS], int32).tofile(fpmap[idir])
     KK  = (1.0e23/FACTOR) * PLANCK / (4.0*np.pi)   #  1e3 = 1e23/1e20 = removing scaling, convert to Jy/sr
     KK *= USER.GL*PARSEC
-    MAP_buf    = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes) # MAP is already for LEVELS
-    COLDEN_buf = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
+    MAP_buf     = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes) # MAP is already for LEVELS
+    SAVETAU_buf = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
 
     OIFREQ = -1
     for IFREQ in range(REMIT_I1, REMIT_I2+1):    #/ loop over individual frequencies
@@ -2848,24 +2866,31 @@ if ((not(MAP_HIER))&(USER.NPIX['y']<0)): # Healpix map
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAP_buf, EMIT_buf[0], ODIR[idir], RA[idir], DE[idir],
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0],  SCA[0],  USER.MAPCENTRE,
-                USER.INTOBS, OPT_buf[0], COLDEN_buf, ROI_LIM_buf)
+                USER.INTOBS, OPT_buf[0], SAVETAU_buf, ROI_LIM_buf)
                 #### cl.enqueue_copy(commands[0], ROI_LIM_buf, USER.ROI)
             else:
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAP_buf, EMIT_buf[0], ODIR[idir], RA[idir], DE[idir],
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0],  SCA[0],  USER.MAPCENTRE,
-                USER.INTOBS, OPT_buf[0], COLDEN_buf)
+                USER.INTOBS, OPT_buf[0], SAVETAU_buf)
             cl.enqueue_copy(commands[0], MAP, MAP_buf)
             # write the frequency maps to file
             print(" ---- MAP %12.4e" % mean(MAP)) ;
             asarray(MAP, float32).tofile(fpmap[idir])
-            if (IFREQ==REMIT_I1):
+            if ((IFREQ==REMIT_I1)&(USER.savetau_freq==0.0)):
                 # save column density only after the calculation of the first frequency
-                fp   = open("%s.%d" % (USER.file_colden, idir), "wb")
+                fp   = open("%s.%d" % (USER.file_savetau, idir), "wb")
                 asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
-                cl.enqueue_copy(commands[0], MAP, COLDEN_buf)
+                cl.enqueue_copy(commands[0], MAP, SAVETAU_buf)
                 asarray(MAP, float32).tofile(fp)
                 fp.close()
+            if (USER.savetau_freq>0.0):
+                if (abs((USER.savetau_freq-FREQ)/FREQ)<0.001): # save optical depth
+                    fp   = open("%s.%d" % (USER.file_savetau, idir), "wb")
+                    asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
+                    cl.enqueue_copy(commands[0], MAP, SAVETAU_buf)
+                    asarray(MAP, float32).tofile(fp)
+                    fp.close()
         # for -- idir
     # for -- IFREQ
     for idir in range(NDIR): fpmap[idir].close()
@@ -2884,7 +2909,7 @@ if (MAP_HIER):
     kernel_map  = None
     if (USER.NPIX['y']<=0):  kernel_map = program_map.HealpixMapping
     else:                    kernel_map = program_map.Mapping
-    if (len(USER.file_colden)>1):
+    if (USER.savetau_freq>=0.0):
         kernel_map.set_scalar_arg_dtypes([
         # 0       1                     2     3   
         np.float, clarray.cltypes.int2, None, None,
@@ -2917,8 +2942,8 @@ if (MAP_HIER):
         asarray([itmp, LEVELS], int32).tofile(fpmap[idir])
     KK  = (1.0e23/FACTOR) * PLANCK / (4.0*np.pi)   #  1e3 = 1e23/1e20 = removing scaling, convert to Jy/sr
     KK *= USER.GL*PARSEC
-    MAP_buf    = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes) # MAP is already for LEVELS
-    COLDEN_buf = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
+    MAP_buf     = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes) # MAP is already for LEVELS
+    SAVETAU_buf = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
     for IFREQ in range(REMIT_I1, REMIT_I2+1):    #/ loop over individual frequencies
         FREQ = FFREQ[IFREQ]
         if ((FREQ<USER.MAP_FREQ[0])|(FREQ>USER.MAP_FREQ[1])): continue 
@@ -2954,11 +2979,11 @@ if (MAP_HIER):
         # use kernel to do the LOS integration:  EMIT -> MAP
         cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
         for idir in range(NDIR):        #  loop over observer directions
-            if (len(USER.file_colden)>1):
+            if (USER.savetau_freq>=0.0):
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAP_buf, EMIT_buf[0], ODIR[idir], RA[idir], DE[idir],
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0],  SCA[0],  USER.MAPCENTRE,
-                USER.INTOBS, OPT_buf[0], COLDEN_buf)                    
+                USER.INTOBS, OPT_buf[0], SAVETAU_buf)                    
             else:
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAP_buf, EMIT_buf[0], ODIR[idir], RA[idir], DE[idir],
@@ -2967,13 +2992,20 @@ if (MAP_HIER):
             cl.enqueue_copy(commands[0], MAP, MAP_buf)
             # write the frequency maps to file
             asarray(MAP, float32).tofile(fpmap[idir])
-            if ((len(USER.file_colden)>1)&(IFREQ==REMIT_I1)):
+            if ((USER.savetau_freq==0.0)&(IFREQ==REMIT_I1)):
                 # save column density only after the calculation of the first frequency
-                fp   = open("%s.%d" % (USER.file_colden, idir), "wb")
+                fp   = open("%s.%d" % (USER.file_savetau, idir), "wb")
                 asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
-                cl.enqueue_copy(commands[0], MAP, COLDEN_buf)
+                cl.enqueue_copy(commands[0], MAP, SAVETAU_buf)
                 asarray(MAP, float32).tofile(fp)
                 fp.close()
+            if (USER.savetau_freq>0.0): # save optical depth
+                if (abs((USER.savetau_freq-FREQ)/FREQ)<0.001):
+                    fp   = open("%s.%d" % (USER.file_savetau, idir), "wb")
+                    asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
+                    cl.enqueue_copy(commands[0], MAP, SAVETAU_buf)
+                    asarray(MAP, float32).tofile(fp)
+                    fp.close()
         # for -- idir
     # for -- IFREQ
     for idir in range(NDIR): fpmap[idir].close()
@@ -3017,12 +3049,12 @@ if (MAP_FAST):
     ABSX_buf   = cl.Buffer(context[0], mf.READ_ONLY,  ABSX.nbytes)  # [NF]
     SCAX_buf   = cl.Buffer(context[0], mf.READ_ONLY,  SCAX.nbytes)  # [NF]
     MAPX_buf   = cl.Buffer(context[0], mf.WRITE_ONLY, MAPX.nbytes)  # [npix, NF]
-    COLDEN_buf = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)                
+    SAVETAU_buf = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)                
     if (USER.NPIX['y']<=0):  kernel_map = program_map.HealpixMappingX
     else:                    kernel_map = program_map.MappingX
     # Note -- combination column density + healpix map is not implemented !!
     #         WITH_ABU = variable-abundance case not implemented for MappingX() kernel
-    if (len(USER.file_colden)>1):
+    if (USER.savetau_freq>=0.0):
         kernel_map.set_scalar_arg_dtypes([
         np.float32, clarray.cltypes.int2, None, None,
         clarray.cltypes.float3, clarray.cltypes.float3, clarray.cltypes.float3,
@@ -3069,11 +3101,11 @@ if (MAP_FAST):
         cl.enqueue_copy(commands[0], ABSX_buf,  ABSX)
         cl.enqueue_copy(commands[0], SCAX_buf,  SCAX)            
         for idir in range(NDIR):    # loop over directions
-            if (len(USER.file_colden)>1):
+            if (USER.savetau_freq>=0.0):
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAPX_buf, EMITX_buf, ODIR[idir], RA[idir], DE[idir],
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABSX_buf,  SCAX_buf,
-                USER.MAPCENTRE, USER.INTOBS, COLDEN_buf)
+                USER.MAPCENTRE, USER.INTOBS, SAVETAU_buf)
             else:
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAPX_buf, EMITX_buf, ODIR[idir], RA[idir], DE[idir],
@@ -3086,12 +3118,20 @@ if (MAP_FAST):
                     MAP[:] = MAPX[:, ifreq]  # could be flat image or healpix map
                     asarray(MAP, float32).tofile(fpmap[idir])
             MAPX = ravel(MAPX)               # return to 1D vector
-            if ((len(USER.file_colden)>1)&(IFREQ==I1)):
-                fp   = open("%s.%d" % (USER.file_colden, idir), "wb")
+            if ((USER.savetau_freq==0.0)&(IFREQ==I1)):
+                fp   = open("%s.%d" % (USER.file_savetau, idir), "wb")
                 asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
-                cl.enqueue_copy(commands[0], MAP, COLDEN_buf)
+                cl.enqueue_copy(commands[0], MAP, SAVETAU_buf)
                 asarray(MAP, float32).tofile(fp)
                 fp.close()
+            if (USER.savetau_freq>0.0):  # save optical depth instead
+                if (abs((USER.savetau_freq-FREQ)/FREQ)<0.001):
+                    fp   = open("%s.%d" % (USER.file_savetau, idir), "wb")
+                    asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
+                    cl.enqueue_copy(commands[0], MAP, SAVETAU_buf)
+                    asarray(MAP, float32).tofile(fp)
+                    fp.close()
+
     # end of  -- for IFREQ
     sys.stdout.write("\n")
     sys.stdout.flush()

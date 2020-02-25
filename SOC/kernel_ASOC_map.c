@@ -592,16 +592,15 @@ __kernel void Mapping(
 #endif
       
       TAU    += DTAU ;
-      colden += sx*DENS[oind] ;
+      if (SAVE_TAU==0.0)  colden += sx*DENS[oind] ;
       // ind  = IndexG(POS, &level, &ind, DENS, OFF) ; --- should not be necessary!
    }  // while ind>=0
    
    // i = longitude, j = latitude = runs faster
    MAP[id] = PHOTONS ;
    // printf("colden %10.3e\n", colden) ;
-#if (WITH_COLDEN>0)
-   COLDEN[id] = colden * LENGTH ;
-#endif
+   if (SAVE_TAU>0.0)  COLDEN[id] = TAU ;                 // saving optical depth instead of column density
+   if (SAVE_TAU==0.0) COLDEN[id] = colden * LENGTH ;
 }
 
 
@@ -690,9 +689,8 @@ __kernel void HealpixMapping(
       colden += dx*DENS[oind] ;
    }   
    MAP[id] = PHOTONS ;   // printf("PHOTONS %10.3e\n", PHOTONS) ;
-#if (WITH_COLDEN)
-   COLDEN[id] = colden*LENGTH ;
-#endif   
+   if (SAVE_TAU==0.0)  COLDEN[id] = colden*LENGTH ;
+   if (SAVE_TAU>0.0)   COLDEN[id] = TAU ;
 }
 
 

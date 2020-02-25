@@ -388,8 +388,9 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
 #endif
                // coordinates  = projections on (ORA, ODE) vectors
                POS      -=   CENTRE ;   // exit position relative the model centre
-               i         =   (0.5f*NPIX.x-0.00005f) + dot(POS, ORA[idir]) * MAP_DX ;  // ORA = right
-               j         =   (0.5f*NPIX.y-0.00005f) + dot(POS, ODE[idir]) * MAP_DX ;
+               // large MAP_DX => pixel is large => pixel offset is small => /= MAP_DX
+               i         =   (0.5f*NPIX.x-0.00005f) + dot(POS, ORA[idir]) / MAP_DX ;  // ORA = right
+               j         =   (0.5f*NPIX.y-0.00005f) + dot(POS, ODE[idir]) / MAP_DX ;
                if ((i>=0)&&(j>=0)&&(i<NPIX.x)&&(j<NPIX.y)) {
                   i     +=  idir*NPIX.x*NPIX.y   +    j*NPIX.x ;
                   atomicAdd_g_f(&(OUT[i]), delta) ;
@@ -1023,8 +1024,8 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                delta     =  PHOTONS* exp(-tau) *  DSC[idust*BINS+clamp((int)(BINS*(1.0f+cos_theta)*0.5f), 0, BINS-1)] ;
                // coordinates  = projections on (ORA, ODE) vectors
                POS      -=  CENTRE ;
-               i         =  (0.5f*NPIX.x-0.00005f) + dot(POS, ORA[idir]) * MAP_DX ;  // RA = right !!
-               j         =  (0.5f*NPIX.y-0.00005f) + dot(POS, ODE[idir]) * MAP_DX ;
+               i         =  (0.5f*NPIX.x-0.00005f) + dot(POS, ORA[idir]) / MAP_DX ;  // RA = right !!
+               j         =  (0.5f*NPIX.y-0.00005f) + dot(POS, ODE[idir]) / MAP_DX ;
                if ((i>=0)&&(j>=0)&&(i<NPIX.x)&&(j<NPIX.y)) {   // ind  =  i+j*NPIX.x ;
                   i     +=  idir*NPIX.x*NPIX.y   +    j*NPIX.x ;
                   atomicAdd_g_f(&(OUT[i]), delta) ;
@@ -1375,8 +1376,8 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 #endif
                // coordinates  = projections on (ORA, ODE) vectors
                POS      -=   CENTRE ;   // exit position relative the model centre
-               i         =   (0.5f*NPIX.x-0.00005f) + dot(POS, ORA[idir]) * MAP_DX ; // RA = right
-               j         =   (0.5f*NPIX.y-0.00005f) + dot(POS, ODE[idir]) * MAP_DX ;
+               i         =   (0.5f*NPIX.x-0.00005f) + dot(POS, ORA[idir]) / MAP_DX ; // RA = right
+               j         =   (0.5f*NPIX.y-0.00005f) + dot(POS, ODE[idir]) / MAP_DX ;
                if ((i>=0)&&(j>=0)&&(i<NPIX.x)&&(j<NPIX.y)) {
                   i     +=  idir*NPIX.x*NPIX.y   +    j*NPIX.x ;
                   atomicAdd_g_f(&(OUT[i]), delta) ;

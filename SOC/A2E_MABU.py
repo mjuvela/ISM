@@ -291,7 +291,11 @@ def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=9999
     print("=== Solve temperatures: %.2f seconds =>  %10.3e %10.3e %10.3e" % (time.time()-t0, a,b,c))
     FP_ABSORBED.close()
     
-    np.asarray(TNEW, np.float32).tofile(SHAREDIR+'/TNEW.bin')
+    if (0):
+        np.asarray(TNEW, np.float32).tofile(SHAREDIR+'/TNEW.bin')
+    else:
+        np.asarray(TNEW, np.float32).tofile('%s.T' % dust)
+            
     # Use another kernel to calculate ***EMISSIONS*** -- per unit density
     # 2019-02-24 --- this can be restricted to output frequencies [UM_MIN, UM_MAX]
     kernel_emission = program.Emission

@@ -61,7 +61,7 @@ def PlanckTest(f, T):  # Planck function
 def um2f(um):  # convert wavelength [um] to frequency [Hz]
     return C_LIGHT/(1.0e-4*um)
 
-def um2f(f):   # convert frequency [Hz] to wavelength [um]
+def f2um(f):   # convert frequency [Hz] to wavelength [um]
     return 1.0e4*C_LIGHT/f
 
 def Trapezoid(x, y):
@@ -93,14 +93,14 @@ class User:
         self.file_emitted     = 'soc.emitted'   # file to save emission per cell
         self.file_sourcemap   = ''   # file to save map of attenuated sources
         self.file_temperature = ''   # file to save dust temperatures
-        self.file_colden      = ''   # file to save column density map
+        self.file_savetau     = ''   # file to save column density map or tau map
         self.file_scattering  = ''   # file to save images of scattered light
         self.file_constant_save = '' # file to save heating by constant sources, with reference field
         self.kernel_defs      = ''   # additional defs passed onto kernel compilation
 
         # run parameters
         self.GL           = 0.0      # grid size parameter [pc]
-        self.MAP_DX       = 1.0      # pixel size [pc]
+        self.MAP_DX       = 1.0      # pixel size in root grid cell length units
         self.KDENSITY     = 1.0      # scaling of density read from tile
         self.DISTANCE     = 0.0      # distance of the model [pc]
         self.ITERATIONS   = 1        #  number of iterations (simulation / T calculation)
@@ -152,6 +152,7 @@ class User:
         self.INTERPOLATE  =  0       # if map-making uses interpolation...
         self.SEED         = pi/4.0   # seed value for random number generators
         self.MAP_FREQ     = [0.0, 1e18] # frequency limits for the maps to be saved [Hz]
+        self.SINGLE_MAP_FREQ = []    # individual frequencies for which only to write the maps
         self.SOLVE_ON_DEVICE = 0     # if >0, solve temperatures on device
         self.FFS          = 1        # use forced first scattering
         self.METHOD       = 0        # version of the dust emission simulation part
@@ -181,7 +182,8 @@ class User:
         self.SINGLE_ABU   = 0
         self.OPT_IS_HALF  = 0
         self.POL_RHO_WEIGHT = 0 
-
+        self.savetau_freq = -1.0     # if >0, save tau map instead of column density map
+        
         self.ROI           = zeros(6, int32)   # ROI limits in root grid cells [x0,x1,y0,y1,z0,z1] = [x0:(x1+1), ...]
         self.ROI_STEP      = 0       # for ROI_SAVE, subsampling of GL
         self.ROI_MAP       = 0       # True if maps are made using only emission within ROI
@@ -198,6 +200,7 @@ class User:
         self.FSELECT       = []      # selected frequencies (simulation using library)
         self.LIB_ABS       = False   # only calculate absorptions at FSELECT frequencies
         self.LIB_MAPS      = False   # only calculate maps from library-solved emission
+
         
         # read inifile
         for line in open(filename).readlines():    
@@ -217,6 +220,10 @@ class User:
                 # drop tailing comments
                 self.kernel_defs = self.kernel_defs[0:self.kernel_defs.index('#')]
                 
+            if (s[0].find('mapum')==0):
+                for ss in s[1:]:
+                    self.SINGLE_MAP_FREQ.append( um2f(float(ss)) )
+                print("ASOC: mapum ", self.SINGLE_MAP_FREQ)
 
             if (s[0]=='singleabu'):
                 self.SINGLE_ABU = 1
@@ -243,6 +250,14 @@ class User:
             if (key.find('polrhoweight')==0):   self.POL_RHO_WEIGHT  = 1
             
             if (key.lower().find('roimap')==0): self.ROI_MAP = 1
+
+            if (key.find('savetau')==0):
+                # save column density map to named file
+                # second parameter = um => save optical depth instead
+                self.file_savetau  = s[1]
+                self.savetau_freq = 0.0   # <0 => no colden, ==0 => colden, >0 => save optical depth
+                if (len(s)>=2):
+                    self.savetau_freq = um2f(float(s[2]))
             
             if (len(s)<2): continue
             # keywords with a single argument
@@ -253,7 +268,6 @@ class User:
             if (key.find('sourcemap')==0):   self.file_sourcemap    = a
             if (key.find('tempera')==0):     self.file_temperature  = a
             if (key.find('cloud')==0):       self.file_cloud        = a
-            if (key.find('colden')==0):      self.file_colden       = a
             if (key.find('absorb')==0):      self.file_absorbed     = a
             if (key.find('scatter')==0):     self.file_scattering   = a
             if (key.find('emit')==0):        self.file_emitted      = a
@@ -387,7 +401,7 @@ class User:
                 self.STEP_WEIGHT = [ int(a), float(b), float(c) ]
             if (key.find('mapping')==0):
                 self.NPIX   = cl.cltypes.make_int2(int(a), int(b))
-                self.MAP_DX = float(c)
+                self.MAP_DX = float(c)                
                 if (len(s)>=4):
                     try:
                         self.FAST_MAP = int(s[4])

@@ -56,10 +56,11 @@ def is_gs_dust(name):
     return False
 
 
-# Make a list of the dusts
+# Make a list of the dusts ... AND ABUNDANCE FILES, IF GIVEN
 stochastic, simple = [], []   # list of dust names, basename without ".dust"
+abundance = {}
 fabs, femit = None, None      # names of absorption and emission files
-nstoch, nsimple = 0, 0            # number of stochastic and equilibrium dusts
+nstoch, nsimple = 0, 0        # number of stochastic and equilibrium dusts
 for line in LINES:
     s = line.split()
     if (len(s)<2): continue
@@ -71,6 +72,11 @@ for line in LINES:
         else:
             simple.append(name.replace('.dust',''))
             nsimple += 1
+        abu  = ''
+        if (len(s)>2):
+            if (s[2]!='#'):
+                abu = s[2]
+        abundance.update({name.replace('.dust', '') : abu})
     if (s[0]=='absorbed'): fabs  = s[1]
     if (s[0]=='emitted'):  femit = s[1]
 
@@ -79,9 +85,11 @@ for line in LINES:
 print("================================================================================")
 print("ASOC_driver")
 print("SIMPLE:")
-print(simple)
+for name in simple:
+    print("%30s -- [%s]" % (name, abundance[name]))
 print("STOCHASTIC:")
-print(stochastic)
+for name in stochastic:
+    print("%30s -- [%s]" % (name, abundance[name]))
 # sys.exit()
 
 
@@ -112,9 +120,9 @@ for line in LINES:
     if (s[0]!='optical'):
         fp.write(line)
 for d in simple:
-    fp.write('optical %s.dust\n' % d)
+    fp.write('optical %s.dust %s\n' % (d, abundance[d]))
 for d in stochastic:
-    fp.write('optical %s_simple.dust\n' % d)
+    fp.write('optical %s_simple.dust %s\n' % (d, abundance[d]))
 fp.write('nomap\n')
 fp.write('nosolve\n')
 if (USELIB):

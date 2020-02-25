@@ -584,6 +584,12 @@ def create_library_2(solver, libname, FREQ, LFREQ, file_absorbed, BINS=[40,30,10
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         print("!!!!!         K0 = %.2f  > 1.3   ---- ARE YOU SURE ???     !!!!!" % K0)
+        if (1):
+            sys.stdout.write("WE CHANGE AMIN FROM %.3e" % AMIN0)  # we might have some zeros??
+            #  1.3**50 ~ 1e6 in dynamical range, 1.2**53 ~ 1e4 
+            AMIN0 = AMAX0 / 1.2**BINS0    # ... practically zero ?
+            K0    =  exp(log(AMAX0/AMIN0)/BINS0)            
+            sys.stdout.write(" TO %.3e, AMAX=%.3e, K0=%.3e\n" % (AMIN0, AMAX0, K0))
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         time.sleep(2)
