@@ -256,8 +256,9 @@ class User:
                 # second parameter = um => save optical depth instead
                 self.file_savetau  = s[1]
                 self.savetau_freq = 0.0   # <0 => no colden, ==0 => colden, >0 => save optical depth
-                if (len(s)>=2):
-                    self.savetau_freq = um2f(float(s[2]))
+                if (len(s)>2):
+                    if (s[2][0:1]!='#'):
+                        self.savetau_freq = um2f(float(s[2]))
             
             if (len(s)<2): continue
             # keywords with a single argument
