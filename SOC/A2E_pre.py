@@ -9,7 +9,7 @@ INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(INSTALL_DIR)
   
 
-from   SOC_aux import *
+from   ASOC_aux import *
 from   DustLib import *
 import pyopencl as cl
 import numpy as np
