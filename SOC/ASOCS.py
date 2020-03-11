@@ -677,7 +677,7 @@ if (CLPAC>0):
         # Parameters for the current frequency
         FREQ  =  FFREQ[IFREQ]
         if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue # FREQ not simulayted!!
-        print("    FREQ %3d/%3d   %12.4e --  ABS %.3e  SCA %.3e" % (IFREQ+1, NFREQ, FREQ, ABS, SCA))
+        print("    FREQ %3d/%3d   %12.4e --  ABS %.3e  SCA %.3e" % (IFREQ+1, NFREQ, FREQ, ABS[0], SCA[0]))
         
         ABS[0], SCA[0]  = AFABS[0][IFREQ], AFSCA[0][IFREQ]        
         if (WITH_ABU>0): # ABS, SCA, G are vectors
@@ -686,9 +686,9 @@ if (CLPAC>0):
                 OPT[:,0] +=  ABU[:,idust] * AFABS[idust][IFREQ]
                 OPT[:,1] +=  ABU[:,idust] * AFSCA[idust][IFREQ]
             if (USER.OPT_IS_HALF):
-                cl.enqueue_copy(commands[ID], OPT_buf, asarray(OPT, np.float16))
+                cl.enqueue_copy(commands[ID], OPT_buf[ID], asarray(OPT, np.float16))
             else:
-                cl.enqueue_copy(commands[ID], OPT_buf, OPT)
+                cl.enqueue_copy(commands[ID], OPT_buf[ID], OPT)
             if (WITH_MSF):  # ABS[], SCA[] actually not needed !!
                 for idust in range(NDUST):
                     ABS[idust] = AFABS[idust][IFREQ]
