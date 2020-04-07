@@ -1,6 +1,11 @@
 #!/usr/bin/python
 
-from MJ.mjDefs import *
+if (0):
+    from MJ.mjDefs import *
+else:
+    import os, sys
+    import numpy as np
+    
 import pyopencl as cl
 
 INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))

@@ -1,7 +1,12 @@
 #!/usr/bin/python
-from MJ.mjDefs import *
-from MJ.Aux.DustLib import *
 
+if (0):
+    from MJ.mjDefs import *
+    from MJ.Aux.DustLib import *
+else:
+    import os, sys
+    import numpy as np
+    
 """
 Usage:
     ASOC_driver.py  soc-ini  [uselib] [makelib] 
