@@ -81,7 +81,7 @@ GLOBAL_0    = 32768
 # GLOBAL_0 = 65536
 
 if (len(sys.argv)<2):  
-    print(" SOC input_file")
+    print(" Usage: ASOC.py  <ini-file>")
     sys.exit()
 USER = User(sys.argv[1])
 if (not(USER.Validate())):   
