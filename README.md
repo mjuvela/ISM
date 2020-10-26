@@ -57,7 +57,7 @@ possibly with spatially varying abundances and possibly sped up by the
 use of "library" methods.
 
 For more detailed background and documentation, see 
-* http://www.interstellarmedium.org/radiative-transfer/soc/
+* http://www.interstellarmedium.org/radiative_transfer/soc/
 * Juvela M.: SOC program for dust continuum radiative transfer, 2019,
   A&A 622, A79, https://ui.adsabs.harvard.edu/abs/2019A%26A...622A..79J
 
@@ -69,7 +69,7 @@ The directory *LOC* contains the LOC line radiative transfer
 program implemented with Python and OpenCL. 
 
 For more details, see 
-* http://www.interstellarmedium.org/radiative-transfer/loc/
+* http://www.interstellarmedium.org/radiative_transfer/loc/
 
 
 ## TM - template matching analysis of images
