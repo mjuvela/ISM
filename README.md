@@ -79,7 +79,7 @@ Rolling Hough Transform -type (RHT) analysis of images. As an example
 of these, the script test_TM.py will run both routines on the provided
 FITS image. The expected output is shown in the included test_TM.png.
 For further information, see 
-* http://www.interstellarmedium.org/template-matching
+* http://www.interstellarmedium.org/template_matching
 * Juvela M.: Pattern matching methods for the analysis of interstellar
 cloud structure, 2016, A&A 593, A58),
 https://ui.adsabs.harvard.edu/abs/2016A%26A...593A..58J
@@ -97,7 +97,7 @@ results to a FITS files. The programs again require a working OpenCL
 environment.
 
 For further information, see
-* http://www.interstellarmedium.org/nicer-extinction-maps/
+* http://www.interstellarmedium.org/numerical_tools/rht
 * http://www.interstellarmedium.org/extinction/ 
   and the references mentioned there.
 
@@ -129,9 +129,9 @@ ResampleImage call, should be similar (except for the borders, see the
 first link below).
 
 For more information,see
-* http://www.interstellarmedium.org/tools-for-fits-images/, including
+* http://www.interstellarmedium.org/numerical_tools/fits_images/, including
 a discussion on convolution with OpenCL
-* http://www.interstellarmedium.org/mad-median-absolute-deviation/ 
+* http://www.interstellarmedium.org/numerical_tools/mad/ 
 discusses the implementation of the median absolute deviation (MAD)
 algorithm with OpenCL
 * the original publication on the Drizzle algorithm: Fruchter & Hook,
@@ -145,7 +145,7 @@ The directory contains comparisons between modified blackbody fits
 with Scipy leastsq and a simplistic OpenCL routine. There are further
 examples of modified blackbody fits with Markov chain Monte Carlo. The
 results are discussed at 
-* http://www.interstellarmedium.org/mcmc/
+* http://www.interstellarmedium.org/numerical_tools/mbb/
 
 
 
