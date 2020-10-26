@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 # 2019-04-24 -- New version of A2E_pyCL.py - stripped away the iterative solvers and plotting
-
 import os, sys
 
 # we assume that the Python scripts and *.c kernel files are in this directory
@@ -14,10 +13,13 @@ sys.path.append(INSTALL_DIR)
 import pyopencl as cl
 from   scipy.interpolate import interp1d
 from   matplotlib.pylab import *
-from   ASOC_aux import *
+from   SOC_aux import *
 
 """
-Usage:   A2E.py  dump absorbed.data emitted.data
+Usage:   A2E.py  solver-dump  absorbed.data  emitted.data  [ GPU [ nstoch ]]
+        GPU == a.b    ==>       a=0 => CPU, otherwise GPU,   b=3 => platform 3
+        if that platform does not provide, test all platforms
+        
 Using solver.data dumped from A2E.cpp or A2E_pre.py, convert absorbed.data to emitted.data.
 
 Notes 2019-10-28:
@@ -74,7 +76,7 @@ if (not(os.path.exists(sys.argv[2]))):
 BATCH  = 2560*2
 NSTOCH = 999
 if (len(sys.argv)>4):
-    GPU  = float(sys.argv[4])
+    GPU  = float(sys.argv[4])   #   a.b,  encoding CPU/GPU and platform
     if (len(sys.argv)>5):
         NSTOCH = int(sys.argv[5])
     
@@ -134,21 +136,41 @@ t0 = time.time()
 platform, device, context, queue = None, None, None, None
 LOCAL = 16 
 platforms = arange(4)
-if (fmod(GPU,1.0)>0): platforms = [ int(10*fmod(GPU,1)), ]
-for iplatform in platforms:
-    try:
-        platform = cl.get_platforms()[iplatform]
-        if (GPU>=1.0):
-            device   = platform.get_devices(cl.device_type.GPU)
-            LOCAL    = 32  #  64 -> 32, TS test = no effect
-        else:
-            device   = platform.get_devices(cl.device_type.CPU)
-            LOCAL    =  8
-        context  = cl.Context(device)
-        queue    = cl.CommandQueue(context)
-        break
-    except:
-        pass
+if (fmod(GPU,1.0)>0):  platforms = [ int(10*fmod(GPU,1)), ] # platform is the number after decimal point
+ok = False
+print("--------------------------------------------------------------------------------")
+for itry in range(2):
+    for iplatform in platforms:
+        try:
+            print("LOOKING FOR %s" % ['CPU', 'GPU'][GPU>=1.0])
+            print("iplatform=%d" % iplatform)
+            platform = cl.get_platforms()[iplatform]
+            print("platform=", platform)
+            if (GPU>=1.0):
+                device   = platform.get_devices(cl.device_type.GPU)
+                print("GPU DEVICE", device)
+                LOCAL    = 32  #  64 -> 32, TS test = no effect
+            else:
+                device   = platform.get_devices(cl.device_type.CPU)
+                print("CPU DEVICE", device)
+                LOCAL    =  8
+            context  = cl.Context(device)
+            queue    = cl.CommandQueue(context)
+            ok       = True
+            break
+        except:
+            pass
+    if (ok==True): break
+    if (itry==0):
+        platforms = arange(4)   # perhaps user had wrong platform... try to find any working
+    else:
+        # we tried to find a valid platform and failed
+        print("*** ERROR:   A2E.py failed to find any working OpenCL platform !!!")
+        time.sleep(5)
+        sys.exit()
+print("--------------------------------------------------------------------------------")
+
+
 GLOBAL      =  max([BATCH,64*LOCAL])
 if (GLOBAL%64!=0):
     GLOBAL  = (GLOBAL/64+1)*64
@@ -209,17 +231,76 @@ else:
 emit = zeros((BATCH, NFREQ), np.float32)
 
 t0 = time.time()    
-for isize in range(NSIZE):        
-    
+
+
+def process_stochastic(isize):
+    global SK_ABS, K_ABS, S_FRAC, GLOBAL, LOCAL, WITH_X
+    global FP, CELLS, BATCH, ABSORBED, EMKITTED
+    global AF_buf, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, ABS_buf
     # AF = fraction of absorptions due to the current size
     AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
     AF   /= S_FRAC[isize]*GD  # "invalid value encountered in divide"
     AF    = asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
-    if (0):
-        mm = np.nonzero(~isfinite(AF))
-        AF[mm] = 1.0e-30
+    ##
+    # The rest is for stochastically heated grains
+    cl.enqueue_copy(queue, AF_buf,    AF)
+    noIw  = np.fromfile(FP, np.int32, 1)[0]
+    # print("                              === noIw = %5d ===" % noIw)
+    Iw    = np.fromfile(FP, np.float32, noIw)   # [ windex ], loop l=[0,NE-1[, u=[l+1,NE[
+    cl.enqueue_copy(queue, Iw_buf,    Iw)
+    L1    = np.fromfile(FP, np.int32,   NE*NE)  # [ l*NE + u ]
+    cl.enqueue_copy(queue, L1_buf,    L1)
+    L2    = np.fromfile(FP, np.int32,   NE*NE)
+    cl.enqueue_copy(queue, L2_buf,    L2)
+    Tdown = np.fromfile(FP, np.float32, NE)
+    cl.enqueue_copy(queue, Tdown_buf, Tdown)
+    EA    = np.fromfile(FP, np.float32, NE*NFREQ)
+    cl.enqueue_copy(queue, EA_buf,    EA)
+    Ibeg  = np.fromfile(FP, np.int32,   NFREQ)    
+    cl.enqueue_copy(queue, Ibeg_buf,  Ibeg)        
+    queue.finish()
+    # Loop over the cells, BATCH cells per kernel call
+    t00 = time.time()            
+    for icell in range(0, CELLS, BATCH):        
+        batch = min([BATCH, CELLS-icell])  # actual number of cells
+        cl.enqueue_copy(queue, ABS_buf,  ABSORBED[icell:(icell+BATCH),:])
+        queue.finish()            
+        if (WITH_X):
+            DoSolve(queue, [GLOBAL,], [LOCAL,], 
+            batch,     isize,
+            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
+            Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf,   X_buf)
+        else:
+            DoSolve(queue, [GLOBAL,], [LOCAL,], 
+            batch,     isize,
+            Iw_buf,    L1_buf,  L2_buf,   Tdown_buf, EA_buf, 
+            Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)
+        queue.finish()            
+        cl.enqueue_copy(queue, emit, EMIT_buf)  # batch*NFREQ
+        EMITTED[icell:(icell+batch),:] += emit[0:batch,:]        # contribution of current dust, current size
+    print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
+    
+
+    
+"""
+Try interleaving the:
+ (1) file reading and AF calculation
+ (2) kernel calls 
+... that was A2E_test.py => no improvement 
+"""
+
+    
+for isize in range(NSIZE):        
+
     
     if (isize>NSTOCH):  # this size treated with equilibrium temperature approximation
+        # AF = fraction of absorptions due to the current size
+        AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
+        AF   /= S_FRAC[isize]*GD  # "invalid value encountered in divide"
+        AF    = asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
+        if (0):
+            mm = np.nonzero(~isfinite(AF))
+            AF[mm] = 1.0e-30        
         if (S_FRAC[isize]<1.0e-30): continue  # empty size bin
         KABS   =  SK_ABS[isize,:] / (GD*S_FRAC[isize])
         # Prepare lookup table between energy and temperature
@@ -271,6 +352,18 @@ for isize in range(NSIZE):
     
     
     # The rest is for stochastically heated grains
+    process_stochastic(isize)
+    continue
+    
+
+    # AF = fraction of absorptions due to the current size
+    AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
+    AF   /= S_FRAC[isize]*GD  # "invalid value encountered in divide"
+    AF    = asarray(np.clip(AF, 1.0e-32, 1.0e+100), np.float32)
+    if (0):
+        mm = np.nonzero(~isfinite(AF))
+        AF[mm] = 1.0e-30
+
     cl.enqueue_copy(queue, AF_buf,    AF)
     noIw  = np.fromfile(FP, np.int32, 1)[0]
     # print("                              === noIw = %5d ===" % noIw)

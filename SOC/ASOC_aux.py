@@ -46,7 +46,7 @@ DEGREE_TO_RADIAN =  0.0174532925199432958
 RADIAN_TO_DEGREE =  57.2957795130823208768
 
 
-MAX_SPLIT = 1280
+MAX_SPLIT = 2560
 
 def Planck(f, T):      # Planck function
     return 2.0*H_CC*f*f*f / (exp(H_K*f/T)-1.0) 
@@ -151,12 +151,11 @@ class User:
         self.Y_SHEAR      =  0.0     # for shearing box simulation, implies periodicity in xy plane
         self.INTERPOLATE  =  0       # if map-making uses interpolation...
         self.SEED         = pi/4.0   # seed value for random number generators
-        self.MAP_FREQ     = [0.0, 1e18] # frequency limits for the maps to be saved [Hz]
+        self.MAP_FREQ     = [1.0e6, 1e18] # frequency limits for the maps to be saved [Hz]
         self.SINGLE_MAP_FREQ = []    # individual frequencies for which only to write the maps
         self.SOLVE_ON_DEVICE = 0     # if >0, solve temperatures on device
         self.FFS          = 1        # use forced first scattering
-        self.METHOD       = 0        # version of the dust emission simulation part
-        self.XEM_ON_HOST  = 0        # can be >0 for METHOD==11
+        self.BG_METHOD    = 0        # version of the BGPAC simulation part
         self.WITH_ALI     = 0        # use ALI (if the method supports it)
         self.WITH_REFERENCE = 0      # use reference field (if method supports it)
         self.scale_background = 1.0
@@ -235,7 +234,6 @@ class User:
             
             # keywords without arguments
             key = s[0].lower()
-            if (key.find('split')==0):      self.DO_SPLIT = 1
             if (key.find('nosolve')==0):    self.NOSOLVE  = 1
             if (key.find('loadtemp')==0):   self.LOAD_TEMPERATURE  = 1
             if (key.find('nomap')==0):      self.NOMAP  = 1
@@ -257,8 +255,7 @@ class User:
                 self.file_savetau  = s[1]
                 self.savetau_freq = 0.0   # <0 => no colden, ==0 => colden, >0 => save optical depth
                 if (len(s)>2):
-                    if (s[2][0:1]!='#'):
-                        self.savetau_freq = um2f(float(s[2]))
+                    self.savetau_freq = um2f(float(s[2]))
             
             if (len(s)<2): continue
             # keywords with a single argument
@@ -273,6 +270,7 @@ class User:
             if (key.find('scatter')==0):     self.file_scattering   = a
             if (key.find('emit')==0):        self.file_emitted      = a
             if (key.find('emit')==0):        self.file_emitted      = a
+            if (key.find('split')==0):        self.DO_SPLIT         = int(a)
             if (key.find('libabs')==0): 
                 self.FSELECT = loadtxt(a)
                 self.LIB_ABS = True
@@ -324,7 +322,7 @@ class User:
             if (key.find('local')==0):       self.LOCAL           =  int(a)
             if (key.find('forcedfirst')==0): self.FFS             =  int(a)
             if (key.find('ffs')==0):         self.FFS             =  int(a)
-            if (key.find('method')==0):      self.METHOD          =  int(a)
+            if (key.find('bgmethod')==0):    self.BG_METHOD          =  int(a)
             if (key.find('ali')==0):         self.WITH_ALI        =  int(a)
             if (key.find('reference')==0):   self.WITH_REFERENCE  =  int(a)
             if (key.find('saveint')==0):     
@@ -445,14 +443,6 @@ class User:
         if (len(self.file_cloud)<1):
             print("*** Cloud model not definied: keyword cloud")
             ok = False
-        if ((self.XEM_ON_HOST)&(self.METHOD in [10,])):
-            print("*** XEM_ON_HOST cannot be used with METHOD=%d and is diabled" % (self.METHOD))
-            self.XEM_ON_HOST = 0
-        if ((self.METHOD==11)&(len(self.file_temperature)<1)):
-            print("*** WARNING:  METHOD=11 needs to read previously saved temperatures !!")
-            print("***           Temperature file is not needed if one does not restart previous run.")
-            print("***           However, the run begins with the assumption T==15K and will need")
-            print("***           iterations (>=1) to reach correct result.")
         if ((self.CLPAC<1)&(self.WITH_ALI>0)):
             print("*** WARNING:  CLPAC=0 and WITH_ALI=%d" % self.WITH_ALI)
             print("***           Cannot use ALI, we set WITH_ALI=0")
@@ -757,6 +747,8 @@ def mmap_diffuserad(USER, CELLS):
     Return:
         DIFFUSERAD = reference to the memory mapped array, DIFFUSERED[CELLS*nfreq]
                      frequency runs faster .. allow nfreq <= NFREQ
+    Note:
+        The file contains data in units  photons / 1 Hz / 1 cm3
     """
     # Check the dimensions
     if (len(USER.file_diffuse)<1): return []        # no diffuse radiation field

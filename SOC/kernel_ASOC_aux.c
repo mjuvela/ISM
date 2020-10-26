@@ -7,8 +7,6 @@
 #define PI        3.1415926535897f
 //  #define ADHOC   (1.0e-10f)
 
-
-
 #if (OPT_IS_HALF>0)
 # define GOPT(i) (vload_half(i,OPT))
 # define OTYPE half
@@ -17,7 +15,19 @@
 # define OTYPE float
 #endif
 
-#define DIMLIM 200 // if base grid NX is larger, use double precision for position
+#define DIMLIM 100 // if base grid NX is larger, use double precision for position
+
+#if (NX>DIMLIM)  // from Index()
+# define ZERO 0.0
+# define HALF 0.5
+# define ONE  1.0
+# define TWO  2.0
+#else
+# define ZERO 0.0f
+# define HALF 0.5f
+# define ONE  1.0f
+# define TWO  2.0f
+#endif
 
 
 inline void atomicAdd_g_f(volatile __global float *addr, float val) {
@@ -40,32 +50,27 @@ inline void atomicAdd_g_f(volatile __global float *addr, float val) {
 
 
 constant float PHOTON_LIMIT = 1.0e-30f ;
-constant double DPEPS       =  5.0e-6  ;
+// constant double DPEPS       =  5.0e-6  ;
+constant double DPEPS       =  2.0e-5  ;  // 2020-07-18
 
 #if 1
-constant float  PEPS        =  5.0e-4f  ;
-// ...........................................................
-// ***** TEMPORARY FIX .... ROOT=512 => ERRORS WHERE GetStep 
-//    ENDS UP IN ORIGINAL LEVEL=6 CELL !!!
-//    ... this still smaller error than MC noise ...
-// NEED TO FIX GetStep... we have 6 digits on the local coordinates,
-// 1/2**6 is 0.0156 .... should be enough precision
-//  ok... 1e-4*0.01 = 1e-6, at the limit of precision... IFF
-//  one goes via root grid coordinates
-//  ... so the problem should exist only when one steps
-//      at level=6 between level=0 cells ??
-// when going up, did one not force position to remain ]0,2[ ?
-// and going down, did one not force positions ]0,2[ ?
-// ?????? there were also cases POS.x==1.000000 which 
-//        is step inside LEVEL==6 octet ??????
-// constant float PEPS         =  1.5e-3f  ;
-// constant float PEPS         =  1.0e-3f  ;
-// ...........................................................
+
+// 2020-07-17  these were the previous values
+// constant float  EPS         = 12.0e-4f  ;  // used only in SimBgSplit()
+// constant float  PEPS        =  5.0e-4f  ;
+
+// 2020-07-17 try these??
+// constant float  EPS         =  3.5e-4f  ; => "FAILED TO FIND THE BORDER !!!" in SimBgSplit, for large MAXL models!!
+constant float  EPS         =  5.0e-4f  ; // same => -''- ; add DIMLIM to GetStep
+constant float  PEPS        =  1.0e-4f  ;
+constant float  PEPS2       =  2.0e-4f  ;  // used in "new" IndeOT() only ... was 2e-4
 constant float DEPS         =  5.0e-5f  ;
+
 #else
-// testing
+
 constant float  PEPS        =  1.0e-4f  ;
 constant float  DEPS        =  1.0e-5f  ;
+
 #endif
 
 #define DEBUG   0
@@ -102,19 +107,37 @@ void IndexG(float3 *pos, int *level, int *ind, __global float *DENS, __constant 
       (*level)++ ;   
       *ind  += 4*(int)floor((*pos).z) + 2*(int)floor((*pos).y) + (int)floor((*pos).x) ; // cell in octet
       if (DENS[OFF[*level]+(*ind)]>0.0f) {
-#if 0 // no effect !
-         (*pos).x = clamp((*pos).x, 5.0f*PEPS, 2.0f-5.0f*PEPS) ;
-         (*pos).y = clamp((*pos).y, 5.0f*PEPS, 2.0f-5.0f*PEPS) ;
-         (*pos).z = clamp((*pos).z, 5.0f*PEPS, 2.0f-5.0f*PEPS) ;
-#endif
          return ; // found a leaf
       }
    }
 }
 
 
+void RootPos(float3 *POS, const int ilevel, const int iind, __constant int *OFF, __global int *PAR) {
+   // Given current coordinates (ilevel, iind) and current position POS, return the 
+   // position in the root grid coordinates.
+   int level=ilevel, ind=iind, sid ;   
+   if (level==0) return ;
+   // Otherwise go UP
+   while (level>0) {
+      ind  =  PAR[OFF[level]+ind-NX*NY*NZ] ;  level-- ;  // parent cell index
+      if (level==0) {              // arrived at root grid
+         *POS     *=  0.5f ;       // sub-octet coordinates [0,2] into global coordinates [0,1]
+         (*POS).x +=  ind      % NX  ; 
+         (*POS).y +=  (ind/NX) % NY ; 
+         (*POS).z +=  ind  / (NX*NY) ;
+         return ;
+      } else {  // step from a sub-octet to a parent octet, parent cell == ind
+         sid    =  ind % 8 ;  // parent cell = current cell in current octet
+         *POS  *=  0.5f ;
+         (*POS).x +=  sid % 2 ;   (*POS).y += (sid/2)%2  ;   (*POS).z += sid/4 ;
+      }
+   } // while not root grid
+}
 
 
+
+#if 1  // @i pre 2020-07-18  --- use this one, the alternative (new) is worse!
 
 
 void Index(float3 *pos, int *level, int *ind, 
@@ -125,19 +148,17 @@ void Index(float3 *pos, int *level, int *ind,
    // Assume that one has already checked that the neighbour is not just another cell in the
    //   current octet
    int sid ;
-#if (NX>DIMLIM)
-   // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-   // This use of double in this single routine increases the total runs times significantly.
-   //   on CPU more than 30%, in GPU (NVidia) more than a factor of three !!!!!!!!!!!!!!!!!!!
-   // Need a better Index() that works for root grids ~1000 and hierarchies with ~10 levels !
+# if (NX>DIMLIM)  // MUST AGREE WITH DEFS AT THE BEGINNING OF THIS FILE
    double3  POS ;
-#else
+# else
    float3   POS ;
-#endif
-   POS.x = (*pos).x ;   POS.y = (*pos).y ;   POS.z = (*pos).z ;
+# endif
+   POS.x = pos->x ;   POS.y = pos->y ;   POS.z = pos->z ;
+   
+   // printf("Index:  %9.5f %9.5f %9.5f\n", POS.x, POS.y, POS.z) ;
    
    if (*level==0) {   // on root grid
-      if (((*pos).x<=0.0f)||((*pos).x>=NX)||((*pos).y<=0.0f)||((*pos).y>=NY)||((*pos).z<=0.0f)||((*pos).z>=NZ)) {
+      if (((*pos).x<=ZERO)||((*pos).x>=NX)||((*pos).y<=ZERO)||((*pos).y>=NY)||((*pos).z<=ZERO)||((*pos).z>=NZ)) {
          *ind = -1 ; return ;
       }
       *ind = (int)floor((*pos).z)*NX*NY + (int)floor((*pos).y)*NX + (int)floor((*pos).x) ;
@@ -146,70 +167,57 @@ void Index(float3 *pos, int *level, int *ind,
       while ((*level)>0) {
          *ind = PAR[OFF[*level]+(*ind)-NX*NY*NZ] ;  (*level)-- ;  // parent cell index
          if ((*level)==0) {       // arrived at root grid
-#if (NX>DIMLIM)
-            POS   *=  0.5 ;       // convertion from sub-octet to global coordinates
-#else
-            POS   *=  0.5f ;
-#endif
+            POS   *=  HALF ;       // convert from sub-octet to parent coordinates
             POS.x +=  (*ind)      % NX  ; 
             POS.y +=  ((*ind)/NX) % NY ; 
-            POS.z +=  (*ind) / (NX*NY) ;
-            if ((POS.x<=0.0)||(POS.x>=NX)||(POS.y<=0.0)||(POS.y>=NY)||(POS.z<=0.0)||(POS.z>=NZ)) {
+            POS.z +=  (*ind) / (NX*NY) ;            
+            if ((POS.x<=ZERO)||(POS.x>=NX)||(POS.y<=ZERO)||(POS.y>=NY)||(POS.z<=ZERO)||(POS.z>=NZ)) {
                *ind = -1 ; 
-               (*pos).x = POS.x ;  (*pos).y = POS.y ;  (*pos).z = POS.z ; 
+               pos->x = POS.x ;  pos->y = POS.y ;  pos->z = POS.z ; 
                return ;  // we left the model volume
             }
             // the position is not necessarily in cell 'ind', could be a neighbour!
             *ind = (int)floor(POS.z)*NX*NY + (int)floor(POS.y)*NX + (int)floor(POS.x) ;
             if (DENS[*ind]>0.0f) {
-               (*pos).x = POS.x ;  (*pos).y = POS.y ;  (*pos).z = POS.z ; 
+               pos->x = POS.x ;  pos->y = POS.y ;  pos->z = POS.z ; 
                return ;  // found the cell on level 0               
             }
             break ;
          } else {
-            // this was a step from a sub-octet to a parent octet, parent cell == ind
-            sid    = (*ind) % 8 ; // parent cell = current cell in current octet
-#if (NX>DIMLIM)
-            POS   *=  0.5 ;
-#else
-            POS   *=  0.5f ;
-#endif
-            POS.x += sid % 2 ;  POS.y += (sid/2)%2  ;  POS.z += sid/4 ;
-            // is the position inside this octet?
-            if ((POS.x>=0.0)&&(POS.x<=2.0)&&(POS.y>=0.0)&&(POS.y<=2.0)&&(POS.z>=0.0)&&(POS.z<=0.0)) break ;
+            // this was a step from a sub-octet to a parent octet, parent cell (level, ind), level>0
+            sid    = (*ind) % 8 ; // current = parent cell as part of the current octet
+            POS   *=  HALF ;
+            // parent cell cell is at level>0 and thus part of an octet with [0,2] local coordinates
+            POS.x += sid % 2 ;     POS.y += (sid/2)%2  ;    POS.z += (sid/4) ;
+            
+            // printf("Up:  %9.5f %9.5f %9.5f\n", POS.x, POS.y, POS.z) ;
+            
+            // is the position inside this octet
+            // if ((POS.x>=0.0)&&(POS.x<=2.0)&&(POS.y>=0.0)&&(POS.y<=2.0)&&(POS.z>=0.0)&&(POS.z<=0.0)) break ;
+            // BUGGY LINE NEVER TRUE !!!!!
+            if ((POS.x>=ZERO)&&(POS.x<=TWO)&&(POS.y>=ZERO)&&(POS.y<=TWO)&&(POS.z>=ZERO)&&(POS.z<=TWO)) {
+               // it is in current octet but not in the current cell => update ind, local coordinates unchanged
+               *ind  += -sid +  4*(int)floor(POS.z)+2*(int)floor(POS.y)+(int)floor(POS.x) ;
+               break ;
+            }
          }
       } // while not root grid
    } // else -- going up
-   // Go down - position *is* inside the current octet
+   // Go down - position *is* inside the current ***CELL***
    while(DENS[OFF[*level]+(*ind)]<=0.0f) {  // loop until (level,ind) points to a leaf
       // convert to sub-octet coordinates -- same for transition from root and from parent octet
-#if 0
-      POS.x =  2.0*clamp(fmod(POS.x,1.0), DEPS, 1.0-DEPS) ;
-      POS.y =  2.0*clamp(fmod(POS.y,1.0), DEPS, 1.0-DEPS) ;
-      POS.z =  2.0*clamp(fmod(POS.z,1.0), DEPS, 1.0-DEPS) ;
-#else
-# if (NX>DIMLIM)
-      POS.x =  2.0*fmod(POS.x, 1.0) ;
-      POS.y =  2.0*fmod(POS.y, 1.0) ;
-      POS.z =  2.0*fmod(POS.z, 1.0) ;
-# else
-      POS.x =  2.0f*fmod(POS.x, 1.0f) ;
-      POS.y =  2.0f*fmod(POS.y, 1.0f) ;
-      POS.z =  2.0f*fmod(POS.z, 1.0f) ;
-# endif
-#endif
+      POS.x =  TWO*fmod(POS.x, ONE) ;      POS.y =  TWO*fmod(POS.y, ONE) ;      POS.z =  TWO*fmod(POS.z, ONE) ;
+      // printf("Down:  %9.5f %9.5f %9.5f\n", POS.x, POS.y, POS.z) ;
       float link = -DENS[OFF[*level]+(*ind)] ;
       *ind       = *(int *)&link ;      // first cell in the sub-octet
       (*level)++ ;
-      *ind    += 4*(int)floor(POS.z)+2*(int)floor(POS.y)+(int)floor(POS.x) ; // subcell (suboctet)
+      // printf("IND %d + %9.5f %9.5f %9.5f = ", *ind, POS.x, POS.y, POS.z) ;
+      *ind      += 4*(int)floor(POS.z) + 2*(int)floor(POS.y) + (int)floor(POS.x) ; // subcell (suboctet)
+      // printf("  %d\n", *ind) ;
    }
-   (*pos).x = POS.x ;  (*pos).y = POS.y ;  (*pos).z = POS.z ; 
+   pos->x = POS.x ;  pos->y = POS.y ;  pos->z = POS.z ; 
    return ;
 }
-
-
-
-
 
 
 
@@ -218,48 +226,213 @@ float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind,
    // Calculate step to next cell, update level and ind for the next cell
    // Returns the step length in GL units (units of the root grid)
    // #if (NX>DIMLIM)
-#if (NX>9999)
+   // NX>9999 was there 2020-07-07 .... perhaps should be NX>DIMLIM ??? unless no problems seen
+   // HOWEVER -- seems that NX>DIMLIM would have a significant effect on run time...
+# if (NX>9999)  // was NX>9999, then NX>DIMLIM  .... but this is very slow????
    // use of DPEPS << PEPS reduces cases where step jumps between non-neighbour cells
-   //   == jump over a single intervening cell
-   // ... but this still had no effect on scatter tests !!
+   //   == jump over a single intervening cell ... but this still had no effect on scatter tests
    double dx, dy, dz ;
-   dx = ((((*DIR).x)>0.0) 
-         ? ((1.0+DPEPS-fmod((*POS).x,1.0f))/((*DIR).x)) 
-         : ((   -DPEPS-fmod((*POS).x,1.0f))/((*DIR).x))) ;
-   dy = ((((*DIR).y)>0.0) 
-         ? ((1.0+DPEPS-fmod((*POS).y,1.0f))/((*DIR).y)) 
-         : ((   -DPEPS-fmod((*POS).y,1.0f))/((*DIR).y))) ;
-   dz = ((((*DIR).z)>0.0) 
-         ? ((1.0+DPEPS-fmod((*POS).z,1.0f))/((*DIR).z)) 
-         : ((   -DPEPS-fmod((*POS).z,1.0f))/((*DIR).z))) ;
+   dx = (DIR->x>0.0f) ? ((1.0+DPEPS-fmod((*POS).x,1.0f))/((*DIR).x)) : ((-DPEPS-fmod((*POS).x,1.0f))/((*DIR).x)) ;
+   dy = (DIR->y>0.0f) ? ((1.0+DPEPS-fmod((*POS).y,1.0f))/((*DIR).y)) : ((-DPEPS-fmod((*POS).y,1.0f))/((*DIR).y)) ;
+   dz = (DIR->z>0.0f) ? ((1.0+DPEPS-fmod((*POS).z,1.0f))/((*DIR).z)) : ((-DPEPS-fmod((*POS).z,1.0f))/((*DIR).z)) ;
    dx    =  min(dx, min(dy, dz)) ;
    *POS +=  ((float)dx)*(*DIR) ;                    // update LOCAL coordinates - overstep by PEPS
    // step returned in units [GL] = root grid units
    dx     =  ldexp(dx, -(*level)) ;
    Index(POS, level, ind, DENS, OFF, PAR) ;         // update (level, ind)   
    return (float)dx ;                 // step length [GL]
-#else
+# else
    float dx, dy, dz ;
-   dx = ((((*DIR).x)>0.0f) 
-         ? ((1.0f+PEPS-fmod((*POS).x,1.0f))/((*DIR).x)) 
-         : ((    -PEPS-fmod((*POS).x,1.0f))/((*DIR).x))) ;
-   dy = ((((*DIR).y)>0.0f) 
-         ? ((1.0f+PEPS-fmod((*POS).y,1.0f))/((*DIR).y)) 
-         : ((    -PEPS-fmod((*POS).y,1.0f))/((*DIR).y))) ;
-   dz = ((((*DIR).z)>0.0f) 
-         ? ((1.0f+PEPS-fmod((*POS).z,1.0f))/((*DIR).z)) 
-         : ((    -PEPS-fmod((*POS).z,1.0f))/((*DIR).z))) ;
-   dx    =  min(dx, min(dy, dz))  ;
-# if 0
-   if (dx>0.25f) dx *= 0.5f ;
-# endif
-   *POS +=  dx*(*DIR) ;                    // update LOCAL coordinates - overstep by PEPS
-   // step returned in units [GL] = root grid units
-   dx     =  ldexp(dx, -(*level)) ;
+   dx = (DIR->x>0.0f) ? ((1.0f+PEPS-fmod((*POS).x,1.0f))/((*DIR).x)) : ((-PEPS-fmod((*POS).x,1.0f))/((*DIR).x)) ;
+   dy = (DIR->y>0.0f) ? ((1.0f+PEPS-fmod((*POS).y,1.0f))/((*DIR).y)) : ((-PEPS-fmod((*POS).y,1.0f))/((*DIR).y)) ;
+   dz = (DIR->z>0.0f) ? ((1.0f+PEPS-fmod((*POS).z,1.0f))/((*DIR).z)) : ((-PEPS-fmod((*POS).z,1.0f))/((*DIR).z)) ;
+   dx     =  min(dx, min(dy, dz))  ;
+   *POS  +=  dx*(*DIR) ;                     // update LOCAL coordinates - overstep by PEPS
+   dx     =  ldexp(dx, -(*level)) ;         // step returned in units [GL] = root grid units
    Index(POS, level, ind, DENS, OFF, PAR) ; // update (level, ind)
    return dx ;                 // step length [GL]
-#endif
+# endif
 }
+
+
+
+#else  // @i
+
+
+not to be used before the question of more zero TABS is resolved
+
+  // 2020-07-18 --- "New" version of Index() and GetStep()
+  //   idea was to use only floats and add safeguards (xs, ys, zs below) to ensure
+  //   that ray positions close to the borders are not rounded to even numbers
+  //   It was as fast as old version ... but results were suspicious for larger, root>512
+  //   models where this produced TABS=0.0 for more cells than the "old" method.
+  //   When one included also here doubles for NX>DIMLIM, run time on Radeon-VII
+  //   increased from 127 to 142 seconds while "old" was at 136 seconds...
+  //   and "new" has still more zero TABS values...
+  // == new has no advantage in run time, not even on GPU, but the zero-TABS question
+  //    should be resolved before it is used... there should be no reason why for the 
+  //    same number of photon packages one would have updates ina fewer number of cells
+  //  As of 2020-07-19, keep on using the old version!!!
+void Index(float3 *pos, const float3 *dir, int *level, int *ind, __global float *DENS, 
+           __constant int *OFF, __global int *PAR) {
+   float   dx, xs=0.0f, ys=0.0f, zs=0.0f ;
+   // int FOLLOW = 139106114 == (*ind) ;
+# if (NX>9999) // # if (NX>DIMLIM)
+   double3 POS ;   POS.x = pos->x ;  POS.y = pos->y ;  POS.z = pos->z ;
+#  define HALF 0.5
+#  define ONE  1.0
+#  define TWO  2.0
+# else
+   float3  POS = *pos ;
+#  define HALF 0.5f 
+#  define ONE  1.0f
+#  define TWO  2.0f
+# endif
+   int     sid ; 
+   if ((*level)==0) {   // on root grid
+      if ((POS.x<=0.0f)||(POS.x>=NX)||(POS.y<=0.0f)||(POS.y>=NY)||(POS.z<=0.0f)||(POS.z>=NZ)) {
+         *ind = -1 ; return ;  // outside the root grid, outside the model
+      }
+      *ind = (int)floor(POS.z)*NX*NY + (int)floor(POS.y)*NX + (int)floor(POS.x) ; // pos is in cell *ind
+      if (DENS[*ind]>0.0f) return ;  // level 0 cell was a leaf -- we are done, otherwise go down below
+   } else {
+# if 0
+      // safeguards to ensure that when coordinate is close to border, it remain inside/outside
+      // even when we sometimes add to POS root coordinates that would make EPS round to zero
+      dx = POS.x-round(POS.x) ;   if (fabs(dx)<PEPS2)  xs = (dx<0.0f) ? (-PEPS) : (+PEPS) ;
+      dx = POS.y-round(POS.y) ;   if (fabs(dx)<PEPS2)  ys = (dx<0.0f) ? (-PEPS) : (+PEPS) ;
+      dx = POS.z-round(POS.z) ;   if (fabs(dx)<PEPS2)  zs = (dx<0.0f) ? (-PEPS) : (+PEPS) ;
+      // if (FOLLOW) printf("safeguards %.3e %.3e %.3e\n", xs, ys, zs) ;
+# endif
+# if 1  // --- this does not improve the problem with more zero TABS for levels>0 ---
+      // safeguards to ensure that when coordinate is close to border, it remain inside/outside
+      // even when we sometimes add to POS root coordinates that would make EPS round to zero
+      // changed PEPS2 -> PEPS... and the run will not complete !!
+      dx = POS.x-round(POS.x) ;   if (fabs(dx)<PEPS2)  xs = dx ;
+      dx = POS.y-round(POS.y) ;   if (fabs(dx)<PEPS2)  ys = dx ;
+      dx = POS.z-round(POS.z) ;   if (fabs(dx)<PEPS2)  zs = dx ;
+      // if (FOLLOW) printf("safeguards %.3e %.3e %.3e\n", xs, ys, zs) ;
+# endif
+      while ((*level)>0) {  // step up in the hierarchy until POS is inside the current octet
+         *ind = PAR[OFF[*level]+(*ind)-NX*NY*NZ] ;   (*level)-- ;  // parent cell index
+         if ((*level)==0) {        // arrived at root grid
+            POS    *=  HALF ;      // in local coordinates pos may be rounded from PEPS->0, 1-PEPS->1 !!
+            POS.x  +=  (*ind)      % NX ;  // global coordinates
+            POS.y  +=  ((*ind)/NX) % NY ; 
+            POS.z  +=  (*ind)  / (NX*NY) ;
+            if ((POS.x<=0.0f)||(POS.x>=NX)||(POS.y<=0.0f)||(POS.y>=NY)||(POS.z<=0.0f)||(POS.z>=NZ)) {
+               *ind = -1 ; 
+               return ;  // we left the model volume
+            }
+            // the position is not necessarily in cell 'ind', could be a neighbour!
+            *ind = (int)floor(POS.z)*NX*NY + (int)floor(POS.y)*NX + (int)floor(POS.x) ;
+            if (DENS[*ind]>0.0f) {
+               pos->x = POS.x ; pos->y = POS.y ; pos->z = POS.z ;
+               //*pos = POS ;
+               return ;  // found the cell on level 0
+            }
+            break ; // position is in the current cell (on level 0) but it is still not a leaf
+         } else {
+            // a step from a sub-octet to a parent octet, parent cell == (*level, *ind)
+            //  in octet coordinates [0,2]... any boundary is still multiple of 1.0f
+            sid     = (*ind) % 8 ;  // parent cell is part of an octet
+            POS    *=  HALF ;
+            POS.x  += sid % 2 ;   POS.y += (sid/2)%2  ;   POS.z += sid/4 ;
+            // if (FOLLOW) printf("BEFORE   %9.6f %9.6f %9.6f\n", POS.x, POS.y, POS.z) ;
+# if 1
+            // ****** MAKE SURE POS IS NOT ROUNDED TO INTEGER, check only the coordinate indicated by iside
+            // even if we go to another octet, because this was a step between neighbouring cells,
+            // the position must be on the border of the new octet as well, in the direction indicated by iside
+            if (xs!=0.0f)  POS.x = round(POS.x)+xs ;
+            if (ys!=0.0f)  POS.y = round(POS.y)+ys ;
+            if (zs!=0.0f)  POS.z = round(POS.z)+zs ;            
+# endif
+            // if (FOLLOW) printf("AFTER    %9.6f %9.6f %9.6f\n", POS.x, POS.y, POS.z) ;
+            // is the position now inside the current octet?
+            if ((POS.x>=0.0f)&&(POS.x<=2.0f)&&(POS.y>=0.0f)&&(POS.y<=2.0f)&&(POS.z>=0.0f)&&(POS.z<=2.0f)) {
+               // ok, it is in the same octet with the current cell => change the cell index
+               *ind  += -sid +  4*(int)floor(POS.z) + 2*(int)floor(POS.y) + (int)floor(POS.x) ;
+               break ;  // not necessarily a leaf, we go down the hierarchy below
+            }
+         }
+      } // while not root grid
+   } // else -- going up
+   // Go down - position *is* inside the current ***CELL**
+   // Note -- pos is all the time at the border of the current octet, 
+   // could be internal boundary between cells in an octet (but that handled already above!)
+   
+   // if (FOLLOW) printf("MID      %9.6f %9.6f %9.6f\n", POS.x, POS.y, POS.z) ;
+   
+   while(DENS[OFF[*level]+(*ind)]<=0.0f) {  // loop until (level,ind) points to a leaf
+      // convert to sub-octet coordinates -- same for transition from root and from parent octet
+      POS.x =  TWO*fmod(POS.x, ONE) ;  // this would tend to move ray away from the border in local coordinates
+      POS.y =  TWO*fmod(POS.y, ONE) ;   
+      POS.z =  TWO*fmod(POS.z, ONE) ;
+      dx     = -DENS[OFF[*level]+(*ind)] ;  
+      *ind   = *(int *)&dx ;           // first cell in the sub-octet
+      (*level)++ ;
+      // if (FOLLOW) printf("DOWN     %9.6f %9.6f %9.6f\n", POS.x, POS.y, POS.z) ;     
+# if 1
+      // **** make sure position remains on the correct side of the border
+      if (xs!=0.0f)  POS.x = round(POS.x)+xs ;
+      if (ys!=0.0f)  POS.y = round(POS.y)+ys ;
+      if (zs!=0.0f)  POS.z = round(POS.z)+zs ;            
+# endif      
+      // if (FOLLOW) printf("FINAL    %9.6f %9.6f %9.6f\n", POS.x, POS.y, POS.z) ;      
+      *ind  +=   4*(int)floor(POS.z) + 2*(int)floor(POS.y) + (int)floor(POS.x) ;
+   }
+   pos->x = POS.x ; pos->y = POS.y ; pos->z = POS.z ;     // *pos = POS ;
+   // *pos = POS ;
+   return ;
+}
+
+
+
+
+float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind, 
+              __global float *DENS, __constant int *OFF, __global int*PAR) {
+   float dx, dy, dz ;
+   dx    =  (DIR->x>0.0f) ? ((1.0f+PEPS-fmod(POS->x,1.0f))/(DIR->x)) : ((-PEPS-fmod(POS->x,1.0f))/(DIR->x)) ;
+   dy    =  (DIR->y>0.0f) ? ((1.0f+PEPS-fmod(POS->y,1.0f))/(DIR->y)) : ((-PEPS-fmod(POS->y,1.0f))/(DIR->y)) ;
+   dz    =  (DIR->z>0.0f) ? ((1.0f+PEPS-fmod(POS->z,1.0f))/(DIR->z)) : ((-PEPS-fmod(POS->z,1.0f))/(DIR->z)) ;
+   dx    =  min(dx, min(dy, dz)) ;
+   *POS +=  dx*(*DIR) ;                     // update LOCAL coordinates - POS ~ at cell boundary
+   // POS does not have to be very accurate... as long as it tells which coordinate is near the border
+   // Index() will explicitly make sure POS remains on the correct side of the boundary, even if we
+   // go many levels up and down in the hierarchy
+   // 2020-07-19 -- there is a small change that ray goes through a corner and our safeguards in Index()
+   //               will bounce the ray back to the original cell
+   dx    =  ldexp(dx, -(*level)) ;         // step returned in units [GL] = root grid units   
+   
+# if 0 // this makes it a little slower... or no effect
+   // if step was inside the octet, do not even call Index() ??
+   if (*level>0) {
+      if ((POS->x>0.0f)&&(POS->x<2.0f)&&(POS->y>0.0f)&&(POS->y<2.0f)&&(POS->z>0.0f)&&(POS->z<2.0f)) {
+         *ind += -(*ind)%8 +  4*(int)floor(POS->z)+2*(int)floor(POS->y)+(int)floor(POS->x) ; // d(subcell index)
+         if (DENS[*ind]>0.0f) return dx ;
+      }
+   }
+# endif   
+   
+# if 0
+   float3 RPOS = *POS ;
+   RootPos(&RPOS, *level, *ind, OFF, PAR)  ;     
+   printf("A %d %9d  dx=%.6f   %9.5f %9.5f %9.5f   %9.5f %9.5f %9.5f   %8.4f %8.4f %8.4f\n", *level, *ind,
+          dx, POS->x, POS->y, POS->z, DIR->x, DIR->y, DIR->z, RPOS.x, RPOS.y, RPOS.z) ;
+# endif
+   Index(POS, DIR, level, ind, DENS, OFF, PAR) ; // update (level, ind)
+# if 0
+   RPOS = *POS ;
+   RootPos(&RPOS, *level, *ind, OFF, PAR)  ;  
+   printf("  %d %9d  dx=%.6f   %9.5f %9.5f %9.5f   %9.5f %9.5f %9.5f   %8.4f %8.4f %8.4f\n\n", *level, *ind,
+          dx, POS->x, POS->y, POS->z, DIR->x, DIR->y, DIR->z, RPOS.x, RPOS.y, RPOS.z) ;
+# endif
+   return dx ;                 // step length [GL]
+}
+
+#endif
+
+
 
 
 
@@ -490,43 +663,42 @@ __kernel void AverageDensity(const int lower,
 
 
 
-__kernel void EqTemperature(const float     adhoc,
+__kernel void EqTemperature(const int       level,
+                            const float     adhoc,
                             const float     kE,
-                            // const float     oplgkE,
                             const float     Emin,
-                            const int       NE,
+                            const int       NE,              // TTT[NE]
                             __global int   *OFF,
                             __global int   *LCELLS,
                             __global float *TTT,
                             __global float *DENS,
                             __global float *EMIT,
                             __global float *TNEW) {
-   int id = get_global_id(0) ;
-   int gs = get_global_size(0) ;
-   if (id>CELLS) return ;
+   int  id = get_global_id(0) ;
+   int  gs = get_global_size(0) ;
+   if (id>=CELLS) return ;
    float scale   = (6.62607e-27f*FACTOR)/LENGTH ;
    float oplgkE  = 1.0f/log10(kE) ;
    float wi, beta=1.0f, Ein ;
-   int   iE, ind ;
-   for(int level=0; level<LEVELS; level++) {
-      for(int i=id; i<LCELLS[level]; i+=gs) {
-         ind       =   OFF[level] + i ;
-         Ein       =  (scale/adhoc) * EMIT[ind] * pown(8.0f, level) / DENS[ind] ; // 1e10 == ADHOC on host !!!!
-         iE        =   clamp((int)floor(oplgkE * log10((Ein/beta)/Emin)), 0, NE-2) ;
-         wi        =  (Emin*pown(kE,iE+1)-(Ein/beta)) / (Emin*pown(kE, iE+1)-pown(kE, iE)) ;
-         TNEW[ind] =  (DENS[ind]>1.0e-7f) ?  ((wi*TTT[iE] + (1.0-wi)*TTT[iE+1])) : (10.0f) ;
-         // if (DENS[ind]<1.0e-7f) TNEW[ind] = 0.0f ;
-#if 0
-         if (isfinite(TNEW[ind])) {
-            ;
-         } else {
-            printf("\n*********************************************************") ;
-            printf("  Ein %10.3e  Emin %10.3e log10 %10.3e iE=%d NE=%d TTT[iE]=%.3f TTT[iE+1]=%.3f\n", Ein, Emin, log10(Ein/Emin), iE, NE, TTT[iE], TTT[iE+1]) ;
-            printf("*********************************************************\n") ;
-         }
-#endif
+   int   iE ;
+   int   ind ;    // int32  +2,147,483,647   uint32 4,294,967,295
+   // for(int level=0; level<LEVELS; level++) {
+   for(int i=id; i<LCELLS[level]; i+=gs) {   // loop over cells on a given level
+      ind       =  OFF[level] + i ;
+      Ein       =  (scale/adhoc) * EMIT[ind] * pown(8.0f, level) / DENS[ind] ; // 1e10 == ADHOC on host !!!!
+      iE        =  clamp((int)floor(oplgkE * log10((Ein/beta)/Emin)), 0, NE-2) ;
+      wi        =  (Emin*pown(kE,iE+1)-(Ein/beta)) / (Emin*pown(kE, iE)*(kE-1.0f)) ;
+      // printf("wi %8.4f\n", wi) ;
+      if ((ind<0)||(ind>=CELLS)) printf("????\n") ;
+      TNEW[ind] =  (DENS[ind]>1.0e-7f) ?  clamp(wi*TTT[iE] + (1.0f-wi)*TTT[iE+1], 3.0f, 1600.0f) : (10.0f) ;
+      if ((TNEW[ind]>1.0f)&&(TNEW[ind]<250.0f)) {
+         ;
+      } else {
+         printf("???    Ein %12.4e  [%12.4e, %12.4e]         T = %.3e,  NE=%d, kE=%.6f\n",
+                             Ein,   Emin, Emin*pown(kE, NE), TNEW[ind], NE,   kE) ;
       }
    }
+   // }
 }
 
 
@@ -712,24 +884,3 @@ int InRoi(const int level, const int ind, constant int *ROI, __global int *PAR, 
 
 
 
-void RootPos(float3 *POS, const int ilevel, const int iind, __constant int *OFF, __global int *PAR) {
-   // Given current coordinates (ilevel, iind) and current position POS, return the 
-   // position in the root grid coordinates.
-   int level=ilevel, ind=iind, sid ;   
-   if (level==0) return ;
-   // Otherwise go UP
-   while (level>0) {
-      ind  =  PAR[OFF[level]+ind-NX*NY*NZ] ;  level-- ;  // parent cell index
-      if (level==0) {              // arrived at root grid
-         *POS     *=  0.5f ;       // sub-octet coordinates [0,2] into global coordinates [0,1]
-         (*POS).x +=  ind      % NX  ; 
-         (*POS).y +=  (ind/NX) % NY ; 
-         (*POS).z +=  ind  / (NX*NY) ;
-         return ;
-      } else {  // step from a sub-octet to a parent octet, parent cell == ind
-         sid    =  ind % 8 ;  // parent cell = current cell in current octet
-         *POS  *=  0.5f ;
-         (*POS).x +=  sid % 2 ;   (*POS).y += (sid/2)%2  ;   (*POS).z += sid/4 ;
-      }
-   } // while not root grid
-}

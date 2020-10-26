@@ -56,9 +56,13 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    // emission from Pointsources and from isotropic Background
    const int id     = get_global_id(0) ;
    const int GLOBAL = get_global_size(0) ;
-   // SOURCE==0      GLOBAL arbitrary, BATCH>=1
-   // SOURCE==1      GLOBAL>=AREA,     BATCH>=1
+   // PS:  SOURCE==0      GLOBAL arbitrary, BATCH>=1
+   // BG:  SOURCE==1      GLOBAL>=AREA,     BATCH>=1
    // => each work item does precisely BATCH packages
+   
+   // if (id>1000000) return ;
+   // if (id!=499646) return ;
+   
    
    
    int    oind=0, level=0, scatterings, steps, SIDE ;
@@ -96,7 +100,10 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    // there are 100 work items per surface element, PACKETS == number of surface elements
    if ((SOURCE==3)&&(id>=(100*PACKETS))) return ;
 #else
-   if (SOURCE==3) printf("??? SimRAM_PB called with SOURCE==3 but without WITH_ROI_LOAD ???\n") ;
+   if (SOURCE==3) {
+      // printf("??? SimRAM_PB called with SOURCE==3 but without WITH_ROI_LOAD ???\n") ;
+      return ;
+   }
 #endif
    
    // 2017-12-24  --  BGPAC = BATCH*8*AREA < BATCH*GLOBAL
@@ -161,7 +168,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                DY    =  ((iside / ROI_DIM[0]) + 0.5f) * rd  ;  // offset in Y
                iside =  2 ;
             } else {
-               printf("???\n") ;
+               ; // printf("???\n") ;
             }
          }
       }
@@ -189,7 +196,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    
    
    for(int III=0; III<BATCH; III++) {
-
+      
       
       // =============== PSPAC ===================  BATCH packages per work item
       // 2017-12-25 -- BATCH is multiple of the number of point sources,
@@ -285,7 +292,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                ;
             } else {
                // sometimes ind=1 although only one side was illuminated ... 
-               printf("ind %d, area %.3e, PHOTONS %.3e\n", ind, XPS_AREA[3*level0+ind], PHOTONS) ; 
+               // printf("ind %d, area %.3e, PHOTONS %.3e\n", ind, XPS_AREA[3*level0+ind], PHOTONS) ; 
                PHOTONS = 0.0f ;
             }
 #  endif     
@@ -326,7 +333,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
             // cos(theta)
             v2  = (ind<2) ? (fabs(DIR.x)) :   ((ind<4) ? (fabs(DIR.y)) : (fabs(DIR.z))) ;
             // re-weight photon numbers
-            PHOTONS  *=   v2*b / (4.0f*PI*v1*v1) ; // division by XPS_AREA done above when ind was still [0,3[
+            PHOTONS  *=   v2*b / (4.0f*M_PI*v1*v1) ; // division by XPS_AREA done above when ind was still [0,3[
             IndexG(&POS, &level, &ind, DENS, OFF) ;            
 #endif
             
@@ -497,15 +504,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
 #endif
       
       
-      
-      
-      
-      
-      
-      
-      
-      
-      // printf("%8.4f %8.4f %8.4f    %8.4f %8.4f %8.4f   %10.3e\n", POS.x, POS.y, POS.z, DIR.x, DIR.y, DIR.z, PHOTONS) ;
+      // printf("==== %8.4f %8.4f %8.4f    %8.4f %8.4f %8.4f   %10.3e ========================================\n",             POS.x, POS.y, POS.z, DIR.x, DIR.y, DIR.z, PHOTONS) ;
       
       
       if (fabs(DIR.x)<DEPS) DIR.x = DEPS ;
@@ -584,11 +583,19 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
 #else
             tauA      =  ds*DENS[oind]*(*ABS) ;       // ABS is basically a scalar
 #endif
+            
+            
+#if 1
+            delta  =  (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+#else
             if (tauA>TAULIM) {
                delta  =  PHOTONS*(1.0f-exp(-tauA)) ;
             } else {
                delta  =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
             }
+#endif
+            
+            
             // if (DENS[oind]>1.0e-9f) {
             atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
             
@@ -665,6 +672,15 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                // printf("[%d] %2d  %7d   DIR = %9.6f %9.6f %9.6f    ds = %10.3e\n", id, level, ind, DIR.x, DIR.y, DIR.z, ds) ;
                // printf("    POS00 %9.6f %9.6f %9.6f\n", POS00.x, POS00.y, POS00.z) ;
                // ind = -1 ; steps = 0 ;  break ;
+               
+#if 1
+               if (steps>1000) {
+                  printf("id=%6d, steps %d\n", id, steps) ;
+                  // return ;
+               }
+#endif          
+               
+               
             }
          } ;  // while ind>=0
          
@@ -686,15 +702,17 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
          dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
          tauA               =  dx*DENS[oind]*(*ABS) ;
 #endif
-#if 0
+         
+#if 1
+         delta = (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+#else         
          if (tauA>TAULIM) {
             delta           =  PHOTONS*(1.0f-exp(-tauA)) ;
          } else {
             delta           =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
          }
-#else
-         delta = (tauA>TAULIM) ?  (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
 #endif
+         
          atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
 #if ((SAVE_INTENSITY==1)||(SAVE_INTENSITY==2)||(NOABSORBED==0))  // Cannot use TABS because that is cumulative over frequency...
          atomicAdd_g_f(&(INT[oind]),  delta) ;
@@ -766,7 +784,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
             if (ds<=0.0) break ;
          }
          if (ind0>=NDUST) {
-            printf("(a) ?????\n") ;
+            // printf("(a) ?????\n") ;
             ind0 = NDUST-1 ;
          }
          Scatter(&DIR, &CSC[ind0*BINS], &rng) ; // use the scattering function of the ind0:th dust species
@@ -985,11 +1003,18 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
 #else
             tauA      =  ds*DENS[oind]*(*ABS) ;
 #endif
+            
+            
+#if 1
+            delta =  (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+#else
             if (tauA>TAULIM) {
                delta  =  PHOTONS*(1.0f-exp(-tauA)) ;
             } else {
                delta  =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
             }
+#endif            
+            
             // if (DENS[oind]>1.0e-9f) {
             atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
 #if ((SAVE_INTENSITY==1)||(SAVE_INTENSITY==2)||(NOABSORBED==0))  // Cannot use TABS because that is cumulative over frequency...
@@ -1050,15 +1075,17 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
          dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
          tauA               =  dx*DENS[oind]*(*ABS) ;
 #endif
-#if 0
+         
+#if 1
+         delta = (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+#else         
          if (tauA>TAULIM) {
             delta           =  PHOTONS*(1.0f-exp(-tauA)) ;
          } else {
             delta           =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
          }
-#else
-         delta = (tauA>TAULIM) ?  (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
 #endif
+         
          atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
 #if ((SAVE_INTENSITY==1)||(SAVE_INTENSITY==2)||(NOABSORBED==0))  // Cannot use TABS because that is cumulative over frequency...
          atomicAdd_g_f(&(INT[oind]),  delta) ;
@@ -1133,7 +1160,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
             if (ds<=0.0) break ;
          }
          if (ind0>=NDUST) {
-            printf("(b) ?????\n") ;
+            // printf("(b) ?????\n") ;
             ind0 = NDUST-1 ;
          }
          Scatter(&DIR, &CSC[ind0*BINS], &rng) ; // use the scattering function of the ind0:th dust species
@@ -1436,11 +1463,18 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 # else
             tauA      =  ds*DENS[oind]*(*ABS) ;
 # endif
+            
+            
+# if 1
+            delta =  (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+# else
             if (tauA>TAULIM) {
                delta  =  PHOTONS*(1.0f-exp(-tauA)) ;
             } else {
                delta  =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
             }
+# endif      
+            
 # if (WITH_ALI==1)  // with ALI
             if (oind==e_index) {  // absorptions in emitting cell
                atomicAdd_g_f(&(XAB[oind]), delta*TW) ;
@@ -1527,11 +1561,19 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
             dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
             tauA               =  dx*DENS[oind]*(*ABS) ;
 # endif
+            
+            
+# if 1
+            delta =  (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+# else
             if (tauA>TAULIM) {
                delta           =  PHOTONS*(1.0f-exp(-tauA)) ;
             } else {
                delta           =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
             }
+# endif
+            
+            
 # if (WITH_ALI==1)   // with ALI
             if (oind==e_index) { // absorptions in emitting cell
                atomicAdd_g_f(&(XAB[oind]), delta*TW) ;
@@ -1611,7 +1653,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                if (ds<=0.0) break ;
             }
             if (ind0>=NDUST) {
-               printf("(c) ?????\n") ;
+               // printf("(c) ?????\n") ;
                ind0 = NDUST-1 ;
             }
             Scatter(&DIR, &CSC[ind0*BINS], &rng) ; // use the scattering function of the ind0:th dust species
@@ -1845,11 +1887,17 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 # else
                tauA      =  ds*DENS[oind]*(*ABS) ;  // single dust or constant abundance = single float
 # endif
+               
+# if 1
+               delta =  (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+# else
                if (tauA>TAULIM) {
                   delta  =  PHOTONS*(1.0f-exp(-tauA)) ;
                } else {
                   delta  =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
                }
+# endif
+               
 # if (WITH_ALI==1)  // with ALI
                if (oind==e_index) {  // absorptions in emitting cell
                   atomicAdd_g_f(&(XAB[oind]), delta*TW) ;
@@ -1934,11 +1982,20 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
                tauA               =  dx*DENS[oind]*(*ABS) ;
 # endif
+               
+               
+# if 1
+               delta =  (tauA>TAULIM) ? (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+# else
                if (tauA>TAULIM) {
                   delta           =  PHOTONS*(1.0f-exp(-tauA)) ;
                } else {
                   delta           =  PHOTONS*tauA*(1.0f-0.5f*tauA) ;
                }
+# endif
+               
+               
+               
 # if (WITH_ALI==1)   // with ALI
                if (oind==e_index) { // absorptions in emitting cell
                   atomicAdd_g_f(&(XAB[oind]), delta*TW) ;
@@ -2015,7 +2072,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
                   if (ds<=0.0) break ;
                }
                if (ind0>=NDUST) {
-                  printf("(d) ?????\n") ;
+                  // printf("(d) ?????\n") ;
                   ind0 = NDUST-1 ;
                }
                Scatter(&DIR, &CSC[ind0*BINS], &rng) ; // use the scattering function of the ind0:th dust species
@@ -2036,3 +2093,739 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
 
 
 #endif
+
+
+
+
+
+#if (DO_SPLIT>0)
+// Background photon packages with package splitting
+
+
+__kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of packets
+                         const      int      BATCH,       //  1 - packages per surface element
+                         const      float    SEED,        //  2 - seed value for random numbers
+                         __global   float   *ABS,         //  3 - absorption cross section / GL / unit density
+                         __global   float   *SCA,         //  4 - scattering cross section / GL / unit density
+                         const      float    BG,          //  5 - background intensity
+                         const      float    TW,          //  6 - weight of current frequency in integral
+                         constant   int     *LCELLS,      //  7 - number of cells on each level
+                         constant   int     *OFF,         //  8 - index of first cell on each level
+                         __global   int     *PAR,         //  9 - index of parent cell        [CELLS]
+                         __global   float   *DENS,        // 10 - density and hierarchy       [CELLS]
+                         __global   float   *EMIT,        // 11 - emission from cells         [CELLS]
+                         __global   float   *TABS,        // 12 - buffer for absorptions      [CELLS]
+                         constant   float   *DSC,         // 13 - BINS entries [BINS] or [NDUST, BINS]
+                         constant   float   *CSC,         // 14 - cumulative scattering function
+                         __global   float   *INT,         // 15 - net intensity
+                         __global   float   *INTX,        // 16 - net intensity vector
+                         __global   float   *INTY,        // 17 - net intensity vector
+                         __global   float   *INTZ,        // 18 - net intensity vector
+                         __global   OTYPE   *OPT,         // 19 - WITH_ABU>0 =>  OPT[CELLS+CELLS] ABS and SCA
+                         __global   float   *ABU,         // 20 - MSF>0 =>  ABU[CELLS, NDUST]
+                         __global   float   *BUFFER       // 21-  storage for split rays
+                        ) 
+{
+   // This routine is simulating the radiation field to determine the absorbed energy in each cell,
+   // Emission from isotropic background only but including splitting of packages.
+   // Each package is assigned level RL where it was first created, root grid rays have RL=0.
+   // When package enters refined cell, it is split to four rays, one for each surface element of the leading edge.
+   
+   // 2020-07-19 ---  Split seems to work ok, runs fine on CPU, is very slow on GPU
+   // 2020-07-23 ---  added SELEM as parameter; each work item loops over SELEM surface elements,
+   //                 sends BATCH packages per surface element; BUFFER allocated according to 
+   //                 GLOBAL_SPLIT <= AREA
+   
+   
+   // Each work item does SELEM surface elements, sending BATCH packages per surface element. SELEM*GLOBAL >= AREA.
+   const int id     = get_global_id(0) ;  
+   const int GLOBAL = get_global_size(0) ;  // ~ AREA/100
+   int    oind=0, level=0, scatterings, steps, SIDE ;
+   float  ds, free_path, tau, dtau, delta, tauA, dx, dy, dz, phi, cos_theta, sin_theta ;
+   float3 DIR=0.0f ;
+   float3 POS, POS0 ; 
+   float  PHOTONS, X0, Y0, Z0, DX, DY, DZ, v1, v2 ;
+   int    RL, SL, NBUF=0, SID, sid, NBUF0=0, no ;
+   bool  STOP = false ;
+   
+   // printf("id=%d\n", id) ;
+   // if (id%1000!=0) return ;
+   // if (id%1000!=0) return ;
+   // if (id!=2000) return ;
+   
+   //                  0      1    2      3      4      5      6      7      8        9   10  
+   // Buffer entry:    level, ind, POS.x, POS.y, POS.z, DIR.x, DIR.y, DIR.z, PHOTONS  RL  SL  
+   __global float *BUF = &(BUFFER[id*12*MAX_SPLIT]) ; // the vector available for the current work item
+   __global float *B1, *B2, *B3 ;
+   
+   // MAX_SPLIT=2187 is enough for MAXL=7, 3 rays to buffer per each level of refinement
+     
+   mwc64x_state_t rng;
+   // Assume that 2^38 = 2.7e11 random numbers per worker is sufficient
+   // For each NITER, host will also give a new seed [0,1] that is multiplied by 2^32 = 4.3e9
+   // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
+   ulong samplesPerStream = 274877906944L ;  // 2^38
+   MWC64X_SeedStreams(&rng, (unsigned long)(7*id+fmod(SEED*7*id,0.99f)*4294967296L), samplesPerStream);
+   
+   int ind =-1 ;
+   int ind0=-1, level0 ;
+   
+
+   
+   for(int elem=0; elem<SELEM; elem++) { // loop over (max) SELEM surface elements
+      
+      // ind = 100*id+elem;                 // each work item does 100 surface elements => ind == element
+      ind  = id+elem*GLOBAL ;
+      
+      if (ind>=AREA) return ;            // no more elements to deal with, 100*id+elem>AREA
+      
+      DX  = 1.0f ; DY = 1.0f ; DZ = 1.0f ;
+      if (ind<(NY*NZ)) {                  // lower X
+         SIDE = 0 ;               X0 = PEPS ;     Y0 = ind % NY ;   Z0 = ind/NY ;   DX = 0.0f ;
+      } else {
+         ind -= NY*NZ ;
+         if (ind<(NY*NZ)) {               // upper X
+            SIDE = 1 ;            X0 = NX-PEPS ;  Y0 = ind % NY ;   Z0 = ind/NY ;   DX = 0.0f ;
+         } else {
+            ind -= NY*NZ ;
+            if (ind<(NX*NZ)) {            // lower Y
+               SIDE = 2 ;         Y0 = PEPS ;     X0 = ind % NX ;   Z0 = ind/NX ;   DY = 0.0f ;
+            } else {
+               ind -= NX*NZ ;
+               if (ind<(NX*NZ)) {         // upper Y
+                  SIDE = 3 ;      Y0 = NY-PEPS ;  X0 = ind % NX ;   Z0 = ind/NX ;   DY = 0.0f ;
+               } else {
+                  ind -= NX*NZ ;
+                  if (ind<(NX*NY)) {      // lower Z
+                     SIDE = 4 ;   Z0 = PEPS ;     X0 = ind % NX ;   Y0 = ind/NX ;   DZ = 0.0f ;
+                  } else {                // upper Z
+                     ind -= NX*NY ;
+                     SIDE = 5;    Z0 = NZ-PEPS ;  X0 = ind % NX ;   Y0 = ind/NX ;   DZ = 0.0f ;
+                  }
+               }
+            }
+         }
+      }
+      
+      
+      for(int III=0; III<BATCH; III++) { // BATCH rays per surface element
+         
+         // =============== BGPAC =================== BATCH packages per element
+         // generate new position and direction -- using SIDE, X0, Y0, Z0, DX, DY, DZ
+         POS.x      =  clamp(X0 + DX*Rand(&rng), PEPS, NX-PEPS) ;
+         POS.y      =  clamp(Y0 + DY*Rand(&rng), PEPS, NY-PEPS) ;
+         POS.z      =  clamp(Z0 + DZ*Rand(&rng), PEPS, NZ-PEPS) ;
+         cos_theta  =  sqrt(Rand(&rng)) ;
+         phi        =  TWOPI*Rand(&rng) ;
+         sin_theta  =  sqrt(1.0f-cos_theta*cos_theta) ;
+         v1 =sin_theta*cos(phi) ;   v2 = sin_theta*sin(phi) ;
+         switch (SIDE)  {  
+          case 0:  // lower X
+            DIR.x =  cos_theta ; DIR.y = v1 ;  DIR.z = v2 ;    break ;
+          case 1:  // upper X
+            DIR.x = -cos_theta ; DIR.y = v1 ;  DIR.z = v2 ;    break ;
+          case 2:  // lower Y
+            DIR.y =  cos_theta ; DIR.x = v1 ;  DIR.z = v2 ;    break ;
+          case 3:  // upper Y
+            DIR.y = -cos_theta ; DIR.x = v1 ;  DIR.z = v2 ;    break ;
+          case 4:  // lower Z
+            DIR.z =  cos_theta ; DIR.x = v1 ;  DIR.y = v2 ;    break ;
+          case 5:  // upper Z
+            DIR.z = -cos_theta ; DIR.x = v1 ;  DIR.y = v2 ;    break ;
+         }
+         PHOTONS    =  BG ;        // every packet has equal weight
+         IndexG(&POS, &level, &ind, DENS, OFF) ;         
+         if (fabs(DIR.x)<DEPS) DIR.x = DEPS ;
+         if (fabs(DIR.y)<DEPS) DIR.y = DEPS ;
+         if (fabs(DIR.z)<DEPS) DIR.z = DEPS ; 
+         DIR         =  normalize(DIR) ;
+         RL          =  0 ;  // level at which ray was created
+         SL          = -1 ;  // level at which ray was split (and scaled *=0.25)
+         // now we have created the main ray for the current III
+         
+         
+         
+         
+         // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
+         // The splitting scheme is perfect - if the refinement never increases more than by one
+         // refinement level at a time between cell neighbours. If there are larger jumps in the
+         // refinement, level0 -> level1, all new rays are created within the level=level1 cell octet,
+         // not over the whole area corresponding to the level0 cell. This will lead to higher noise
+         // in those other refined subcells of level0 that are not directly hit by the rays that are
+         // distribued only over an area corresponding to one level1-1 cell. Perfect ray splitting
+         // (which would hit every surface element within the projected area of the original level0
+         // cell) would be more complicated (and expensive!) because one would additionally need to
+         // find the other surface elements at levels l, level0<l<level1, and if some of those are
+         // again refined to levels ll>l, one would need to follow these down to the highest
+         // refinement level of the cells. The current scheme works ok if those jumps over refinement
+         // levels (between cell neighbours) are infrequent. Also, at high optical depths (probably
+         // the main challenge), scattering will in any case randomise the ray directions and our goal
+         // is just to drive (statistically) more rays to the optically thick regions. We do have the
+         // correct number of rays for refined regions, they are just not distributed optimally over
+         // the level0 cell size. 
+         
+         // INITIAL SPLIT
+         // If package is created at the border at a level > 0, we must already make all the 
+         // subrays... otherwise the up/down scaling of PHOTONS will be wrong (if one scales
+         // PHOTONS on every change of refinement)
+         // Jump from level0 to level, level>level0
+         //  for a level l,   level0<l<level, there should be 4^(l-level0) rays
+         //  because lower levels already provide 4^(l-level0-1) rays, we add only
+         //  4^(l-level0-1) * 3 rays
+         // * root ray is at NBUF=0
+         // * we add to NBUF=1,2,3 the three new rays needed at the next level
+         // * we replicate those three rays as many times as needed: 4^(l-level0-1) at level l
+         // * we reassign PL in increasing order so that higher l rays will be done first
+         // * all added entries in the buffer have POS, level, ind corresponding to level=level
+
+         if (level>0) {
+            level0 = 0 ;
+            NBUF   = 0 ;
+            // single level0 ray split, adding at least three rays on the next level
+            // for jump level0 -> level,  the total number of rays increases 4^(level-level0)
+            // and PHOTONS is rescaled accordingly
+            PHOTONS *=  pown(0.25f, level-level0) ;
+            // push the main ray to buffer as the NBUF=0 entry
+            RL      =  0 ;
+            B1      =  &(BUF[NBUF*12]) ;  // BUF = array for current work item, 12 reserved per ray
+            B1[0]   =  level ;   B1[1] = ind ;
+            B1[2]   =  POS.x ;   B1[3] = POS.y ;   B1[4 ] = POS.z ;
+            B1[5]   =  DIR.x ;   B1[6] = DIR.y ;   B1[7 ] = DIR.z ;
+            B1[8]   =  PHOTONS ; B1[9] =  RL ;     B1[10] = level ;   // being split on level "level"
+            NBUF   +=  1  ;
+            // add three new rays to buffer, with offsets within the current octet
+            B1      =  &(BUF[ NBUF   *12]) ;
+            B2      =  &(BUF[(NBUF+1)*12]) ;
+            B3      =  &(BUF[(NBUF+2)*12]) ;
+            NBUF   +=  3 ;
+            // add common data for all three new rays  (all except POS and ind)
+            // note --- assigned RL=level will be final only if level==level0+1
+            B1[0 ]  =  level ;    B1[5 ]  =  DIR.x ;    B1[6] = DIR.y ;     B1[7] = DIR.z ;
+            B1[8 ]  =  PHOTONS ;  B1[9 ]  =  level ;    // RL==level, ray will be terminated when level<RL
+            B2[0 ]  =  level ;    B2[5 ]  =  DIR.x ;    B2[6] = DIR.y ;     B2[7] = DIR.z ;
+            B2[8 ]  =  PHOTONS ;  B2[9 ]  =  level ;
+            B3[0 ]  =  level ;    B3[5 ]  =  DIR.x ;    B3[6] = DIR.y ;     B3[7] = DIR.z ;
+            B3[8 ]  =  PHOTONS ;  B3[9 ]  =  level ;
+            // choose the coordinate for which POS is closest to border => determine offsets
+            dx = fabs(POS.x-round(POS.x)) ;
+            dy = fabs(POS.y-round(POS.y)) ;
+            dz = fabs(POS.z-round(POS.z)) ;            
+            SID      =  ind%8 ;   // octet subindex for the original ray
+            if (dx<min(dy,dz)) {  // sidesteps in Y and Z directions
+               // step in Y  low 0,1,4,5 high 2,3,6,7
+               B1[1]  =  ind   +  ( (SID%4<2) ? 2 : (-2) ) ;
+               B1[2]  =  POS.x ;     B1[3]  =  fmod(POS.y+1.0f, 2.0f) ;     B1[4]  =  POS.z ;
+               // step in Z  low 0,1,2,3 high 4,5,6,7
+               B2[1]  =  ind   +  ( (SID<4) ? 4 : (-4) ) ;
+               B2[2]  =  POS.x ;     B2[3]  =  POS.y ;                      B2[4]  =  fmod(POS.z+1.0f, 2.0f) ;
+               // step in both Y and Z
+               B3[1]  =  ind   +  ((SID%4<2) ? 2 : (-2))   +  ((SID<4) ? 4 : (-4)) ;
+               B3[2]  =  POS.x ;     B3[3]  =  fmod(POS.y+1.0f, 2.0f) ;     B3[4]  =  fmod(POS.z+1.0f, 2.0f) ;
+               sid = 0;
+            } else {
+               if (dy<dz) {   // steps in X and Z
+                  // step in X  low 0,2,4,6 high 1,3,5,7
+                  B1[1]  =  ind   +  ( (SID%2==0) ? 1 : (-1) ) ;
+                  B1[2]  =  fmod(POS.x+1.0f, 2.0f) ;             B1[3]  =  POS.y ;     B1[4]  =  POS.z ;
+                  // step in Z  low 0,1,2,3 high 4,5,6,7
+                  B2[1]  =  ind   +  ( (SID<4) ? 4 : (-4) ) ;  
+                  B2[2]  =  POS.x ;                              B2[3]  =  POS.y ;     B2[4]  =  fmod(POS.z+1.0f, 2.0f) ;
+                  // step in both X and Z
+                  B3[1]  =  ind   +  ((SID%2==0) ? 1 : (-1))   +   ((SID<4) ? 4 : (-4)) ;
+                  B3[2]  =  fmod(POS.x+1.0f, 2.0f) ;             B3[3]  =  POS.y ;     B3[4]  =  fmod(POS.z+1.0f, 2.0f) ;
+                  sid = 1 ;
+               } else {  // steps in X and Y
+                  // step in X
+                  B1[1]  =  ind   +  ( (SID%2==0) ? 1 : (-1) ) ;
+                  B1[2]  =  fmod(POS.x+1.0f, 2.0f) ;             B1[3]  =  POS.y ;                       B1[4]  =  POS.z ;
+                  // step in Y
+                  B2[1]  =  ind   +  ( (SID%4<2)  ? 2 : (-2) ) ;
+                  B2[2]  =  POS.x ;                              B2[3]  =  fmod(POS.y+1.0f, 2.0f) ;      B2[4]  =  POS.z ;
+                  // step in X and Y
+                  B3[1]  =  ind   +   ((SID%2==0) ? 1 : (-1))  +  ((SID%4<2) ? 2 : (-2)) ;
+                  B3[2]  =  fmod(POS.x+1.0f, 2.0f) ;             B3[3]  =  fmod(POS.y+1.0f, 2.0f) ;      B3[4]  =  POS.z ;
+                  sid = 2 ;
+               }
+            }
+            // If level==level0+1, we have all the necessary four rays now in the buffer
+            // We have the original ray PL=level0 ray at NBUF=0 and the three added PL=level0+1 rays at NBUF=1,2,3
+            // However, if level>level0+1, we need to replicate those three rays
+            
+            
+            // On level l, we need a total of 4^(l-level0) rays, of which 4^(l-level0-1) already exist at lower l
+            // => we need to add at each level  4^(l-level0-1) * 3 rays.
+            // Or: the total number of added rays is 4^(level-level0)-1, a number divisible by three!
+            // After already having added 3 new rays, these need to be replicated 
+            //   (4^(level-level0)-1)/3 - 1   times
+            no = (pown((float)4, level-level0)-1)/3-1 ;           // this many additional groups of three rays needed
+            B1 = &(BUF[12]) ;                             // pointer to the first three rays ... NBUF0==0, NBUF=1
+            for(int j=0; j<no; j++) {
+               B2    =  &(BUF[12*NBUF]) ;                 // adding new rays
+               for(int i=0; i<36; i++) B2[i] = B1[i] ;    // three rays = 36 elements
+               NBUF +=  3 ;
+            }            
+            // Now we have the rays in the buffer, all have coordinates and indices for the current level 'level'
+            // Reassign RL for all the entries, the original root ray (RL=0) is at NBUF=0 but for the rest,
+            // assign RL in increasing order so that the higher-l rays will be done first
+            for(int l=level0+1; l<=level; l++) {
+               // before level l, the buffer has 4^(l-level0-1) rays
+               no = pown((float)4, l-level0-1) ;
+               B2 = &(BUF[12*no]) ;      // points to first entry at level l,  NBUF0==0
+               // the level l has 4^(l-level0-1)*3 added rays, they all get RL=l
+               for(int i=0; i<3*no; i++)  B2[12*i+9] = l ;
+            }
+
+#  if 0           
+            no =  pown((float)4, level) ;
+            printf("NBUF=%d, SHOULD BE %d\n", NBUF, no) ;
+            for(int i=0; i<NBUF; i++) {
+               printf("   %8d   NBUF= %3d   %2d %9d   RL=%.0f PHOTONS %10.3e\n", id, level, ind, BUF[12*i+9], BUF[12*i+8]) ;
+            }
+#  endif
+            
+            // we are done - just pop the last entry from the buffer as the current ray
+            NBUF       -=  1 ;
+            B1          =  &(BUF[NBUF*12]) ;
+            level       =  (int)B1[0] ;
+            ind         =  (int)B1[1] ;
+            POS.x       =  B1[2] ;   POS.y  =  B1[3] ;   POS.z  =  B1[4] ; 
+            DIR.x       =  B1[5] ;   DIR.y  =  B1[6] ;   DIR.z  =  B1[7] ; 
+            // PHOTONS     =  B1[8] ;
+            RL          =  (int)B1[ 9] ;
+         } // level>0
+         // INITIAL SPLIT ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         
+         
+         
+         
+         scatterings =  0 ;
+         tau         =  0.0f ;         
+         free_path   = -log(Rand(&rng)) ;
+         STOP        =  false ;
+         steps       =  0 ;         
+         
+
+# if 0
+         printf("\n") ;
+         printf("%8d: INIT %2d %9d -- PHOTONS %.3e, BG %.3e, NBUF=%d, free_path %.3e\n", id, level, ind, PHOTONS, BG, NBUF, free_path) ;
+# endif
+         
+         
+         
+         
+         while(1) {  // OUTER WHILE -- loop until this ray and its subrays have finished OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+            
+            tau = 0.0f ;            
+            
+            // if (PHOTONS<0.1f) printf("WTF2\n") ;
+
+            
+            while(ind>=0) {    // INNER WHILE -- loop until next scattering IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+               
+
+               oind      =  OFF[level]+ind ;  // global index at the beginning of the step
+               ind0      =  ind ;             // indices at the beginning of the step
+               level0    =  level ;
+                
+               // WTF!!!!!!!!!!! THIS DOES NOT WORK ON INTEL "OPENCL"...????
+               // EXPECTED RESULT ON INTEL/GPU, ON INTEL/CPU RESULT UNDEFINED, USUALLY ZERO ??????????
+               // POS0      =  POS ;             // because GetStep does coordinate transformations...
+               POS0.x = POS.x ;   POS0.y = POS.y ;   POS0.z = POS.z ;
+               // printf("D:  PHOTONS %12.4e, oind=%d\n", PHOTONS, oind) ;
+              
+                
+               
+               ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
+               
+
+               
+# if 1
+               steps += 1 ;
+               if (steps>300000) {  printf("300000 steps !!!!\n") ;   return ;  }
+# endif
+               
+               
+# if (WITH_ABU>0)
+               dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+# else
+               dtau      =  ds*DENS[oind]*(*SCA) ;
+# endif
+               if (free_path<(tau+dtau)) {  // tau = optical depth since last scattering
+                  ind = ind0 ;              // what if we scatter on step ending outside the cloud?
+                  // printf("*** SCATTERING: free_path %12.4e  <= %12.4e + %12.4e\n", free_path, tau, dtau) ;
+                  break ;                   // scatter before ds -- break the INNER WHILE loop
+               }
+               
+               
+               // Not scattering, normal step forward
+# if (WITH_ABU>0)
+               tauA      =  ds*DENS[oind]*GOPT(2*oind) ;  // OPT = total cross section, sum over dust species
+# else
+               tauA      =  ds*DENS[oind]*(*ABS) ;       // ABS is basically a scalar
+# endif
+               
+
+               delta = PHOTONS * ((tauA>TAULIM) ? (1.0f-exp(-tauA)) : (tauA*(1.0f-0.5f*tauA))) ;
+               atomicAdd_g_f(&(TABS[oind]), TW*ADHOC*delta) ;
+               
+               if (TABS[oind]>1.0e30f) {
+                  printf("%5d: TABS[%9d]=%.103e tauA=%10.3e PHOTONS %10.3e  delta %10.3e ds %10.3e TW %10.3e\n", 
+                         id, oind, TABS[oind], tauA, PHOTONS, delta, ds, TW) ;
+               }
+               
+               
+               
+# if ((SAVE_INTENSITY==1)||(SAVE_INTENSITY==2)||(NOABSORBED==0))  // Cannot use TABS because that is cumulative over frequency...
+               atomicAdd_g_f(&(INT[oind]),  delta) ;
+# endif
+# if (SAVE_INTENSITY==2)  // Save vector components of the net intensity
+               // Cannot use TABS because that is cumulative over frequency...
+               atomicAdd_g_f(&(INTX[oind]), delta*DIR.x) ;
+               atomicAdd_g_f(&(INTY[oind]), delta*DIR.y) ;
+               atomicAdd_g_f(&(INTZ[oind]), delta*DIR.z) ;
+# endif
+
+
+               PHOTONS   *=  exp(-tauA) ;  // tauA = optical depth for absorption
+               tau       +=  dtau ;        // dtau = optical depth for scattering
+
+               // if (id==2000) printf("2000:  %2d %7d -> %2d %7d:  PHOTONS %10.3e\n", level0, ind0, level, ind, PHOTONS) ;
+               
+               
+               
+               
+# if 0
+               printf("***** %5d: PHOTONS %10.3e .... tauA %10.3e, DENS %10.3e, ds %10.3e, BG %10.3e *****\n",
+                      id, PHOTONS, tauA, DENS[oind], ds, BG) ;
+# endif
+               
+               
+               
+               
+               
+               
+               // Should have moved to another cell... or possibly we have ind <0
+               if ((level==level0)&&(ind==ind0)) {  // FAILED STEP !!
+                  // Something wrong ???  ---- level 6, stays in the same cell because of POS.x rounding
+                  // Normally one oversteps the boundary by PEPS => finite possibility that the 
+                  // scattering takes place after the boundary, in the PEPS-wide layer...
+                  // so that the cell does change in spite of the scattering before the end of the step.
+                  // This becomes likely when the free path is of the order of EPS !!!
+                  // This probably (?) has not ill effects on the results... since the cell index
+                  // gets fixed on the next GetStep()
+# if 0
+                  printf("[%d] ???STEPS: ds=%12.4e, fp=%12.4e tau=%12.4e dtau=%12.4e\n", id, ds, free_path, tau, dtau) ;
+                  printf("A  %d %6d %d    %9.5f %9.5f %9.5f   %8.4f %8.4f %8.4f\n",
+                         level0, ind0, ind0%8,  POS0.x, POS0.y, POS0.z, DIR.x, DIR.y, DIR.z) ;
+                  printf("B  %d %6d %d    %9.5f %9.5f %9.5f   %8.4f %8.4f %8.4f\n",
+                         level, ind, ind%8,  POS.x, POS.y, POS.z, DIR.x, DIR.y, DIR.z) ;
+                  Index(&POS0, &level0, &ind0, DENS, OFF, PAR) ;
+                  printf("RECHECK OLD = %d %d   %8.4f %8.4f %8.4f\n", ind0, level0, POS0.x, POS0.y, POS0.z) ;
+                  Index(&POS, &level, &ind, DENS, OFF, PAR) ;
+                  printf("RECHECK NEW = %d %d   %8.4f %8.4f %8.4f\n", ind, level, POS.x, POS.y, POS.z) ;
+                  return ;
+# endif
+                  POS +=  PEPS * DIR ;
+                  steps += 1 ;
+               }
+               
+               
+               
+               if (ind>=0) { // was a normal step to a new cell
+
+
+                  
+                  
+                  
+                  // vvvvvvvvvv SPLIT  vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+                  if (level>level0) {   // @s refinement --> split the ray
+                     NBUF0   = NBUF ;   // where we start adding rays for the current split, NBUF0 = will be the current main ray
+                     // printf("*** ADD -- FIRST SLOT NBUF=%d\n", NBUF) ;
+                     if (NBUF>(MAX_SPLIT-10)) {
+                        printf("!!!!!!!!!!!!!!!!!!!! NBUF IS FULL, NBUF=%d, steps %d !!!!!!!!!!!!!!!!!!!!", NBUF, steps) ;  NBUF = 0 ;  ind = -1 ; break ;
+                     }
+                     
+                     // single level0 ray split, adding at least three rays on the next level
+                     // for jump level0 -> level,  the total number of rays increases 4^(level-level0)
+                     PHOTONS *=  pown(0.25f, level-level0) ;
+# if 0
+                     printf("%8d: %2d %8d  ->  %2d %8d  ***** SPLIT TO: PHOTONS %10.3e, BG %10.3e\n", id, level0, ind0, level, ind, PHOTONS, BG) ;
+                     printf("*** ADD ROOT TO NBUF=%d\n", NBUF) ;
+# endif
+                     // push the main ray to buffer as the NBUF=0 entry
+                     B1      =  &(BUF[NBUF*12]) ;  // BUF = array for current work item, 12 reserved per ray
+                     B1[0]   =  level ;   B1[1] = ind ;
+                     B1[2]   =  POS.x ;   B1[3] = POS.y ;   B1[4 ] = POS.z ;
+                     B1[5]   =  DIR.x ;   B1[6] = DIR.y ;   B1[7 ] = DIR.z ;
+                     B1[8]   =  PHOTONS ; B1[9] =  RL ;     B1[10] = level ;   // being split on level "level", original RL of the main ray
+                     NBUF   +=  1  ;
+                     // add three new rays to buffer, with offsets within the current octet
+                     B1      =  &(BUF[NBUF*12]) ;
+                     B2      =  &(BUF[NBUF*12+12]) ;
+                     B3      =  &(BUF[NBUF*12+24]) ;
+                     NBUF   +=  3 ;
+                     // add common data for all three new rays  (all except POS and ind)
+                     // note --- assigned RL=level will be final only if level==level0+1
+                     B1[0 ]  =  level ;    B1[5 ]  =  DIR.x ;    B1[6] = DIR.y ;     B1[7] = DIR.z ;
+                     B1[8 ]  =  PHOTONS ;  B1[9 ]  =  level ;    // RL==level, ray will be terminated when level<RL
+                     B2[0 ]  =  level ;    B2[5 ]  =  DIR.x ;    B2[6] = DIR.y ;     B2[7] = DIR.z ;
+                     B2[8 ]  =  PHOTONS ;  B2[9 ]  =  level ;
+                     B3[0 ]  =  level ;    B3[5 ]  =  DIR.x ;    B3[6] = DIR.y ;     B3[7] = DIR.z ;
+                     B3[8 ]  =  PHOTONS ;  B3[9 ]  =  level ;
+                     // choose the coordinate for which POS is closest to border => determine offsets
+                     dx   = fabs(POS.x-round(POS.x)) ;
+                     dy   = fabs(POS.y-round(POS.y)) ;
+                     dz   = fabs(POS.z-round(POS.z)) ;            
+                     SID  =  ind%8 ;          // octet subindex for the original ray
+                     if (dx<min(dy,dz)) {     // sidesteps in Y and Z directions
+                        // step in Y  low 0,1,4,5 high 2,3,6,7
+                        B1[1]  =  ind   +  ( (SID%4<2) ? 2 : (-2) ) ;
+                        B1[2]  =  POS.x ;     B1[3]  =  fmod(POS.y+1.0f, 2.0f) ;     B1[4]  =  POS.z ;
+                        // step in Z  low 0,1,2,3 high 4,5,6,7
+                        B2[1]  =  ind   +  ( (SID<4) ? 4 : (-4) ) ;
+                        B2[2]  =  POS.x ;     B2[3]  =  POS.y ;                      B2[4]  =  fmod(POS.z+1.0f, 2.0f) ;
+                        // step in both Y and Z
+                        B3[1]  =  ind   +  ((SID%4<2) ? 2 : (-2))   +  ((SID<4) ? 4 : (-4)) ;
+                        B3[2]  =  POS.x ;     B3[3]  =  fmod(POS.y+1.0f, 2.0f) ;     B3[4]  =  fmod(POS.z+1.0f, 2.0f) ;
+                        sid = 0;
+                     } else {
+                        if (dy<dz) {   // steps in X and Z
+                           // step in X  low 0,2,4,6 high 1,3,5,7
+                           B1[1]  =  ind   +  ( (SID%2==0) ? 1 : (-1) ) ;
+                           B1[2]  =  fmod(POS.x+1.0f, 2.0f) ;             B1[3]  =  POS.y ;     B1[4]  =  POS.z ;
+                           // step in Z  low 0,1,2,3 high 4,5,6,7
+                           B2[1]  =  ind   +  ( (SID<4) ? 4 : (-4) ) ;  
+                           B2[2]  =  POS.x ;                              B2[3]  =  POS.y ;     B2[4]  =  fmod(POS.z+1.0f, 2.0f) ;
+                           // step in both X and Z
+                           B3[1]  =  ind   +  ((SID%2==0) ? 1 : (-1))   +   ((SID<4) ? 4 : (-4)) ;
+                           B3[2]  =  fmod(POS.x+1.0f, 2.0f) ;             B3[3]  =  POS.y ;     B3[4]  =  fmod(POS.z+1.0f, 2.0f) ;
+                           sid = 1 ;
+                        } else {  // steps in X and Y
+                           // step in X
+                           B1[1]  =  ind   +  ( (SID%2==0) ? 1 : (-1) ) ;
+                           B1[2]  =  fmod(POS.x+1.0f, 2.0f) ;             B1[3]  =  POS.y ;                       B1[4]  =  POS.z ;
+                           // step in Y
+                           B2[1]  =  ind   +  ( (SID%4<2)  ? 2 : (-2) ) ;
+                           B2[2]  =  POS.x ;                              B2[3]  =  fmod(POS.y+1.0f, 2.0f) ;      B2[4]  =  POS.z ;
+                           // step in X and Y
+                           B3[1]  =  ind   +   ((SID%2==0) ? 1 : (-1))  +  ((SID%4<2) ? 2 : (-2)) ;
+                           B3[2]  =  fmod(POS.x+1.0f, 2.0f) ;             B3[3]  =  fmod(POS.y+1.0f, 2.0f) ;      B3[4]  =  POS.z ;
+                           sid = 2 ;
+                        }
+                     }
+                     // If level==level0+1, we have all the necessary four rays now in the buffer,
+                     // original ray PL=level0 at NBUF=NBUF0 and the three added PL=level0+1 rays at NBUF=NBUF0+1,2,3.
+                     // However, if level>level0+1, we need to replicate those three rays!
+
+# if 0
+                     printf("xxx----------------------------------------------------------------------------------------------------\n") ;
+                     for(int i=0; i<NBUF; i++) {
+                        printf("  %2.0f %8.0f    %6.3f \n", BUF[12*i+0], BUF[12*i+1], BUF[12*i+8]) ;
+                     }
+                     printf("xxx----------------------------------------------------------------------------------------------------\n") ;                     
+# endif
+                     
+                     // On level l, we need a total of 4^(l-level0) rays, of which 4^(l-level0-1) exist at lower l
+                     // => we add at each level  4^(l-level0-1) * 3 rays.
+                     // Or: the total number of added rays is 4^(level-level0)-1, a number divisible by three!
+                     // After already having added 3 new rays, these need to be replicated 
+                     //   (4^(level-level0)-1)/3 - 1   times
+                     no = (pown((float)4, level-level0)-1)/3-1 ;   // this many additional groups of three rays needed
+                     B1 = &(BUF[12*NBUF0+12]) ;                    // pointer to the first three new rays (NBUF0 was the incoming ray)
+                     // printf("*** FIRST AFTER ROOT: NBUF0 %d, NBUF %d -- add 3 x %d\n", NBUF0, NBUF, no) ;
+                     for(int j=0; j<no; j++) {                     // loop over groups of three
+                        B2    =  &(BUF[12*NBUF]) ;                 // adding rays...
+                        for(int i=0; i<36; i++) B2[i] = B1[i] ;    // three rays = 36 elements
+                        NBUF +=  3 ;
+                     }            
+                     // Now we have the rays in the buffer, all have coordinates and indices for the current level 'level'
+                     // The original root ray (RL=0) is at NBUF=NBUF0 but for the rest we reassign RL
+                     // in increasing order so that the rays with higher l will be done first.
+                     // Level l has 3 * 4^(level-level0-1) added rays
+                     for(int l=level0+1; l<=level; l++) {
+                        // before level l, the buffer has 4^(l-level0-1) rays
+                        // e.g.  level0=0, l=1,  4^(1-0-1) = 1 ray == the original incoming one
+                        //       level0=0, l=2,  4^(2-0-1) = 4 rays, the original + three added
+                        no = pown((float)4, l-level0-1) ;   // no rays before the first on level l
+                        B2 = &(BUF[12*(NBUF0+no)]) ;        // points to the first entry at level l
+                        // the level l has 4^(l-level0-1)*3 added rays, they all get RL=l
+                        // e.g. l=level0+1, 4^0*3 = 3 added rays
+                        for(int i=0; i<3*no; i++)  B2[12*i+9] = l ;
+                     }
+                     
+# if 0
+                     printf("----------------------------------------------------------------------------------------------------\n") ;
+                     for(int i=0; i<NBUF; i++) {
+                        printf("  %2.0f %8.0f    %6.3f \n", BUF[12*i+0], BUF[12*i+1], BUF[12*i+8]) ;
+                     }
+                     printf("----------------------------------------------------------------------------------------------------\n") ;
+# endif
+                     
+                     
+                     // we are done - just pop the last entry from the buffer as the current ray
+                     B1          =  &(BUF[(NBUF-1)*12]) ;
+                     level       =  (int)B1[0] ;
+                     ind         =  (int)B1[1] ;
+                     POS.x       =  B1[2] ;   POS.y  =  B1[3] ;   POS.z  =  B1[4] ; 
+                     DIR.x       =  B1[5] ;   DIR.y  =  B1[6] ;   DIR.z  =  B1[7] ; 
+                     PHOTONS     =  B1[8] ;
+                     RL          =  (int)B1[ 9] ;
+                     NBUF       -=  1 ;
+                     
+                     // printf("%8d: TO + CONT: %2d %8d  PHOTONS %10.3e, BG %10.3e,  NBUF=%3d\n", id, level, ind, PHOTONS, BG, NBUF) ;
+                     
+                  } // level > level0
+                  
+                  
+                  
+                  // Or, if we stepped into a less refined cell
+                  if (level<level0) {  // @s coarser grid, potential end of ray or scaling of PHOTONS
+                     if (level<RL) {   // this ray ends -- three out of four rays
+                        ind = -1 ;  STOP=true ;
+                     }
+                     // ok, this package continues... but with larger PHOTONS
+                     PHOTONS *= pown(4.0f, level0-level) ;
+#  if 0
+                     if (PHOTONS>BG) {
+                        printf("STEP %d -> %d, RL %d  PHOTONS %.3e > BG %.3e\n", 
+                               level0, level, RL, PHOTONS, BG) ;
+                     }
+#  endif
+                  }
+                  // ^^^^^^^ SPLIT ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                  
+                  
+
+                  
+                  
+                  
+                  if (STOP)  ind = -1 ;
+                  
+               }  // if ind>=0 --- step ended in another cell
+
+               // If step led out of the model, to ind<0, pick a ray from the buffer and continue in the INNER WHILE
+               if ((NBUF>0)&&((ind<0)||STOP)) {
+                  // @s if ind became negative, try to take ray from the buffer
+                  NBUF       -=  1 ;
+                  B1          =  &(BUF[NBUF*12]) ;
+                  level       =  (int)B1[0] ;
+                  ind         =  (int)B1[1] ;
+                  POS.x       =  B1[2] ;   POS.y  =  B1[3] ;   POS.z  =  B1[4] ; 
+                  DIR.x       =  B1[5] ;   DIR.y  =  B1[6] ;   DIR.z  =  B1[7] ; 
+                  PHOTONS     =  B1[8] ;
+                  RL          =  (int)B1[ 9] ;
+                  SL          =  (int)B1[10] ; // this not actually used... as long as all rays fit into buffer
+                  STOP        =  false ;
+                  scatterings =  0 ;
+                  tau         =  0.0f ;         
+                  free_path   = -log(Rand(&rng)) ;
+                  // if (id==2000) printf("%8d: FROM %2d %8d, PHOTONS=%.3e, BG=%.3e, NBUF=%d\n", id, level, ind, PHOTONS, BG, NBUF) ;
+               }
+               
+               if (STOP) ind = -1 ;
+               
+            } ;  // INNER WHILE  --- while ind>=0  --- loop until scattering or ray ended IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+            
+
+            
+            
+            
+            // RAY HAS EXITED AND BUFFER IS EMPTY --- OR WE HAVE A NORMAL SCATTERING
+            if (ind<0) break ; // break OUTER WHILE --- continue with next III = next in the loop over BATCH rays
+            
+
+            
+            // SCATTER
+            // printf("***** SCATTERING *****\n") ;
+            scatterings++ ;
+            dtau               =  free_path-tau ;
+# if (WITH_ABU>0)
+            dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
+            tauA               =  dx*DENS[oind]*GOPT(2*oind) ;
+# else
+            dx                 =  dtau/((*SCA)*DENS[oind]) ;  // actual step forward in GLOBAL coordinates
+            tauA               =  dx*DENS[oind]*(*ABS) ;
+# endif
+            delta = (tauA>TAULIM) ?  (PHOTONS*(1.0f-exp(-tauA))) : (PHOTONS*tauA*(1.0f-0.5f*tauA)) ;
+            atomicAdd_g_f(&(TABS[oind]), delta*TW*ADHOC) ;
+# if ((SAVE_INTENSITY==1)||(SAVE_INTENSITY==2)||(NOABSORBED==0))  // Cannot use TABS because that is cumulative over frequency...
+            atomicAdd_g_f(&(INT[oind]),  delta) ;
+# endif
+# if (SAVE_INTENSITY==2)  // Save vector components of the net intensity
+            // Cannot use TABS because that is cumulative over frequency...
+            atomicAdd_g_f(&(INTX[oind]), delta*DIR.x) ;
+            atomicAdd_g_f(&(INTY[oind]), delta*DIR.y) ;
+            atomicAdd_g_f(&(INTZ[oind]), delta*DIR.z) ;
+# endif
+            dx             =  ldexp(dx, level0) ;
+            dx             =  max(0.0f, dx-2.0f*PEPS) ; // must remain in cell (level0, ind0)
+            POS            =  POS0 + dx*DIR ;  // location of scattering -- coordinates of current level
+            PHOTONS       *=  exp(-tauA) ;
+            // normal, unweighted case
+            free_path  = -log(Rand(&rng)) ;
+            // return to original indices
+            ind            =  ind0 ;           // cell has not changed !?
+            level          =  level0 ;         // (ind, level) at the beginning of the step = at the end
+# if (DIR_WEIGHT>0)  // cannot be used with -D WITH_MSF
+            POS0 = DIR ;  // old direction
+            WScatter(&DIR, CSC, &rng, &pweight) ;
+            // Yet another weighting = ratio of scattering functions
+            // ... for the scattering angle of the photon package (not peeloff direction!!)
+            tau           =  DIR.x*POS0.x+DIR.y*POS0.y+DIR.z*POS0.z ;  // ct=="tau" reused         
+            pind          =  clamp((int)(BINS*(1.0f+tau)*0.5f), 0, BINS-1) ;
+            PHOTONS      *=  DSC[pind] / pweight ;
+# else
+#  if (WITH_MSF==0)
+            // Basic situation, only single scattering function in use
+            Scatter(&DIR, CSC, &rng) ;   // new direction
+#  else
+            // We must select the scatterer -- using the properties of the cell with global index oind
+            // and the relative values of ABU[oind*NDUST+idust]*SCA[idust] / OPT[2*oind+1]
+            //  *** re-using ds, free_path, ind0 ***
+            dx     =  GOPT(2*oind+1) ;        // sum(ABU*SCA) for the current cell
+            ds     =  0.99999f*Rand(&rng) ;
+            for(ind0=0; ind0<NDUST; ind0++) {   // ind0 ~ dust index
+               ds -= ABU[ind0+oind*NDUST]*SCA[ind0] / dx ;
+               if (ds<=0.0) break ;
+            }
+            if (ind0>=NDUST) {
+               printf("(a) ?????\n") ;
+               ind0 = NDUST-1 ;
+            }
+            Scatter(&DIR, &CSC[ind0*BINS], &rng) ; // use the scattering function of the ind0:th dust species
+#  endif
+# endif
+            
+            
+            
+            
+# if 1
+#  if 1   // Do something if there has been enough scatterings
+            if (scatterings>20) {
+               STOP = true ;   // stop this on the next round in the INNER WHILE above
+            }
+#  else   //  Russian roulette to remove packages
+            if (scatterings>15) {
+               if (Rand(&rng)<0.25f) {   // one in four terminated
+                  STOP = true ; 
+               } else {                  // ther rest *= 4/3
+                  PHOTONS *= 1.3333333f ;
+               }
+            }
+#  endif
+# endif         
+            
+            
+            
+         } // OUTER WHILE --- while (ind>0) -- loop until ray finished.... including all its subrays OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+         
+      } // for III
+      
+   } // for elem ... loop over the 100 surface elements
+   
+}  // SimBgSplit
+
+
+#endif
+

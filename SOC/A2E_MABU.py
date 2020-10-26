@@ -1,6 +1,6 @@
 #!/bin/python3
 
-import os, sys
+import os, sys, time
 
 # we assume that the Python scripts and *.c kernel files are in this directory
 # HOMEDIR = os.path.expanduser('~/')
@@ -8,7 +8,7 @@ import os, sys
 INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(INSTALL_DIR)
 
-from ASOC_aux import *
+from SOC_aux import *
 
 
 SHAREDIR = '/dev/shm'
@@ -26,6 +26,8 @@ if (len(sys.argv)<2):
     print("  absorbed.data  =  absorptions  [CELLS, nfreq] or [CELLS, nlfreq]")
     print("  emitted.data   =  solved emissions [CELLS, nfreq]")
     print("  GPU            =  if given, use GPU instead of CPU")
+    print("                    device selection in the ini file overrides this and")
+    print("                    also platforms will be read from the ini, if given")
     print("  uselib         =  if given, solve using existing libraries (one per dust population)")
     print("  makelib        =  if given, create new libraries")
     print("Note:")
@@ -52,6 +54,7 @@ F_LFREQ = "lfreq.dat"
 DUST, AFILE, EQDUST = [], [], []
 UM_MIN, UM_MAX      = 0.00001, 999999.0
 LIB_BINS = ''  # bins when making a library with A2E_LIB.py
+platforms = []
 fp  = open(sys.argv[1], 'r')
 for line in fp.readlines():
     s = line.split()
@@ -67,6 +70,11 @@ for line in fp.readlines():
         LIB_BINS =  s[1]
     if (USELIB  & (s[0]=='libmap')):
         F_OFREQ  =  s[1]
+    if (s[0].find('device')>=0): # THIS OVERRIDES NOW THE COMMAND LINE ARGUMENT
+        if (s[1].find('g')): GPU = 1
+        else:                GPU = 0
+    if (s[0].find('platform')>=0):
+        platforms = [ int(s[1]), ]    # user requested a specific OpenCL platform
     if (s[0][0:6]=='optica'):
         dustname = s[1]
         tag      = open(dustname).readline().split()[0]
@@ -87,6 +95,19 @@ for line in fp.readlines():
         else:
             AFILE.append("")
 fp.close()
+
+
+# GPU is passed onto A2E.py on command line .... 1.3 would mean GPU and platform 3 !!!
+if (GPU>0): # GPU was specified on command line or in the ini file
+    if (len(platforms)>0):  #  [] or one value read from the ini file
+        GPU = 1.0 + 0.1*platforms[0]  # encoded into float for the A2E.py command line argument
+    else:
+        GPU = 1      # platform not specified
+# we need platforms also in this script (solving of equilibrium temperature dust)
+if (len(platforms)<1):
+    platforms = arange(5)
+    
+
 
 print("A2E_MABU.py   makelib %d, uselib %d, ini %s" % (MAKELIB, USELIB, sys.argv[1]))
 print(DUST)
@@ -176,33 +197,51 @@ def PlanckSafe(f, T):  # Planck function
     return 2.0*H_CC*f*f*f / (np.exp(np.clip(H_K*f/T,-100,+100))-1.0)
 
 
-def opencl_init(GPU, requested_platform=-1):
+def opencl_init(GPU, platforms):
     """
     Initialise OpenCL environment.
     """
-    try_platforms    = np.arange(4)
-    if (requested_platform>=0): 
-        try_platforms = [requested_platform,]
     platform, device, context, queue = None, None, None, None
-    for iplatform in try_platforms:
-        print("=== TRY PLATFORM %d" % (iplatform))
-        try:
-            platform  = cl.get_platforms()[iplatform]
-            if (GPU):
-                device  = platform.get_devices(cl.device_type.GPU)
+    ok = False
+    print("........... platforms ======", platforms)
+    for iii in range(2):
+        for iplatform in platforms:
+            print("--------------------------------------------------------------------------------")
+            print("GPU=%d,  TRY PLATFORM %d" % (GPU, iplatform))
+            tmp = cl.get_platforms()
+            print("NUMBER OF PLATFORMS: %d" % len(tmp))
+            print("PLATFORM %d = " % iplatform, tmp[iplatform])
+            print("DEVICE ",         tmp[iplatform].get_devices())
+            print("--------------------------------------------------------------------------------")
+            try:
+                platform  = cl.get_platforms()[iplatform]
+                if (GPU):
+                    device  = platform.get_devices(cl.device_type.GPU)
+                else:
+                    device  = platform.get_devices(cl.device_type.CPU)
+                context  = cl.Context(device)
+                queue    = cl.CommandQueue(context)
+                ok       = True
+                print("    ===>     DEVICE ", device, " ACCEPTED !!!")
+                break
+            except:                
+                print("    ===>     DEVICE ", device, " REJECTED !!!")                
+                pass
+        if (ok):
+            return context, queue, cl.mem_flags
+        else:
+            if (iii==0):
+                platforms = arange(4)  # try without specific choise of platform
             else:
-                device  = platform.get_devices(cl.device_type.CPU)
-            context  = cl.Context(device)
-            queue   = cl.CommandQueue(context)
-            break
-        except:
-            pass
-    return context, queue, cl.mem_flags
+                print("A2E_MABU => opencl_ini could not find valid OpenCL device !!!")
+                print("**** ABORT ****")
+                time.sleep(5)
+                sys.exit()
             
 
 
 
-def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=99999.0, GPU=False):
+def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=99999.0, GPU=False, platforms=[0,1,2,3,4]):
     """
     Calculate equilibrium temperature dust emission based on absorptions.
     Input:
@@ -245,7 +284,7 @@ def SolveEquilibriumDust(dust, f_absorbed, f_emitted, UM_MIN=0.0001, UM_MAX=9999
     TTT         =  np.asarray(ip(Emin * kE**np.arange(NE)), np.float32)
     # Set up kernels
     CELLS, NFREQ=  np.fromfile(f_absorbed, np.int32, 2)
-    context, commands, mf = opencl_init(GPU)
+    context, commands, mf = opencl_init(GPU, platforms)
     source      =  open(INSTALL_DIR+"/kernel_eqsolver.c").read()
     ARGS        =  "-D CELLS=%d -D NFREQ=%d -D FACTOR=%.4ef" % (CELLS, NFREQ, FACTOR)
     if (0):
@@ -354,7 +393,8 @@ for idust in range(NDUST):
 
 # Initialise OpenCL to split the absorptions
 #  note: with USELIB, NFREQ was above reset to the number of reference wavelengths
-context, queue, mf = opencl_init(GPU=0)
+print("Initialize OpenCL for splitting absorptions => ALWAYS ON CPU !!")
+context, queue, mf = opencl_init(GPU=0, platforms=platforms)
 source      =  open(INSTALL_DIR+"/kernel_A2E_MABU_aux.c").read()
 OPTS        =  '-D NFREQ=%d -D NDUST=%d' % (NFREQ, NDUST)
 program     =  cl.Program(context, source).build(OPTS)
@@ -427,7 +467,7 @@ for IDUST in range(NDUST):
         # Equilibrium dust, also calculating emission to SHAREDIR/tmp.emitted
         #  MAY INCLUDE ONLY FREQUENCIES [UM_MIN, UM_MAX]
         print("    EQUILIBRIUM DUST, %s" % DUST[IDUST])
-        ONFREQ = SolveEquilibriumDust(DUST[IDUST], SHAREDIR+'/tmp.absorbed', SHAREDIR+'/tmp.emitted', UM_MIN, UM_MAX, GPU)
+        ONFREQ = SolveEquilibriumDust(DUST[IDUST], SHAREDIR+'/tmp.absorbed', SHAREDIR+'/tmp.emitted', UM_MIN, UM_MAX, GPU, platforms)
     else:
         # Stochastically heated -- produces file with ALL FREQUENCIES !!
         print("    STOCHASTIC DUST  --- USELIB=%d, MAKELIB=%d, DUST %s" % (USELIB, MAKELIB, DUST[IDUST]))
@@ -453,10 +493,11 @@ for IDUST in range(NDUST):
             os.system('A2E_LIB.py %s.solver %s.lib freq.dat %s %s/tmp.absorbed %s/tmp.emitted %s makelib %s' % \
             (DUST[IDUST], DUST[IDUST], F_LFREQ, SHAREDIR, SHAREDIR, ["", "GPU"][GPU], LIB_BINS))
         else:           # just solve using A2E.py the normal way
+            # note -- GPU can be  e.g. 0.1 for CPU/device=1  or 1.3 for GPU/device=3
             print("================================================================================")
-            print('    A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %d' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU))
+            print('    A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU))
             print("================================================================================")
-            os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %d' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU))
+            os.system('A2E.py  %s.solver %s/tmp.absorbed %s/tmp.emitted  %.1f' % (DUST[IDUST], SHAREDIR, SHAREDIR, GPU))
         if ((USELIB==0)&(ONFREQ!=NFREQ)):  # so far only equilibrium dust files can have ONFREQ<NFREQ !!
             print("=== A2E_MABU.py --- stochastically heated grains with equilibrium grains")
             print("    different number of frequencies... fix A2E.py to use a2e_wavelength parameter??")

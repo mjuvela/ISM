@@ -864,11 +864,14 @@ class DustemDustO(DustO):
     def __init__(self, filename, force_nsize=-1):
         """
         Input:
-            filename  =  the name of dust file used by CRT/SOC
-            including for example:
-                optical         /home/mika/tt/dustem4.0_web/oprop/Q_Gra.DAT
-                phase_function  /home/mika/tt/dustem4.0_web/oprop/G_Gra.DAT
-                sizes           /home/mika/tt/dustem4.0_web/data/GRAIN_DL07.DAT
+            filename  =  the file written with write_DUSTEM_files
+                         including for example:
+                             optical         /home/mika/tt/dustem4.0_web/oprop/Q_Gra.DAT
+                             phase_function  /home/mika/tt/dustem4.0_web/oprop/G_Gra.DAT
+                             sizes           /home/mika/tt/dustem4.0_web/data/GRAIN_DL07.DAT
+        Note:
+            this reads the dustem GRAIN*.DAT file but only the single dust component
+            == single line (with the size-distribution specification)
         """
         self.EFF           = False
         self.DUSTEM        = True
@@ -888,6 +891,7 @@ class DustemDustO(DustO):
         file_phase   = ""
         file_sizes   = ""
         file_lambda  = DUSTEM_DIR+'/oprop/LAMBDA.DAT'
+        print("file_lambda = ", file_lambda)
         for line in open(filename).readlines():
             s = line.split()
             if (len(s)<1): continue
@@ -1119,12 +1123,17 @@ class DustemDustO(DustO):
         qabs   =  x[0:self.QNFREQ,:]   # rows=wavelenghts, columns = sizes
         qsca   =  x[self.QNFREQ:, :]
         if ((qabs.shape[0]!=self.QNFREQ)|(qsca.shape[0]!=self.QNFREQ) | (qabs.shape[1]!=self.QNSIZE)):
-            print('????!!!!!')
+            print("qabs   ", qabs.shape)
+            print("qsca   ", qsca.shape)
+            print("QNFREQ ", self.QNFREQ)
+            print("QNSIZE ", self.QNSIZE)
+            print(' ----- ????!!!!!')
             sys.exit()
         # read the g parameters -- assume the grid is the same as for Q
+        print("g read from %s " % (DUSTEM_DIR+'/oprop/G_%s.DAT' % self.DUSTNAME))
         gHG    =  loadtxt(DUSTEM_DIR+'/oprop/G_%s.DAT' % self.DUSTNAME, skiprows=9)
         if ((gHG.shape[0]!=qabs.shape[0])|(gHG.shape[1]!=qabs.shape[1])):
-            print('DustLib: mismatch between Q and g files')
+            print('DustLib: mismatch between Q (%d) and g (%d) files' % (qabs.shape[0], gHG.shape[0]))
             sys.exit()
         # Put data into self.OPT, still in order of increasing wavelength
         # OPT[size, freq, 4] = [ um, Kabs, Ksca, g ], including multiplication by grain area
@@ -1761,10 +1770,12 @@ def write_DUSTEM_files(dustem_file=''):
         writes CRT dust files <dustname>.dust for each component
         return list of dust components, after renaming
     """
+    global DUSTEM_DIR
+    print("write_DUSTEM_files ---- DUSTEM_DIR = %s" % DUSTEM_DIR)
     ORINAME = []  # dust names from GRAIN.DAT
     NEWNAME = []  # the same, if dust on several GRAIN.DAT lines, rename <dust>_copy1... etc.
     fp  = open('crt_dusts.txt', 'w')                         # list here dust names used by CRT
-    fpD = open('%s/data/GRAIN_TMP.DAT' % (DUSTEM_DIR), 'w')  # open the DustEM file with size distributions
+    fpD = open('%s/data/GRAIN_TMP.DAT' % (DUSTEM_DIR), 'w')  # write for DustEM file with size distributions
     for line in open(DUSTEM_DIR+'/data/'+dustem_file):       # extract dust names from DustEM file
         s = line.split()
         if (len(s)<1): continue
@@ -1793,13 +1804,13 @@ def write_DUSTEM_files(dustem_file=''):
         fpc.write('heat            %s/hcap/C_%s.DAT\n'  % (DUSTEM_DIR, dust))
         fpc.close()
         fp.write('dust   dustem_%s.dust\n' % dust)     # these should be included in CRT ini
-        # copy the line from GRAIN.DAT
+        # copy the line to GRAIN.DAT
         fpD.write(line.replace(orig, dust))
         # make sure Q, G, and C files (symbolic links) exist for the renamed dusts
         if (orig!=dust):
-            os.system('ln -s %s/oprop/Q_%s.DAT %s/oprop/Q_%s.DAT' % (DUSTEM_DIR, orig, DUSTEM_DIR, dust))
-            os.system('ln -s %s/oprop/G_%s.DAT %s/oprop/G_%s.DAT' % (DUSTEM_DIR, orig, DUSTEM_DIR, dust))
-            os.system('ln -s %s/hcap/C_%s.DAT %s/hcap/C_%s.DAT'   % (DUSTEM_DIR, orig, DUSTEM_DIR, dust))
+            os.system('ln -sf %s/oprop/Q_%s.DAT %s/oprop/Q_%s.DAT' % (DUSTEM_DIR, orig, DUSTEM_DIR, dust))
+            os.system('ln -sf %s/oprop/G_%s.DAT %s/oprop/G_%s.DAT' % (DUSTEM_DIR, orig, DUSTEM_DIR, dust))
+            os.system('ln -sf %s/hcap/C_%s.DAT %s/hcap/C_%s.DAT'   % (DUSTEM_DIR, orig, DUSTEM_DIR, dust))
     fp.close()    
     fpD.close()    
     return NEWNAME
@@ -2327,3 +2338,40 @@ class GSETDust(DustO):
 
         
         
+
+        
+        
+def write_eqdust_dsc(eqdustfile, freq, BINS=2500, dscfile='eqdust.dsc'):
+    """
+    Write a dsc file based on the asymmetry parameters listed in the file for a plain
+    eqdust (no size distributions).
+    Input:
+        eqdustfile  =  name of the text file containing the eqdust description
+        freq        =  output frequency grid
+        BINS        =  number of angular bins in the output file
+        dscfile     =  name of the output file (default is eqdust.dsc)
+    """
+    d         =  loadtxt(eqdustfile, skiprows=4)
+    gip       =  interp1d(d[:,0], d[:,1])  # interpolator for the g parameters
+    fs        =  open(dscfile, 'w')
+    cos_theta =  linspace(-1.0, 1.0, BINS)
+    nfreq     =  len(freq)
+    for i in range(nfreq):  # all wavelengths!
+        g     =  gip(freq[i])
+        X     =  HenyeyGreenstein(arccos(cos_theta), g)
+        X     =  clip(X, 1e-5*max(X), 1e20)       # should not have zeros...
+        asarray(X, float32).tofile(fs)
+    for i in range(nfreq):
+        g     =  gip(freq[i])
+        theta =  linspace(0, pi, 5*BINS)
+        Y     =  HG_per_theta(theta, g)
+        P     =  cumsum(Y) + 1e-7*cumsum(ones(len(Y), float64))
+        P    -=  P[0]
+        P    /=  P[-1]                 # [0,1]
+        P[0]  = -1.0e-7
+        P[-1] =  1.0+1.0e-7
+        ip    =  interp1d(P, cos(theta), kind='linear')    # mapping [0,1] -> [-1.0, +1.0] of cos(theta)
+        res   =  ip(linspace(0.0, 1.0, BINS))              # shorter arrays = BINS elements
+        asarray(res, float32).tofile(fs)
+    fs.close()
+

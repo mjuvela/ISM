@@ -148,7 +148,7 @@ __kernel void EqTemperature(const int       icell,
       f = FREQ[ifreq] ;
       // EMIT[id*NFREQ+ifreq] = 2.79639459f*KABS[ifreq]*(f*f/(exp(4.7995074e-11f*f/TP)-1.0f)) ;
       // H_K = 4.799243348e-11
-      // 4*pi*2/C_LIGHT**2 == 2.796394593691455e-20
+      // 4*pi*2/C_LIGHT**2 == 2.796394593691455e-20  == 8*pi/c^2
       EMIT[id*NFREQ+ifreq] = (2.79639459e-20f*FACTOR)*KABS[ifreq]*(f*f/(exp(4.7995074e-11f*f/TP)-1.0f)) ;
       // emission must be still scaled with GRAIN_DENSITY*S_FRAC = actual number of grains per H
    }

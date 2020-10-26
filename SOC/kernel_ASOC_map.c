@@ -356,9 +356,9 @@ void Index(float3 *pos, int *level, int *ind,
       POS.z =  2.0*clamp(fmod(POS.z,1.0), DEPS, 1.0-DEPS) ;
 # else
 #  if (NX>100)
-      POS.x =  2.0*fmod(POS.x, 1.0) ;
-      POS.y =  2.0*fmod(POS.y, 1.0) ;
-      POS.z =  2.0*fmod(POS.z, 1.0) ;
+      POS.x =  2.0 *fmod(POS.x, 1.0) ;
+      POS.y =  2.0 *fmod(POS.y, 1.0) ;
+      POS.z =  2.0 *fmod(POS.z, 1.0) ;
 #  else
       POS.x =  2.0f*fmod(POS.x, 1.0f) ;
       POS.y =  2.0f*fmod(POS.y, 1.0f) ;
@@ -379,25 +379,50 @@ void Index(float3 *pos, int *level, int *ind,
 
 
 #if 1
-// 2016-10-11 this copied from kernel_SOCAMO_1.c
-//  the alternative routine failed for deep hierarchies (?)
+
 float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind, 
               __global float *DENS, __constant int *OFF, __global int*PAR) {
    // Calculate step to next cell, update level and ind for the next cell
    // Returns the step length in GL units (units of the root grid)
+// #if (NX>DIMLIM)
+// 2020-07-07 ... the double version was not here before, now still commented out with NX>9999
+# if (NX>9999)
+   // use of DPEPS << PEPS reduces cases where step jumps between non-neighbour cells
+   //   == jump over a single intervening cell ... but this still had no effect on scatter tests !!
+   double dx, dy, dz ;
+   dx = ((((*DIR).x)>0.0) 
+         ? ((1.0+PEPS-fmod((*POS).x,1.0f))/((*DIR).x)) 
+         : ((   -PEPS-fmod((*POS).x,1.0f))/((*DIR).x))) ;
+   dy = ((((*DIR).y)>0.0) 
+         ? ((1.0+PEPS-fmod((*POS).y,1.0f))/((*DIR).y)) 
+         : ((   -PEPS-fmod((*POS).y,1.0f))/((*DIR).y))) ;
+   dz = ((((*DIR).z)>0.0) 
+         ? ((1.0+PEPS-fmod((*POS).z,1.0f))/((*DIR).z)) 
+         : ((   -PEPS-fmod((*POS).z,1.0f))/((*DIR).z))) ;
+   dx    =  min(dx, min(dy, dz)) ;
+   *POS +=  ((float)dx)*(*DIR) ;                    // update LOCAL coordinates - overstep by PEPS
+   // step returned in units [GL] = root grid units
+   dx    =  ldexp(dx, -(*level)) ;
+   Index(POS, level, ind, DENS, OFF, PAR) ;         // update (level, ind)   
+   return (float)dx ;                 // step length [GL]
+#else
    float dx, dy, dz ;
-   dx = ((((*DIR).x)>0.0f) ? ((1.0f+PEPS-fmod((*POS).x,1.0f))/((*DIR).x)) 
-         : ((-PEPS-fmod((*POS).x,1.0f))/((*DIR).x))) ;
-   dy = ((((*DIR).y)>0.0f) ? ((1.0f+PEPS-fmod((*POS).y,1.0f))/((*DIR).y)) 
-         : ((-PEPS-fmod((*POS).y,1.0f))/((*DIR).y))) ;
-   dz = ((((*DIR).z)>0.0f) ? ((1.0f+PEPS-fmod((*POS).z,1.0f))/((*DIR).z)) 
-         : ((-PEPS-fmod((*POS).z,1.0f))/((*DIR).z))) ;
-   // float dx0 = dx ;
+   dx = ((((*DIR).x)>0.0f) 
+         ? ((1.0f+PEPS-fmod((*POS).x,1.0f))/((*DIR).x)) 
+         : ((    -PEPS-fmod((*POS).x,1.0f))/((*DIR).x))) ;
+   dy = ((((*DIR).y)>0.0f) 
+         ? ((1.0f+PEPS-fmod((*POS).y,1.0f))/((*DIR).y)) 
+         : ((    -PEPS-fmod((*POS).y,1.0f))/((*DIR).y))) ;
+   dz = ((((*DIR).z)>0.0f) 
+         ? ((1.0f+PEPS-fmod((*POS).z,1.0f))/((*DIR).z)) 
+         : ((    -PEPS-fmod((*POS).z,1.0f))/((*DIR).z))) ;
    dx    =  min(dx, min(dy, dz)) ;   
    *POS +=  dx*(*DIR) ;                    // update LOCAL coordinates - overstep by PEPS
    // step returned in units [GL] = root grid units
-   dx     =  ldexp(dx, -(*level)) ;
+   dx    =  ldexp(dx, -(*level)) ;
    Index(POS, level, ind, DENS, OFF, PAR) ; // update (level, ind)
+   return dx ;
+#endif
 # if (DEBUG>1)
    if (get_local_id(0)==2) {
       if ((dx<1.0e-4)||(dx>1.733f)) {
@@ -408,9 +433,10 @@ float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind,
       }
    }
 # endif   
-   return dx ;                 // step length [GL]
 }
+
 #else
+
 float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind, 
               __global float *DENS, __constant int *OFF, __global int*PAR) {
    // Calculate step to next cell, update level and ind for the next cell
@@ -592,15 +618,15 @@ __kernel void Mapping(
 #endif
       
       TAU    += DTAU ;
-      if (SAVE_TAU==0.0)  colden += sx*DENS[oind] ;
+      if (SAVE_TAU<=0.0f)  colden += sx*DENS[oind] ;
       // ind  = IndexG(POS, &level, &ind, DENS, OFF) ; --- should not be necessary!
    }  // while ind>=0
    
    // i = longitude, j = latitude = runs faster
    MAP[id] = PHOTONS ;
-   // printf("colden %10.3e\n", colden) ;
-   if (SAVE_TAU>0.0)  COLDEN[id] = TAU ;                 // saving optical depth instead of column density
-   if (SAVE_TAU==0.0) COLDEN[id] = colden * LENGTH ;
+   // printf("colden %10.3e x %10.3e\n", colden, LENGTH) ;
+   if (SAVE_TAU>0.0f)  COLDEN[id] = TAU ;                 // saving optical depth instead of column density
+   if (SAVE_TAU<=0.0f) COLDEN[id] = colden * LENGTH ;
 }
 
 
@@ -689,8 +715,8 @@ __kernel void HealpixMapping(
       colden += dx*DENS[oind] ;
    }   
    MAP[id] = PHOTONS ;   // printf("PHOTONS %10.3e\n", PHOTONS) ;
-   if (SAVE_TAU==0.0)  COLDEN[id] = colden*LENGTH ;
-   if (SAVE_TAU>0.0)   COLDEN[id] = TAU ;
+   if (SAVE_TAU<=0.0f)  COLDEN[id] = colden*LENGTH ;
+   if (SAVE_TAU>0.0f)   COLDEN[id] = TAU ;
 }
 
 
