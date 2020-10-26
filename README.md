@@ -63,6 +63,15 @@ For more detailed background and documentation, see
 
 
 
+## LOC
+
+The directory *LOC* contains the LOC line radiative transfer
+program implemented with Python and OpenCL. 
+
+For more details, see 
+* http://www.interstellarmedium.org/radiative-transfer/loc/
+
+
 ## TM - template matching analysis of images
 
 The directory *TM* contains scripts for *template matching* (TM) and
