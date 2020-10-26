@@ -79,11 +79,11 @@ Rolling Hough Transform -type (RHT) analysis of images. As an example
 of these, the script test_TM.py will run both routines on the provided
 FITS image. The expected output is shown in the included test_TM.png.
 For further information, see 
-* http://www.interstellarmedium.org/template_matching
+* http://www.interstellarmedium.org/numerical_tools/template_matching
 * Juvela M.: Pattern matching methods for the analysis of interstellar
 cloud structure, 2016, A&A 593, A58),
 https://ui.adsabs.harvard.edu/abs/2016A%26A...593A..58J
-* http://www.interstellarmedium.org/rht-rolling-hough-transform/
+* http://www.interstellarmedium.org/numerical_tools/rht/
 
 
 ## Extinction
@@ -97,7 +97,6 @@ results to a FITS files. The programs again require a working OpenCL
 environment.
 
 For further information, see
-* http://www.interstellarmedium.org/numerical_tools/rht
 * http://www.interstellarmedium.org/extinction/ 
   and the references mentioned there.
 
