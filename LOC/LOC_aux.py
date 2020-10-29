@@ -249,6 +249,7 @@ def ReadIni(filename):
     'cooling'         : 0,                   #  save cooling rates 
     'GPU'             : 0 ,                  #  use GPU instead of CPU
     'platforms'       : [0,1,2,3,4],         #  OpenCL platforms to try
+    'idevice'         : 0,                   #  selected device within the platform (for given device type)
     'points'          : [10,10],             #  number pixels in the output maps
     'load'            : '',                  #  file to load saved level populations
     'save'            : '' ,                 #  file to save calculated level populations
@@ -320,17 +321,6 @@ def ReadIni(filename):
                     if (s[0].find('spectra')>=0):      INI.update({'spectra':     x})
                     if (s[0].lower().find('tex')==0):  INI.update({'Tex':         x})            
                     if (s[0].find('transition')>=0):   INI.update({'Tex':         x})
-            # fwhm can have several arguments
-            #if (s[0].find('fwhm')>=0):
-            #    x = []
-            #    for i in range(1, len(s)):
-            #        try:
-            #            x.append(float(s[i]))
-            #        except:
-            #            brake
-            #        if (len(x)>0):
-            #            INI.update({'fwhm': x})
-            # string arguments
             if (s[0].find('octree')>=0):  
                 INI.update({'cloud':    s[1]})
                 if   (s[0].find('40')>0): INI['octree'] = 40
@@ -380,7 +370,6 @@ def ReadIni(filename):
                 if (s[0].find("nside")>=0):        INI.update({'nside':       x})
                 if (s[0].find("gpu")>=0):          INI.update({'GPU':         x})
                 if (s[0].find("GPU")>=0):          INI.update({'GPU':         x})
-                if (s[0].find("platform")>=0):     INI.update({'platforms':   [x,]})
                 if (s[0].find("levels")>=0):       INI.update({'levels':      x})
                 if (s[0].find("speray")>=0):       INI.update({'nray_spe':    x})
                 if (s[0].find("nray")>=0):         INI.update({'nray':        x})                
@@ -397,6 +386,13 @@ def ReadIni(filename):
                 if (s[0].find("thermaldv")>=0):    INI.update({'thermaldv':   x})
                 if (s[0].find("maxbuf")>=0):       INI.update({'maxbuf':      x})
                 if (s[0].find("half")>=0):         INI.update({'WITH_HALF':   x})
+                if (s[0].find("platform")>=0):  
+                    INI.update({'platforms':   [x,]})
+                    if (len(s)>2): # user also specifies the device within the platform
+                        try:
+                            INI.update({'idevice': int(s[2])})
+                        except:
+                            idevice = 0
             except:
                 pass                                    
         # keywords without arguments
@@ -711,14 +707,16 @@ def GaussianProfiles(s0, s1, ng, nchn, dv):
         
         
         
-def InitCL(GPU=0, platforms=[], sub=0, verbose=True):
+def InitCL(GPU=0, platforms=[], idevice=0, sub=0, verbose=True):
     """
     Usage:
-        platform, device, context, queue, mf = InitCL(GPU=0, platforms=[], sub=0)
+        platform, device, context, queue, mf = InitCL(GPU=0, platforms=[], sub=0, idevice=0, verbose=True)
     Input:
         GPU       =  if >0, try to return a GPU device instead of CPU
         platforms =  optional array of possible platform numbers
+        idevice   =  index of the device within the selected platform (default idevice=0)
         sub       =  optional number of threads for a subdevice (first returned)
+        verbose   =  if True, print out the names of the platforms
     """
     platform, device, context, queue = None, None, None, None
     possible_platforms = range(6)
@@ -726,13 +724,13 @@ def InitCL(GPU=0, platforms=[], sub=0, verbose=True):
         possible_platforms = platforms
     device = []
     for iplatform in possible_platforms:
-        if (verbose): print("try platform %d... for GPU=%d" % (iplatform, GPU))
+        if (verbose): print("try platform %d, idevice=%d, request GPU=%d" % (iplatform, idevice, GPU))
         try:
             platform     = cl.get_platforms()[iplatform]
             if (GPU>0):
-                device   = platform.get_devices(cl.device_type.GPU)
+                device   = [ platform.get_devices(cl.device_type.GPU)[idevice] ]
             else:
-                device   = platform.get_devices(cl.device_type.CPU)
+                device   = [ platform.get_devices(cl.device_type.CPU)[idevice] ]
             if (sub>0):
                 # try to make subdevices with sub threads, return the first one
                 dpp       =  cl.device_partition_property
@@ -742,9 +740,10 @@ def InitCL(GPU=0, platforms=[], sub=0, verbose=True):
             break
         except:
             pass
-    print("***InitCL completed***")
+    # print("***InitCL completed***")
     if (verbose):
-        print(device)
+        print("  Platform: ", platform)
+        print("  Device:   ", device)
     return platform, device, context, queue,  cl.mem_flags
         
 

@@ -235,7 +235,7 @@ elif (OCTREE in [40,]):  # one work item per ray
     
     
     
-platform, device, context, queue,  mf = InitCL(INI['GPU'], INI['platforms'])
+platform, device, context, queue,  mf = InitCL(INI['GPU'], INI['platforms'], INI['idevice'])
 
 OPT = " -D NX=%d -D NY=%d -D NZ=%d -D NRAY=%d -D CHANNELS=%d -D WIDTH=%.5ff -D ONESHOT=%d \
 -D VOLUME=%.5ef -D CELLS=%d -D LOCAL=%d -D GLOBAL=%d -D GNO=%d -D SIGMA0=%.5ff -D SIGMAX=%.4ff \
@@ -253,7 +253,9 @@ if (0):
     OPT  += " -cl-std=CL1.1"
 if (INI['GPU']==99):  # Intel fails .... does optimisation work for POCL? Yes - with no visible effect...
     OPT  += " -cl-opt-disable"  # opt-disable faster??? at least 3D up to 64^3
-print(OPT)
+if (1):
+    print("Kernel options:")
+    print(OPT)
 
 # Note: unlike in 1d versions, both SIJ and ESC are divided by VOLUME only in the solver
 #       3d and octree use kernel_LOC_aux.c, where the solver is incompatible with the 1d routines !!!
@@ -262,9 +264,9 @@ source    =  open(INSTALL_DIR+"/kernel_update_py_OT.c").read()
 # @ gid   54746 ------  NBUF = 50 !!!!!!!!!!!!!!!!!!!!!!
 # @ during run 68646124 7834372
 # @ MAXL3_P20.0 WITH_HALF   10.7/9.6    65.5/7.5
-print("--- Create program -------------------------------------------------------------")
+#print("--- Create program -------------------------------------------------------------")
 program       =  cl.Program(context, source).build(OPT, cache_dir=None)
-print("--------------------------------------------------------------------------------")
+#print("--------------------------------------------------------------------------------")
 
 # Set up kernels
 kernel_clear   =  program.Clear
@@ -445,7 +447,7 @@ else:
 
 
 # Set up input and output arrays
-print("Set up input arrays")
+# print("Set up input arrays")
 if (PLWEIGHT):
     PL_buf =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)   # could be half??
 else:
@@ -863,7 +865,7 @@ if (len(INI['load'])>0):  # load saved level populations
         print("Failed to load level populations from: %s" % INI['load'])
         pass
 if (not(ok)): # reset LTE populations
-    print("***** Resetting level populations LTE values !!! *****")
+    print("***** Resetting level populations to LTE values !!! *****")
     J   =  asarray(arange(LEVELS), int32)
     m   =  nonzero(RHO>0.0)
     t0  =  time.time()
