@@ -250,6 +250,7 @@ def ReadIni(filename):
     'GPU'             : 0 ,                  #  use GPU instead of CPU
     'platforms'       : [0,1,2,3,4],         #  OpenCL platforms to try
     'idevice'         : 0,                   #  selected device within the platform (for given device type)
+    'sdevice'         : '',                  #  string used to select the OpenCL device
     'points'          : [10,10],             #  number pixels in the output maps
     'load'            : '',                  #  file to load saved level populations
     'save'            : '' ,                 #  file to save calculated level populations
@@ -292,6 +293,7 @@ def ReadIni(filename):
     'ksigma'          :  1.0,                # scale microturbulence
     'maxbuf'          :  40,                 # maximum allocation of rays per root-grid ray
     'WITH_HALF'       :  0,                  # whether CLOUD is stored in half precision (vx, vy, vz, sigma)
+    'KILL_EMISSION'   :  999999,             # write spectra ignoring emission from cells >= KILL_EMISSION
     }
     lines = open(filename, 'r').readlines()
     for line in lines:        
@@ -340,6 +342,7 @@ def ReadIni(filename):
             if (s[0].find('overlap')>=0): INI.update({'overlap':  s[1]})            
             if (s[0].find('crttau')>=0):  INI.update({'crttau':   s[1]})
             if (s[0].find('crtemit')>=0): INI.update({'crtemit':  s[1]})
+            if (s[0].find('device')>=0):  INI.update({'sdevice':  s[1]})
             # float argument
             try:
                 x = float(s[1])
@@ -386,6 +389,7 @@ def ReadIni(filename):
                 if (s[0].find("thermaldv")>=0):    INI.update({'thermaldv':   x})
                 if (s[0].find("maxbuf")>=0):       INI.update({'maxbuf':      x})
                 if (s[0].find("half")>=0):         INI.update({'WITH_HALF':   x})
+                if (s[0].find("killemi")>=0):      INI.update({'KILL_EMISSION': x})  # kill all emission from cells>x
                 if (s[0].find("platform")>=0):  
                     INI.update({'platforms':   [x,]})
                     if (len(s)>2): # user also specifies the device within the platform
@@ -639,6 +643,7 @@ def ReadCloud1D(INI, MOL):
         for icell in range(CELLS-1, -1, -1):
             CLOUD[icell]['x'] = 0.5*(CLOUD[icell-1]['x']+CLOUD[icell]['x'])
     print("================================================================")
+    print("CELLS           %d" % CELLS)
     print("DENSITY         %10.3e to %10.3e, average_vol %10.3e" % (min(RHO), max(RHO), sum(VOLUME*RHO)/sum(VOLUME)))
     print("TKIN            %10.3e to %10.3e, average_vol %10.3e" % (min(TKIN), max(TKIN), sum(VOLUME*TKIN)/sum(VOLUME)))
     print("THERMAL SIGMA   %10.3e to %10.3e" % (sqrt(2.0e-10*BOLTZMANN*min(TKIN) / (AMU*molwei)),
@@ -744,6 +749,66 @@ def InitCL(GPU=0, platforms=[], idevice=0, sub=0, verbose=True):
     if (verbose):
         print("  Platform: ", platform)
         print("  Device:   ", device)
+    return platform, device, context, queue,  cl.mem_flags
+        
+
+
+def InitCL_string(INI, verbose=True):
+    """
+    Usage:
+        platform, device, context, queue, mf = InitCL(INI, verbose=True)
+    Input:
+        INI       =  structure built based on the initialisation file
+                     we use INI['sdevice'] string to identify the requested device
+                     and only set INI['GPU'] to indicate whether that was a CPU or a GPU
+        verbose   =  if True, print out the names of the platforms
+    """
+    platforms    = cl.get_platforms()
+    if (1): # print out platform.version, device.version for all devices
+        print("================================================================================")
+        for iplatform in range(len(platforms)):
+            print('  Platform [%d]:   %s' % (iplatform, platforms[iplatform].name))
+            devices     = platforms[iplatform].get_devices(cl.device_type.CPU)
+            for idevice in range(len(devices)):
+                print('       CPU [%d]:   %s' % (idevice, devices[idevice].name))
+            devices     = platforms[iplatform].get_devices(cl.device_type.GPU)
+            for idevice in range(len(devices)):
+                print('       GPU [%d]:   %s' % (idevice, devices[idevice].name))
+        print("================================================================================")
+    ###
+    platform, device, context, queue = None, None, None, None
+    device = []
+    for iplatform in range(len(platforms)):
+        platform    = cl.get_platforms()[iplatform]
+        devices     = platform.get_devices(cl.device_type.GPU)
+        for idevice in range(len(devices)):
+            if (INI['sdevice'] in devices[idevice].name):                
+                device = [ devices[idevice] ]
+                INI['GPU'] = 1
+                break
+        if (len(device)>0): break
+        devices   = platform.get_devices(cl.device_type.CPU)
+        for idevice in range(len(devices)):
+            if (INI['sdevice'] in devices[idevice].name):
+                device = [ devices[idevice] ]
+                INI['GPU'] = 0
+                break
+        if (len(device)>0): break
+    if (len(device)<1):
+        print("InitCL_string: could not find any device matching string: %s" % INI['sdevice'])
+        sys.exit()
+    # try to make subdevices with sub threads, return the first one
+    try:
+        context   =  cl.Context(device)
+        queue     =  cl.CommandQueue(context)
+    except:
+        print("Failed to create OpenCL context and quee for device: ", device[0])
+        sys.exit()
+    if (verbose):
+        print("Selected:")
+        print("   Platform: ", platform)
+        print("   Device:   ", device)
+        print("================================================================================")        
     return platform, device, context, queue,  cl.mem_flags
         
 

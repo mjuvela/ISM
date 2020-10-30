@@ -203,9 +203,19 @@ GAUSTORE = '__global'
 GNO      =  100      # number of precalculated Gaussians
 G0, GX, GAU, LIM =  GaussianProfiles(INI['min_sigma'], INI['max_sigma'], GNO, CHANNELS, WIDTH)
 
-if (INI['GPU']):  LOCAL = 32
-else:             LOCAL =  8
-if (INI['LOCAL']>0): LOCAL = INI['LOCAL']
+if (INI['sdevice']==''):
+    # We use ini['GPU'], INI['platforms'], INI['idevice'] to select the platform and device
+    if (INI['GPU']):  LOCAL = 32
+    else:             LOCAL =  1
+    if (INI['LOCAL']>0): LOCAL = INI['LOCAL']
+    platform, device, context, queue,  mf = InitCL(INI['GPU'], INI['platforms'], INI['idevice'])
+else:
+    # we use INI['GPU'] and optionally INI['sdevice'] to select the device
+    platform, device, context, queue, mf = InitCL_string(INI)
+    if (INI['GPU']):  LOCAL = 32
+    else:             LOCAL =  1
+    if (INI['LOCAL']>0): LOCAL = INI['LOCAL']
+    
 
 if (OCTREE<2):
     NWG    =  -1
@@ -235,7 +245,6 @@ elif (OCTREE in [40,]):  # one work item per ray
     
     
     
-platform, device, context, queue,  mf = InitCL(INI['GPU'], INI['platforms'], INI['idevice'])
 
 OPT = " -D NX=%d -D NY=%d -D NZ=%d -D NRAY=%d -D CHANNELS=%d -D WIDTH=%.5ff -D ONESHOT=%d \
 -D VOLUME=%.5ef -D CELLS=%d -D LOCAL=%d -D GLOBAL=%d -D GNO=%d -D SIGMA0=%.5ff -D SIGMAX=%.4ff \
