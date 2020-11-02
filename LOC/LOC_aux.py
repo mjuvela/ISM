@@ -770,10 +770,10 @@ def InitCL_string(INI, verbose=True):
             print('  Platform [%d]:   %s' % (iplatform, platforms[iplatform].name))
             devices     = platforms[iplatform].get_devices(cl.device_type.CPU)
             for idevice in range(len(devices)):
-                print('       CPU [%d]:   %s' % (idevice, devices[idevice].name))
+                print('       CPU device [%d]:   %s' % (idevice, devices[idevice].name))
             devices     = platforms[iplatform].get_devices(cl.device_type.GPU)
             for idevice in range(len(devices)):
-                print('       GPU [%d]:   %s' % (idevice, devices[idevice].name))
+                print('       GPU device [%d]:   %s' % (idevice, devices[idevice].name))
         print("================================================================================")
     ###
     platform, device, context, queue = None, None, None, None
