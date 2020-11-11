@@ -81,7 +81,7 @@ GLOBAL_0    = 32768
 # GLOBAL_0 = 65536
 
 if (len(sys.argv)<2):  
-    print(" Usage: ASOC.py  <ini-file>")
+    print(" SOC input_file")
     sys.exit()
 USER = User(sys.argv[1])
 if (not(USER.Validate())):   
@@ -208,15 +208,19 @@ if (LOCAL==12):
     GLOBAL_0 = Fix(GLOBAL_0, 32*LOCAL)
 
     
-PSPAC = Fix(USER.PSPAC, LOCAL)                    # any number ... but multiple of LOCAL
-BGPAC = Fix(Fix(USER.BGPAC, USER.AREA), LOCAL)    # multiple of AREA and LOCAL
+PSPAC = Fix(USER.PSPAC, LOCAL)                     # any number ... but multiple of LOCAL
+BGPAC = Fix(Fix(USER.BGPAC, USER.AREA), LOCAL)     # multiple of AREA and LOCAL
 DFPAC = 0
 if (USER.USE_EMWEIGHT>0):
-    CLPAC = Fix(USER.CLPAC, LOCAL)                # multiple of LOCAL
-    DFPAC = Fix(USER.DFPAC, LOCAL)                # multiple of LOCAL
+    CLPAC = Fix(USER.CLPAC, LOCAL)                 # multiple of LOCAL
+    if (USER.DFPAC>0):  # 2020-10-04  -- cannot have DFPAC<CELLS  ---  even when EMWEIGHT is used?
+        DFPAC = Fix(USER.DFPAC, LOCAL)            # multiple of LOCAL
+        if (0):
+            DFPAC = Fix(max([USER.DFPAC, CELLS]), LOCAL)  # multiple of LOCAL ... AND >=CELLS ???
 else:
-    CLPAC = Fix(Fix(USER.CLPAC, CELLS), LOCAL)    # multiple of CELLS and LOCAL
-    DFPAC = Fix(Fix(USER.DFPAC, CELLS), LOCAL)
+    CLPAC = Fix(Fix(USER.CLPAC, CELLS), LOCAL)     # multiple of CELLS and LOCAL
+    if (USER.DFPAC>0):
+        DFPAC = Fix(Fix(USER.DFPAC, CELLS), LOCAL) # multiple of both LOCAL and CELLS
 # Either CLPAC==DFPAC or CLPAC=0 and DFPAC>=0
 print('*'*80)
 print('PACKETS: PSPAC %d   BGPAC %d  CLPAC %d  DFPAC %d' % (PSPAC, BGPAC, CLPAC, DFPAC))
@@ -272,12 +276,19 @@ if (len(USER.file_hpbg)>2):
 # for point sources we use exactly PSPAC packages
 # for background it is     int(BGPAC/AREA)*AREA
 # for cell emission it is  (CLPAC/CELLS) packages per cell
-WPS = 0.0
-WBG = 0.0
-
+WPS   = 0.0
+WBG   = 0.0
+SELEM = 0         # for DO_SPLIT runs only
+GLOBAL_SPLIT = 0  # different for BGPAC + split packages run
 # Device initialisations
 # -cl-fast-relaxed-math  -cl-unsafe-math-optimizations
 # Intel OpenCL, Nvidia  ... do not recognise option -O ??
+
+if (USER.DO_SPLIT):
+    GLOBAL_SPLIT  =  GLOBAL_0
+    SELEM         =  max([1, (USER.AREA//GLOBAL_SPLIT)])   # each work item does SELEM surface elements
+    # change  GLOBAL_SPLIT so that SELEM*GLOBAL >= AREA but not more
+    GLOBAL_SPLIT  =  Fix((USER.AREA//SELEM)+1, LOCAL)
 
 print('-'*90)
 print("PS_METHOD=%d, WITH_ABU=%d, WITH_MSF=%d" % (USER.PS_METHOD, WITH_ABU, WITH_MSF))
@@ -285,27 +296,40 @@ print('-'*90)
 
 
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
--D CELLS=%d -D AREA=%.0f -D NO_PS=%d -D WITH_ABU=%d -D ROI_MAP=%d \
+-D CELLS=%d -D AREA=%.0f -D NO_PS=%d -D WITH_ABU=%d -D ROI_MAP=%d -D MAX_SPLIT=%d -D SELEM=%d \
 -D ROI_STEP=%d -D ROI_NSIDE=%d -D WITH_ROI_LOAD=%d -D WITH_ROI_SAVE=%d \
--D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I%s \
+-D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I%s -D DO_SPLIT=%d \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D SAVE_TAU=%.4ef -D MINLOS=%.3ef -D MAXLOS=%.3ef \
--D FFS=%d -D NODIR=%d -D METHOD=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
+-D FFS=%d -D NODIR=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
 -D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d" % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD, FACTOR,
-   CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), WITH_ABU, USER.ROI_MAP, 
+   CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), WITH_ABU, USER.ROI_MAP, MAX_SPLIT, SELEM,
    USER.ROI_STEP, USER.ROI_NSIDE, USER.WITH_ROI_LOAD, USER.WITH_ROI_SAVE,
-   USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, INSTALL_DIR, 
-   USER.POLSTAT, int(USER.STEP_WEIGHT[0]), USER.STEP_WEIGHT[1], int(USER.STEP_WEIGHT[2]), 
+   USER.AXY, USER.AXZ, USER.AYZ, LEVELS, USER.GL*PARSEC, INSTALL_DIR, USER.DO_SPLIT,
+   USER.POLSTAT, int(USER.STEP_WEIGHT[0]), USER.STEP_WEIGHT[1], int(USER.STEP_WEIGHT[2]),
    int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1],
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, USER.savetau_freq, USER.MINLOS, USER.MAXLOS,
-   USER.FFS, NODIR, USER.METHOD, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
+   USER.FFS, NODIR, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
    ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT )
 print(ARGS)
-# NVARGS = " -cl-nv-cstd=CL1.1 -cl-nv-arch sm_20 -cl-single-precision-constant -cl-mad-enable"
-# NVARGS += " -cl-fast-relaxed-math -cl-nv-opt-level=2"
-NVARGS  = " -cl-fast-relaxed-math"
-ARGS   += NVARGS
+VARGS = ""
+# VARGS += " -cl-nv-cstd=CL1.1 -cl-nv-arch sm_20 -cl-single-precision-constant -cl-mad-enable"
+# VARGS += " -cl-fast-relaxed-math -cl-nv-opt-level=2"
+# VARGS  = " -cl-fast-relaxed-math"
+# 2020-07-23 --- usually one needs to add -cl-opt-disable for compilation to finish on Intel
+#                ... but with Intel GPU one needs to have optimisation on lest the calculation
+#                    freezes with Asynchronous wait on fence dma-fence (kernel 5.7) or
+#                    i915 reset (kernel 4.x) ... is it just the computation finished before it has
+#                    time to freeze? 
+if (USER.DEVICES=='c'): # F***ing Intel compiler...
+    VARGS += " -cl-opt-disable "
+# VARGS += "-cl-fast-relaxed-math =  -cl-unsafe-math-optimizations -cl-finite-math-only"
+# VARGS += "-cl-fast-relaxed-math =  -cl-unsafe-math-optimizations"
+# VARGS += "-cl-denorms-are-zero -cl-mad-enable -cl-no-signed-zeros -cl-fast-relaxed-math -cl-uniform-work-group-size"
+VARGS += "-cl-denorms-are-zero -cl-mad-enable -cl-no-signed-zeros -cl-fast-relaxed-math"
+# NVARGS += " -cl-uniform-work-group-size -cl-no-signed-zeros "
+ARGS   += VARGS
 
 # Create contexts, command queu, and program = kernels for the simulation step
 # source  =  os.getenv("HOME")+"/starformation/SOC/kernel_ASOC.c"        
@@ -317,9 +341,11 @@ source  =  INSTALL_DIR+"/kernel_ASOC.c"
 #         The mapping kernels use different NSIDE and therefore their ARGS is different !!
 context, commands =  opencl_init(USER)
 # fixed NSIDE=128 for the PS and BG simulations?
+print("get_program ...")
 program           =  get_program(context, commands, source, ARGS + " -D NSIDE=%d" % 128)
 mf                =  cl.mem_flags
-    
+print("get_program ... ok")
+
 # A set of buffers needed by emission calculations
 LCELLS_buf, OFF_buf, PAR_buf, DENS_buf, EMIT_buf, DSC_buf, CSC_buf = [], [], [], [], [], [], []
 TABS_buf, RA_buf, DE_buf, XAB_buf, PS_buf, PSPOS_buf = [], [], [], [], [], []
@@ -328,6 +354,9 @@ EMINDEX_buf, OPT_buf, HPBG_buf, HPBGP_buf = [], [], [], []
 XPS_NSIDE_buf, XPS_SIDE_buf, XPS_AREA_buf = [], [], []
 # 2018-12-27 -- for -D WITH_MSF make ABS, SCA, G potentially vectors => need buffers
 ABS_buf, SCA_buf, ABU_buf = [], [], []
+# 2020-07-16 -- try package splitting for simulation of the isotropic background
+BUFFER_buf = []
+
 
 ROI_dim_buf  = None  # ROI_LOAD
 ROI_LOAD_buf = None  # ROI_LOAD
@@ -345,10 +374,12 @@ print("NEED_EMIT_BUF = %d" % NEED_EMIT_BUF)
 print("----------------------------------------")
 
 
+print("Creating buffers...")
+
 for ID in range(DEVICES):
     LCELLS_buf.append( cl.Buffer(context[ID], mf.READ_ONLY,  LCELLS.nbytes))
     OFF_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  OFF.nbytes))
-    DENS_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  DENS.nbytes))  # float or float3 !!
+    DENS_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  DENS.nbytes))  # float
     RA_buf.append(     cl.Buffer(context[ID], mf.READ_ONLY,  RA.nbytes))
     DE_buf.append(     cl.Buffer(context[ID], mf.READ_ONLY,  DE.nbytes))
     if (WITH_MSF==0):
@@ -359,10 +390,12 @@ for ID in range(DEVICES):
         CSC_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  4*USER.DSC_BINS*NDUST))
     PAR_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4*max([1, (CELLS-NX*NY*NZ)])) )  # 2019-02-19
     if (NEED_EMIT_BUF):
+        print("EMIT_buf allocated for CELLS")
         EMIT_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  4*CELLS))
     else:
         EMIT_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  4))   # dummy buffer !!
 
+    print("TABS allocated for CELLS")
     TABS_buf.append(   cl.Buffer(context[ID], mf.READ_WRITE, 4*CELLS))
     PS_buf.append(     cl.Buffer(context[ID], mf.READ_ONLY,  4*max([1,USER.NO_PS])))
     PSPOS_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  USER.PSPOS.nbytes))
@@ -374,6 +407,9 @@ for ID in range(DEVICES):
         EMINDEX_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*CELLS))
     else:
         EMINDEX_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4))  # dummy
+        
+    print("B") ;
+        
     if (WITH_ABU>0):
         if (USER.OPT_IS_HALF):
             OPT_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 2*CELLS*2))  # ABS, SCA
@@ -390,6 +426,9 @@ for ID in range(DEVICES):
     else:
         HPBG_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY, 4*3))  # DUMMY
         HPBGP_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*3))  # DUMMY        
+        
+    print("C") ;
+        
     if (1):
         # data on external point sources...
         XPS_NSIDE_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  4*max([1,  USER.NO_PS])))
@@ -407,8 +446,22 @@ for ID in range(DEVICES):
         SCA_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  4*NDUST)  )
         ABU_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  4*NDUST*CELLS)   )  
         ABS, SCA = zeros(NDUST, float32), zeros(NDUST, float32)
-        
-        
+    # Buffers for split-packages kernel,  we have work item per 100 surface elements
+    # 512^3 root grid, MAXL=7 => (6*512**2/100.0)*(3**6)*12*4B = 0.51 GB
+    print("D") ;
+    if (USER.DO_SPLIT):
+        # now we need to allocate BUFFER only based on work items (not surface elements)
+        BUFFER_buf.append(   cl.Buffer(context[ID], mf.READ_WRITE,  4*GLOBAL_SPLIT*12*MAX_SPLIT)  )
+
+    
+# for split packages
+# SID_NUMBERS is the list of four SID numbers for each of the six sides (X low & hi, Y low & hi, Z low & hi)
+# SID_NUMBERS =  asarray([  0, 2, 4, 6,   1, 3, 5, 7,    0, 1, 4, 5,   2, 3, 6, 7,   4, 5, 6, 7 ], int32)
+# SIDPOS  =  relative coordinates of each of the eight SID cells, basically (0,0) and offsets [0|1]
+# SIDPOS = asarray([  0.0, 0.0, 0.0,    1.0, 0.0, 0.0,   0.0, 1.0, 0.0,   1.0, 1.0, 0.0,
+#                     0.0, 0.0, 1.0,    1.0, 0.0, 1.0,   0.0, 1.0, 1.0,   1.0, 1.0, 1.0 ], float32)
+
+print("E") ;
 for ID in range(DEVICES):        
     cl.enqueue_copy(commands[ID], LCELLS_buf[ID], LCELLS)
     cl.enqueue_copy(commands[ID], OFF_buf[ID],    OFF)
@@ -423,6 +476,7 @@ for ID in range(DEVICES):
         cl.enqueue_copy(commands[ID], XPS_AREA_buf[ID],  XPS_AREA)   #  NO_PS * 3
     if (WITH_MSF):
         cl.enqueue_copy(commands[ID], ABU_buf[ID],   ABU)  # only when WITH_ABU and WITH_MSF
+        
     commands[ID].finish()                
 
         
@@ -541,7 +595,7 @@ if (not(USER.NOSOLVE)):  # Calculate mapping T <-> E
         res     = TMP[0]*(FFREQ[1]-FFREQ[0]) + TMP[-1]*(FFREQ[-1]-FFREQ[-2]) # first and last step
         res    += sum(TMP[1:(-1)]*DF)  # the sum over the rest of TMP*DF
         Eout[i] = (4.0*np.pi*FACTOR/(USER.GL*PARSEC)) * 0.5 * res  # energy corresponding to TT[i]
-    # Calculate the inverse mapping    Eout -> TTT
+    # Calculate the inverse mapping    Eout -> TTT   ---- energy includes FACTOR scaling
     Emin, Emax = Eout[0], Eout[NE-1]*0.9999
     # E ~ T^4  => use logarithmic sampling
     kE     = (Emax/Emin)**(1.0/(NE-1.0))  # E[i] = Emin*pow(kE, i)
@@ -549,7 +603,9 @@ if (not(USER.NOSOLVE)):  # Calculate mapping T <-> E
     ip     = interp1d(Eout, TT)           # (linear) interpolation from energy to temperature
     TTT    = asarray(ip(Emin * kE**arange(NE)), float32)
     print("Mapping E -> T calculated on host: %.3f seconds" % (time.time()-t1))
-    # sys.exit()
+    print("Emin= %.3e, Emax= %.3e, kE= %.6f,  NE= %d, kE**(NE-1)= %.3e" % (Emin, Emax, kE, NE, kE**(NE-1.0)))
+    print("TTT %.3e - %.3e" % (TTT[0], TTT[NE-1]))
+    ## sys.exit()
 
     
 """
@@ -680,9 +736,22 @@ if ((USER.WITH_ALI)&(USER.WITH_REFERENCE)):  # 2019-02-19 added the second condi
 kernel_zero    = program[ID].ZeroAMC
 kernel_zero.set_scalar_arg_dtypes([np.int32, None, None, None, None, None, None])
 
-kernel_ram_pb  = program[ID].SimRAM_PB  # point sources, isotropic background, ROI background
-kernel_ram_hp  = program[ID].SimRAM_HP  # healpix background
-kernel_ram_cl  = program[ID].SimRAM_CL  # cell emission
+kernel_ram_pb    = program[ID].SimRAM_PB   # point sources, isotropic background, ROI background
+kernel_ram_hp    = program[ID].SimRAM_HP   # healpix background
+kernel_ram_cl    = program[ID].SimRAM_CL   # cell emission
+
+if (USER.DO_SPLIT):
+    kernel_bg_split  = program[ID].SimBgSplit
+    kernel_bg_split.set_scalar_arg_dtypes([
+    # 0          1         2           3         4     5      6           7           8      9 
+    # PACKETS,   BATCH,    SEED,       ABS,   SCA,  BG,         TW,         LCELLS, OFF,   PAR 
+    np.int32,    np.int32, np.float32, None, None,  np.float32, np.float32, None,   None, None,
+    # 10    11    12    13    14    15    16    17    18    19    20  
+    # DENS, EMIT, TABS, DSC,  CSC,  INT,  INTX, INTY, INTZ, OPT,  ABU,
+    None,   None, None, None, None, None, None, None, None, None, None,
+    # 21    
+    # BUFFER
+    None    ])
 
 
 if ((USER.WITH_ROI_LOAD<=0)&(USER.WITH_ROI_SAVE<=0)):  # normal case
@@ -855,6 +924,8 @@ TMP      = zeros(CELLS, float32)
 BG, PS = 0.0, 0.0  # photons per package for background and point source
 if (len(USER.file_constant_load)>0):
     # Absorbed energy per cell for the constant sources (all except the dust emissions)
+    # CLOAD => CONSTANT SOURCES NOT SIMULATED
+    # WE HAVE SEPARATE LOOP FOR CELL EMISSION.... WHICH ALSO INCLUDES THE OPTIONAL T SOLUTION !!
     CTABS = fromfile(USER.file_constant_load, float32, CELLS)
     if (USER.SAVE_INTENSITY>0):
         print("*** WARNING: USER.file_constant_load + USER.SAVE_INTENSITY ???")
@@ -893,17 +964,29 @@ else:
                 GLOBAL   =  Fix(BGPAC/BATCH, 64)
                 BGPAC    =  GLOBAL*BATCH
                 WBG      =  np.pi/PLANCK
-                WBG     /=  (GLOBAL*BATCH)/(2*(NX*NY+NX*NZ+NY*NZ))  # /= packages per element
+                WBG     /=  (GLOBAL*BATCH)/(2*(NX*NY+NX*NZ+NY*NZ))    # /= packages per element
+                print("=== HPBG: BGPAC %d, BATCH %d, GLOBAL %d, LOCAL %d ===" % (BGPAC, BATCH, GLOBAL, LOCAL))
             else:
                 BATCH    =  max([1, int(round(BGPAC/(8*USER.AREA)))]) # packets per 
-                BGPAC    =  int(8*USER.AREA*BATCH)  # GLOBAL >= 8*AREA !!
+                BGPAC    =  int(8*USER.AREA*BATCH)     # GLOBAL >= 8*AREA !!
                 WBG      =  np.pi/(PLANCK*8*BATCH)     # 8*BATCH rays per surface element
                 GLOBAL   =  Fix(int(8*USER.AREA), 64)
-                if (LOCAL==12):     GLOBAL  =  Fix(int(8*USER.AREA), 32*LOCAL)
+                if (LOCAL==12):     GLOBAL  =  Fix(int(8*USER.AREA), 96)  # GLOBAL >= 8*USER.AREA
                 assert(GLOBAL>=(8*USER.AREA))
-                                
-            PACKETS  =  BGPAC
-            print("=== BGPAC %d, BATCH %d ===" % (BGPAC, BATCH))
+                if (USER.DO_SPLIT):
+                    # AREA*BATCH == BGPAC,    GLOBAL_SPLIT*SELEM >= AREA
+                    # work item loops over SELEM surface elements, sends BATCH packages per surface element
+                    print("*** DO SPLIT ***")
+                    print("%d / %d = %d" % (USER.BGPAC, USER.AREA, max([1, int(USER.BGPAC/USER.AREA)])))
+                    BATCH   =  max([1, int(USER.BGPAC/USER.AREA)])  # rays per element == BATCH
+                    BGPAC   =  int(USER.AREA*BATCH)                 # corrected number of rays
+                    WBG     =  np.pi/(PLANCK*BATCH)                 # BATCH rays per surface element
+                    print("===== SPLIT: GLOBAL_SPLIT %d x SELEM %d = %d >= AREA %d x BATCH %d = %d = BGPAC %d =====\n" %
+                    (GLOBAL_SPLIT, SELEM, GLOBAL_SPLIT*SELEM, USER.AREA, BATCH, USER.AREA*BATCH, BGPAC))
+                else:
+                    print("=== BG: BGPAC %d, BATCH %d, GLOBAL %d, LOCAL %d ===" % (BGPAC, BATCH, GLOBAL, LOCAL))
+            PACKETS  =  BGPAC            
+            # sys.exit()
         elif (II==2):      # diffuse emission
             # RAM2 version --- each work item loops over cells =>  GLOBAL<CELLS, BATCH==packets per cell
             GLOBAL   =  GLOBAL_0
@@ -954,11 +1037,9 @@ else:
             if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])):
                 continue            
             
-            
             # single dust            => we use ABS[1] and SCA[1]  
             # WITH_ABU               => we use OPT instead of ABS[1] and SCA[1]
             # WITH_ABU and WITH_MSF  => we use OPT **and** ABS[NDUST] and SCA[NDUST]
-            # time.sleep(120)
             if (WITH_ABU>0): # ABS, SCA, G are precalculated on host side -> OPT
                 OPT[:,:] = 0.0
                 if (USER.SINGLE_ABU):
@@ -991,7 +1072,7 @@ else:
             cl.enqueue_copy(commands[ID], SCA_buf[ID], SCA)
        
             
-            # print 'IFREQ %d / %d' % (IFREQ, NFREQ)
+            # print('IFREQ %d / %d  ==> kernel_zero' % (IFREQ, NFREQ))
             kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],1,TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
             
             if (II==0): # update point source luminosities for the current frequency
@@ -1009,12 +1090,12 @@ else:
                 if (USER.HPBG_WEIGHTED):  # using weighted emission from the Healpix background
                     tmp    =  asarray(HPBG[IFREQ,:], float64)
                     if (max(tmp)<1.0e-40): continue # empty sky
-                    print("min(HPBG)=%12.4e, max(HPBG)=%12.4e" % (min(tmp), max(tmp)))
+                    # print("min(HPBG)=%12.4e, max(HPBG)=%12.4e" % (min(tmp), max(tmp)))
                     # convert into probablity
                     tmp   /=  mean(tmp)
                     tmp    =  clip(tmp, 1.0e-3, 1.0e4) # clip very low and high probabilities
                     tmp   /=  sum(tmp)                 # 1/49152  ->  tmp    == probability per Healpix pixel
-                    print("HPBGp", percentile(tmp, (0, 10, 50, 90, 100)))                    
+                    # print("HPBGp", percentile(tmp, (0, 10, 50, 90, 100)))                    
                     HPBGW  =  (1.0/49152.0)/tmp        # weight of each Healpix pixel, relative to unweighted case
                     HPBGP  =  cumsum(tmp)     
                     HPBGP[-1] = 1.00001                # avoid any chance of rounding error here
@@ -1033,10 +1114,9 @@ else:
                 if (IFREQ==(NFREQ-1)):  FF *= 0.5*(FFREQ[NFREQ-1]-FFREQ[NFREQ-2])
                 else:                   FF *= 0.5*(FFREQ[IFREQ+1]-FFREQ[IFREQ-1])
                 
-            print("  FREQ %3d/%3d  %10.3e  BG %12.4e  PS %12.4e   TW %10.3e" % (IFREQ+1, NFREQ, FREQ, BG, PS[0], FF))
-            #print("  FREQ %3d/%3d  %10.3e --  ABS %.3e  SCA %.3e  BG %10.3e  PS %10.3e..." %
-            #(IFREQ+1, NFREQ, FREQ,    ABS, SCA, BG, PS[0]))
-
+            sys.stdout.write("  FREQ %3d/%3d  %10.3e  BG %12.4e  PS %12.4e   TW %10.3e " % (IFREQ+1, NFREQ, FREQ, BG, PS[0], FF))
+            sys.stdout.flush()
+            t000 = time.time()
             
             # Upload to device new DSC, CSC, possibly also EMIT
             t0 = time.time()
@@ -1057,21 +1137,26 @@ else:
             if (II==2):     # emission from the volume (but not yet the dust)
                 # 2019-02-20 added condition on DFPAC -> EMIT not needed here unless DFPACK>0
                 #            ... except that it is used as work memory for returned absorptions!!
+                ## print("DFPAC = %d" % DFPAC) 
                 if (DFPAC<1): continue
                 # 2019-08-16: DIFFUSERAD may contain fewer frequencies than NFREQ but they must
                 #             be the *highest* frequencies = last frequencies in the arrays
-                dr_ind  =   IFREQ+(NFREQ-DIFFUSERAD.shape[1])  # actual index to DIFFUSERAD
+                # 2020-10-04: was fixed again (at some point the dr_ind formula was again incorrect...)
+                dr_ind  =   IFREQ+(DIFFUSERAD.shape[1]-NFREQ)  # actual index to DIFFUSERAD
                 if (dr_ind>=DIFFUSERAD.shape[1]): # may contain fewer frequencies !!
-                    EMIT[:] = 0.0  
+                    EMIT[:] = 0.0
+                    ## print("dr_ind>=DIFFUSERAD.shape  %d>=%d  .... skip" % (dr_ind, DIFFUSERAD.shape[1]))
                     continue
                 # Note -- DIFFUSERAD is emission as photons / 1Hz / cm3
-                #         EMIT is number of photons for volume (GL*pc)^3 divided by (GL*pc)^2
-                #         => EMIT = DIFFUSERAD * (GL*pc)
+                #         EMIT is number of photons per cell volume (GL*pc)^3/8^level, divided by (GL*pc)^2
+                #         =>  EMIT = DIFFUSERAD * (GL*pc)
+                # @@ file values DIFFUSERAD not scaled with FACTOR -- they go directly to kernel
+                #    (cf. EMIT ~ EMITTED / SCALE)
                 for level in range(LEVELS):
                     coeff      =  USER.GL*PARSEC / (8.0**level)    # cell volume in units of GL^3
                     coeff     *=  USER.K_DIFFUSE                   # user-provided scaling of the field
                     a, b       =  OFF[level], OFF[level]+LCELLS[level]
-                    EMIT[a:b]  =  DIFFUSERAD[a:b, dr_ind] * coeff  # DIFFUSERAD = photons/cm3
+                    EMIT[a:b]  =  DIFFUSERAD[a:b, dr_ind] * coeff  # DIFFUSERAD = photons/Hz/cm3  @@
                 if (0):
                     EMIT[nonzero(DENS<1.0e-10)] = 0.0              # empty cells emit nothing
                 cl.enqueue_copy(commands[ID], EMIT_buf[ID], EMIT)
@@ -1081,11 +1166,12 @@ else:
                     if (skip % USER.EMWEIGHT_SKIP==0):
                         tmp      =  asarray(EMIT, float64)
                         if (1):
-                            mmm      =  nonzero(~isfinite(tmp))                        
-                            print('     ===========================================================================')
-                            print('     EMWEI --- EMISSION NOT FINITE: %d'% len(mmm[0]))
-                            tmp[mmm] = 0.0
-                            print('     ===========================================================================')
+                            mmm      =  nonzero(~isfinite(tmp))
+                            if (len(mmm[0])>0):
+                                print('\n     ===========================================================================')
+                                print('     EMWEI --- EMISSION NOT FINITE: %d'% len(mmm[0]))
+                                tmp[mmm] = 0.0
+                                print('     ===========================================================================')
                         tmp[:]   =  DFPAC*tmp/(sum(tmp)+1.0e-32)  # ~ number of packages
                         EMWEI[:] =  clip(tmp, USER.EMWEIGHT_LIM[0], USER.EMWEIGHT_LIM[1])
                         # any EMWEI<1.0 means it has probability EMWEI of being simulated with
@@ -1093,7 +1179,8 @@ else:
                         EMWEI[nonzero(rand(CELLS)>EMWEI)] = 0.0 # Russian roulette
                         cl.enqueue_copy(commands[ID], EMWEI_buf[ID], EMWEI)
                         m        = nonzero(EMWEI>0.0)
-                        print('     Update EMWEI -> DFPAC=%d' % len(m[0]))
+                        # print('     Update EMWEI -> DFPAC=%d' % len(m[0]))
+                        print(' DFPAC=%d ' % len(m[0]))
                         # print('EMWEIGHT', prctile(EMWEI, (0, 10, 50, 90, 100)))
                 # ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -1109,7 +1196,7 @@ else:
             ##   2018-12-08 OPT_buf added for (ABS, SCA) in case of abundance variations
             if (II==2): # DFPAC  ---  kernel_ram_cl  ---  [ normal | WITH_ROI_SAVE ]
                 if (USER.WITH_ROI_SAVE<=0):
-                    #print("               kernel_ram_cl")
+                    ## print("               kernel_ram_cl, BATCH=%d" % BATCH)
                     kernel_ram_cl(commands[ID], [GLOBAL,], [LOCAL,],
                     np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], FF,
                     LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
@@ -1126,87 +1213,95 @@ else:
                     EMWEI_buf[ID], INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], EMINDEX_buf[ID],
                     OPT_buf[ID], ABU_buf[ID], ROI_buf, ROI_SAVE_buf)
             elif (II<2):       
-                # PSPAC, BGPAC
-                if ((II==1)&(len(HPBG)>0)):   # DFPAC  --- kernel_ram_hp ---  [ normal ]
-                    # If we use Healpix map for background, the normal isotropic background is not simulated
-                    #  => all background is already included in the Healpix map
-                    #print("               kernel_ram_hp")
-                    kernel_ram_hp(commands[ID], [GLOBAL,], [LOCAL,],
-                    PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], FF, LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], 
-                    DENS_buf[ID], EMIT_buf[ID], TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID],
-                    INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID], 
-                    HPBG_buf[ID], HPBGP_buf[ID], ABU_buf[ID])
+                # PSPAC (II==0), BGPAC
+                if ((II==1)&(USER.DO_SPLIT)):
+                    # 2020-07-16 --- trying package splitting for simulation of background packages
+                    kernel_bg_split(commands[ID], [GLOBAL_SPLIT,], [LOCAL,],
+                    PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], BG, FF, LCELLS_buf[ID], OFF_buf[ID], 
+                    PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID], TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
+                    INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID], ABU_buf[ID],
+                    BUFFER_buf[ID])
                 else:
-                    # The arguments of kernel_ram_pb are defined by the ROI_LOAD and ROI_SAVE options
-                    # although it is only for source ii==2 that ROI_LOAD is actually used
-                    #   BGPAC/PSPAC --- kernel_ram_pb  --- [ normal | WITH_ROI_SAVE | WITH_ROI_LOAD | both ]
-                    if ((USER.WITH_ROI_SAVE<=0)&(USER.WITH_ROI_LOAD<=0)): # normal case -- normal argument list
-                        #print("               kernel_ram_pb")
-                        # print(PACKETS, BATCH)
-                        kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
-                        # SOURCE      PACKETS  BATCH  SEED  ABS
-                        np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
-                        # SCA        BG  PSPOS          PS          TW
-                        SCA_buf[ID], BG, PSPOS_buf[ID], PS_buf[ID], FF,
-                        # LCELLS        OFF          PAR          DENS          EMIT         
-                        LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
-                        # TABS        DSC          CSC          XAB          EMWEI           
-                        TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID], 
-                        # INT        INTX          INTY          INTZ          OPT           
-                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
-                        # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
-                        ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID])
-                    elif ((USER.WITH_ROI_SAVE>0)&(USER.WITH_ROI_LOAD>0)): # both
-                        # Both ROI_LOAD and ROI_SAVE
-                        #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))
-                        kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
-                        # SOURCE      PACKETS  BATCH  SEED  ABS
-                        np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
-                        # SCA        BG  PSPOS          PS          TW
-                        SCA_buf[ID], BG, PSPOS_buf[ID], PS_buf[ID], FF,
-                        # LCELLS        OFF          PAR          DENS          EMIT         
-                        LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
-                        # TABS        DSC          CSC          XAB          EMWEI           
-                        TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID], 
-                        # INT        INTX          INTY          INTZ          OPT           
-                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
-                        # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
-                        ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
-                        ROI_DIM_buf, ROI_LOAD_buf, ROI_buf, ROI_SAVE_buf)
-                    elif (USER.WITH_ROI_SAVE>0):      # only ROI_SAVE
-                        #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))            
-                        kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
-                        # SOURCE      PACKETS  BATCH  SEED  ABS
-                        np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
-                        # SCA        BG  PSPOS          PS          TW
-                        SCA_buf[ID], BG, PSPOS_buf[ID], PS_buf[ID], FF,
-                        # LCELLS        OFF          PAR          DENS          EMIT         
-                        LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
-                        # TABS        DSC          CSC          XAB          EMWEI           
-                        TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID], 
-                        # INT        INTX          INTY          INTZ          OPT           
-                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
-                        # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
-                        ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
-                        ROI_buf, ROI_SAVE_buf)
-                    else:                              # only ROI_LOAD
-                        #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))
-                        kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
-                        # SOURCE      PACKETS  BATCH  SEED  ABS
-                        np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
-                        # SCA        BG  PSPOS          PS          TW
-                        SCA_buf[ID], BG, PSPOS_buf[ID], PS_buf[ID], FF,
-                        # LCELLS        OFF          PAR          DENS          EMIT         
-                        LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
-                        # TABS        DSC          CSC          XAB          EMWEI           
-                        TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID], 
-                        # INT        INTX          INTY          INTZ          OPT           
-                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
-                        # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
-                        ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
-                        ROI_DIM_buf, ROI_LOAD_buf)
-                        
-                        
+                    if ((II==1)&(len(HPBG)>0)):   # DFPAC  --- kernel_ram_hp ---  [ normal ]
+                        # If we use Healpix map for background, the normal isotropic background is not simulated
+                        #  => all background is already included in the Healpix map
+                        #print("               kernel_ram_hp")
+                        kernel_ram_hp(commands[ID], [GLOBAL,], [LOCAL,],
+                        PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], FF, LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], 
+                        DENS_buf[ID], EMIT_buf[ID], TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID],
+                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID], 
+                        HPBG_buf[ID], HPBGP_buf[ID], ABU_buf[ID])
+                    else:
+                        # The arguments of kernel_ram_pb are defined by the ROI_LOAD and ROI_SAVE options
+                        # although it is only for source ii==2 that ROI_LOAD is actually used
+                        #   BGPAC/PSPAC --- kernel_ram_pb  --- [ normal | WITH_ROI_SAVE | WITH_ROI_LOAD | both ]
+                        if ((USER.WITH_ROI_SAVE<=0)&(USER.WITH_ROI_LOAD<=0)): # normal case -- normal argument list
+                            #print("               kernel_ram_pb")
+                            # print(PACKETS, BATCH)
+                            kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
+                            # SOURCE      PACKETS  BATCH  SEED  ABS
+                            np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
+                            # SCA        BG  PSPOS          PS          TW
+                            SCA_buf[ID], BG, PSPOS_buf[ID], PS_buf[ID], FF,
+                            # LCELLS        OFF          PAR          DENS          EMIT         
+                            LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
+                            # TABS        DSC          CSC          XAB          EMWEI           
+                            TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID], 
+                            # INT        INTX          INTY          INTZ          OPT           
+                            INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
+                            # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
+                            ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID])
+                        elif ((USER.WITH_ROI_SAVE>0)&(USER.WITH_ROI_LOAD>0)): # both
+                            # Both ROI_LOAD and ROI_SAVE
+                            #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))
+                            kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
+                            # SOURCE      PACKETS  BATCH  SEED  ABS
+                            np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
+                            # SCA        BG  PSPOS          PS          TW
+                            SCA_buf[ID], BG, PSPOS_buf[ID], PS_buf[ID], FF,
+                            # LCELLS        OFF          PAR          DENS          EMIT         
+                            LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
+                            # TABS        DSC          CSC          XAB          EMWEI           
+                            TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID], 
+                            # INT        INTX          INTY          INTZ          OPT           
+                            INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
+                            # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
+                            ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
+                            ROI_DIM_buf, ROI_LOAD_buf, ROI_buf, ROI_SAVE_buf)
+                        elif (USER.WITH_ROI_SAVE>0):      # only ROI_SAVE
+                            #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))            
+                            kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
+                            # SOURCE      PACKETS  BATCH  SEED  ABS
+                            np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
+                            # SCA        BG  PSPOS          PS          TW
+                            SCA_buf[ID], BG, PSPOS_buf[ID], PS_buf[ID], FF,
+                            # LCELLS        OFF          PAR          DENS          EMIT         
+                            LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
+                            # TABS        DSC          CSC          XAB          EMWEI           
+                            TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID], 
+                            # INT        INTX          INTY          INTZ          OPT           
+                            INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
+                            # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
+                            ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
+                            ROI_buf, ROI_SAVE_buf)
+                        else:                              # only ROI_LOAD
+                            #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))
+                            kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
+                            # SOURCE      PACKETS  BATCH  SEED  ABS
+                            np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
+                            # SCA        BG  PSPOS          PS          TW
+                            SCA_buf[ID], BG, PSPOS_buf[ID], PS_buf[ID], FF,
+                            # LCELLS        OFF          PAR          DENS          EMIT         
+                            LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
+                            # TABS        DSC          CSC          XAB          EMWEI           
+                            TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID], EMWEI_buf[ID], 
+                            # INT        INTX          INTY          INTZ          OPT           
+                            INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
+                            # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
+                            ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
+                            ROI_DIM_buf, ROI_LOAD_buf)
+                            
+                            
             elif (II==3):  # II==3  == ROI_LOAD source
                 ## print("II=3 -- ROI_LOAD -- USER.WITH_ROI_LOAD=%d" % USER.WITH_ROI_LOAD)
                 if (USER.WITH_ROI_LOAD<=0): continue  # no ROI_LOAD photons simulated
@@ -1248,8 +1343,22 @@ else:
                 
             commands[ID].finish()                
             Tkernel += time.time()-t0 # REALLY ONLY THE KERNEL EXECUTION TIME
+    
+            
+            sys.stdout.write(' %7.2f\n' % (time.time()-t000))
+            sys.stdout.flush()
+
+            
+            # #=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=
+            if (0): # @@
+                print("DONE ONE FREQUENCY: %.2f seconds" % (time.time()-t0))
+                cl.enqueue_copy(commands[ID], EMIT, TABS_buf[ID])
+                asarray(EMIT, float32).tofile('tabs.1')
+                sys.exit()
+            # #=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=
             
             
+                
             if (USER.WITH_ROI_SAVE>0):
                 # Add the photons that entered ROI for the current IFREQ into the global array
                 tmp= zeros(ROI_SAVE_NPIX, float32)
@@ -1296,7 +1405,8 @@ else:
         commands[ID].finish()
         # end of -- for IFREQ
         CTABS  +=   EMIT   # integrated energy -- sum of all constant components
-        
+
+        # @@
         if (len(CTABS)<1e8):
             print('='*80)
             print("******  CONSTANT   %10s   CTABS -> %12.4e" % (['PS', 'BG', 'DE', 'ROI'][II], mean(CTABS)))
@@ -1305,10 +1415,13 @@ else:
     # end of -- for II = three kinds of constant sources
     # CTABS contains the absorbed energy due to sources all except the dust in the medium
     if (len(USER.file_constant_save)>0): 
-        asarray(CTABS, float32).tofile(USER.file_constant_save)
+        # asarray(CTABS, float32).tofile(USER.file_constant_save)
+        CTABS.tofile(USER.file_constant_save)
 
     
-
+    ### sys.exit()
+    
+    
         
 if (len(CTABS)<1e8):
     print("FINAL CTABS  = %.3e" % mean(CTABS))
@@ -1390,7 +1503,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
         else:
             # RAM2 version --- each work item loops over cells =>  GLOBAL<CELLS, BATCH==packets per cell
             GLOBAL, BATCH  =  GLOBAL_0,  max([1,int(CLPAC/CELLS)])
-            print('=== CLPAC %d, GLOBAL %d, BATCH %d' % (CELLS*BATCH, GLOBAL, BATCH))
+            print('=== CLPAC %d (%d), GLOBAL %d, BATCH %d' % (CLPAC, CELLS*BATCH, GLOBAL, BATCH))
                 
         skip = USER.EMWEIGHT_SKIP-1
         if (CLPAC>0):
@@ -1486,6 +1599,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     
                     if (IFREQ==-22): print(" [22]  EMIT  %12.4e" % (mean(EMIT)))
                     
+                # EMITTED / FACTOR  =>  EMIT  .... file has unit FACTOR*photons/Hz/cm3
+                # kernel uses "actual" values, after division with FACTOR
                 for level in range(LEVELS):
                     coeff      = USER.GL*PARSEC/(8.0**level)/FACTOR  #  cell volume in units of GL^3
                     a, b       = OFF[level], OFF[level]+LCELLS[level]
@@ -1548,7 +1663,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         
                 commands[ID].finish()                
                 
-                # EMIT <-   TRUE - OEMITTED
+                # EMIT <-   TRUE - OEMITTED    ...... EMIT ~ EMITTED / FACTOR !!!
                 cl.enqueue_copy(commands[ID], EMIT_buf[ID], EMIT)
                 #  out comes difference TABS = TRUE - OTABS
                 if (USER.SEED>0): seed = fmod(USER.SEED+(DEVICES*IFREQ+ID)*SEED1, 1.0)
@@ -1589,6 +1704,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 else:
                     
                     if (USER.WITH_ROI_SAVE<=0):
+                        print(" **** CALLING kernel_ram_cl() !!!!!!")
                         # A single call to the kernel
                         kernel_ram_cl(commands[ID], [GLOBAL,], [LOCAL,],
                         # 0           1      2      3     4            5             6  
@@ -1738,18 +1854,19 @@ if (not('SUBITERATIONS' in USER.KEYS)):
         #    # Solve temperatures on the host side -- total absorbed energy in array EMIT[]
         #    # NOTE -- can solve within SOC only when calculation includes a single non-stochastic dust !!
         #    oplgkE  = 1.0/log10(kE)
-        ##ADHOC  = 1.0e-10         # *** SAME AS IN THE KERNEL !! ***
         beta   = 1.0
     
-        if (1):
+        if (0):  # 2020-07-09 commented out -- to save memory !!
             mmm   = nonzero(~isfinite(EMIT))
             if (len(mmm[0]>0)):
                 print('******* EMIT NOT FINITE *******', len(mmm[0]))
             EMIT  = clip(EMIT, 1.0e-25, 1e32)
     
-        if (len(EMIT)<1e6):
-            print(" TABS  %.3e %.3e %.3e %.3e %.3e" % tuple(np.percentile(EMIT, (2.0, 10.0, 50.0, 90.0, 98.0))))
-
+        ###if (len(EMIT)<1e6):
+        print("====================================================================================================")
+        print(" TABS=EMIT  %.3e %.3e %.3e %.3e %.3e" % tuple(np.percentile(EMIT, (0.0, 10.0, 50.0, 90.0, 100.0))))
+        print("====================================================================================================")
+        
         
         
 
@@ -1765,23 +1882,30 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 sys.exit()
             t0 = time.time()
             if (('CLT' in USER.KEYS)&(not(USER.WITH_ALI))):    # calculate temperatures on device
-                TTT_buf  = cl.Buffer(context[0], mf.READ_ONLY,  TTT.nbytes)
                 kernel_T = program[0].EqTemperature
                 # EMIT + DENS  ->  TABS
-                
-                kernel_T.set_scalar_arg_dtypes( \
-                #  adhoc     kE          Emin         NE        
-                [np.float32, np.float32, np.float32 , np.float32,
-                # OFF  LCELLS  TTT    DENS   EMIT   TNEW  
-                None,  None,   None,  None,  None,  None ])
-                ###
+                #                               level     adhoc       kE          Emin        NE        OFF    LCELLS  TTT    DENS   EMIT   TNEW
+                kernel_T.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, np.float32, np.int32, None,  None,   None,  None,  None,  None ])
+                TTT_buf  = cl.Buffer(context[0], mf.READ_ONLY,  TTT.nbytes)
+                print("DENS_buf", DENS_buf[0])
+                print("TABS_buf", TABS_buf[0])
+                print("EMIT_buf", EMIT_buf[0])
+                print("push TTT ...", len(TTT), NE)
                 cl.enqueue_copy(commands[0], TTT_buf, TTT)
+                print("push EMIT ...")
                 cl.enqueue_copy(commands[0], EMIT_buf[0], EMIT)
-                ###
-                kernel_T(commands[0], [GLOBAL,], [LOCAL,], ADHOC, kE, Emin, NE,
-                OFF_buf[0], LCELLS_buf[0], TTT_buf, DENS_buf[0], EMIT_buf[0], TABS_buf[0])
-                print('******** TNEW ', len(TNEW))
+                print("Calling kernel_T...")
+                for l in range(LEVELS):
+                    print("Level %d ..." % l)
+                    kernel_T(commands[0], [GLOBAL,], [LOCAL,], l, ADHOC, kE, Emin, NE,
+                    OFF_buf[0], LCELLS_buf[0], TTT_buf, DENS_buf[0], EMIT_buf[0], TABS_buf[0])
+                    print("   ... call ready")
+                    print("Finish...")
+                    commands[0].finish()
+                    print(" ... Finished")
+                print("Copy TNEW to host ....")    
                 cl.enqueue_copy(commands[0], TNEW, TABS_buf[0])
+                print("   ... ready")
                 
             elif (not('MPT' in USER.KEYS)):
                 for level in range(LEVELS):
@@ -1792,6 +1916,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                             TNEW[ind] = 0.0
                             continue # skip empty cells and parent cells
                         told    =  TNEW[ind]
+                        # @@ EMIT scaled by scale i.e. FACTOR, because TTT calculation also inlcuded FACTOR in Ein
                         Ein     = (scale/ADHOC)*EMIT[ind]*(8.0**level)/DENS[ind] # "EMIT" == absorbed energy
                         # if (1): print("%6d   DENS %10.3e-- Ein %10.3e" % (ind, DENS[ind], Ein))
                         #  Ein = beta*Eout  =>   Ein/beta = Eout
@@ -1809,7 +1934,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                                     # if T increases ->  beta decreases -> T increase further 
                                     beta  *=  beta_interpoler(tnew, tau) / beta_interpoler(told, tau)
                                     iE     =  clip(int(floor(oplgkE * log10((Ein/beta)/Emin))), 0, NE-2)
-                                    wi     = (Emin*pow(kE,iE+1)-(Ein/beta)) / (Emin*pow(kE,(iE+1))-pow(kE,iE)) ;
+                                    wi     = (Emin*pow(kE,iE+1)-(Ein/beta)) / (Emin*(pow(kE,(iE+1))-pow(kE,iE))) ;
                                     told   =  tnew
                                     tnew   =  wi*TTT[iE] + (1.0-wi)*TTT[iE+1] ;    
                         TNEW[ind]  = tnew
@@ -1910,7 +2035,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     #         *** T ***  *** emission ***
                     DENS_buf[0], EMIT_buf[0],  TABS_buf[0])
                     cl.enqueue_copy(commands[0], EMIT, TABS_buf[0])
-                    EMITTED[:, ifreq-REMIT_I1] = EMIT
+                    # EMITTED ~ directly EMIT, no scaling with FACTOR --- *= FACTOR IS ALREADY IN THE KERNEL !!!
+                    EMITTED[:, ifreq-REMIT_I1] = EMIT  #  FACTOR x PHOTONS / Hz / cm3
                 ####
             elif (not('MPE' in USER.KEYS)):          # emission with single host thread
                 for icell in range(CELLS):          # loop over the GLOBAL large array
@@ -1918,6 +2044,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         FTMP[:] = 0.0
                     else:
                         a, b  =  REMIT_I1, REMIT_I2+1
+                        # @@ EMITTED is again the value scaled with FACTOR (= as stored the file)
                         FTMP[0:REMIT_NFREQ] =  (FACTOR*4.0*np.pi/(PLANCK*FFREQ[a:b])) * \
                         AFABS[0][a:b]*Planck(FFREQ[a:b], TNEW[icell])/(USER.GL*PARSEC) #  1e20*photons/H -> FACTOR
                     EMITTED[icell,:] = FTMP[0:REMIT_NFREQ]  # EMITTED[CELLS, REMIT_NFREQ]
@@ -2262,14 +2389,7 @@ if ('SUBITERATIONS' in USER.KEYS):
                 print('EMIT NOT FINITE', len(mmm[0]))
             EMIT  = clip(EMIT, 1.0e-25, 1e32)
 
-            
-            
-            
 
-        # We could limit re-calculation of temperatures and emission to cells with 
-        # "significant" change in TABS. Because these are fast for non-stochastic
-        # grains, we just update all. And use *temperature* change to select cells
-        # for which emission needs to be re-simulated.
             
             
         print('Calculate temperatures')
@@ -2590,7 +2710,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     # MAP has already been allocated for the correct size
     # USER.LIB_MAPS =>  emission and maps will both be only for the USER.FSELECT frequencies
     #                   then REMIT_I1==0, REMIT_I2==ONFREQ-1
-    print("MAP_SLOW")
+    print("MAP_SLOW  --- USER.NPIX.x = %d" % USER.NPIX['x'])
     MAP_buf      = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
     SAVETAU_buf  = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
     # source      = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map.c").read()
@@ -2660,7 +2780,8 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 iiii = argmin(abs((FREQ-USER.FSELECT)))
                 # print("  FREQ %12.4e  ... closest FSELECT %12.4e\n" % (FREQ, USER.FSELECT[iiii]))
                 continue                    
-        print("FREQ %.3e  MAP_FREQ  %.3e %.3e" % (FREQ, USER.MAP_FREQ[0], USER.MAP_FREQ[1]))
+        print("FREQ %.3e Hz = %8.2f um   ---   MAP_FREQ  [%.3e, %.3e] Hz  =  [%7.2f, %7.2f] um" %
+        (FREQ, f2um(FREQ), USER.MAP_FREQ[0], USER.MAP_FREQ[1],  f2um(USER.MAP_FREQ[1]), f2um(USER.MAP_FREQ[0])))
             
         # OIFREQ is   [0,NFREQ[ or [REMIT_I1,REMIT_I2] and with LIB_MAPS it is [0, ONFREQ[
         #  => it is always directly the index to the EMITTED array
@@ -2725,6 +2846,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 # 14         15          16          17      
                 USER.INTOBS, OPT_buf[0], SAVETAU_buf, ROI_LIM_buf)
             else:  # the same without ROI
+                print("  *** kernel_map ***") 
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAP_buf, EMIT_buf[0], ODIR[idir], RA[idir], DE[idir],
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0], USER.MAPCENTRE,
@@ -2734,14 +2856,16 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
             asarray(MAP,float32).tofile(fpmap[idir])  # directly all the selected frequencies
             if ((first_loop)&(USER.savetau_freq<=0.0)):
                 # Save column density only after the calculation of the first frequency
+                print("******** WRITING THE COLUMN DENSITY MAP f=%.3e Hz  !!!!!!!!!!!! *******************" % USER.savetau_freq)                
                 fp       = open("%s.%d" %  (USER.file_savetau, idir), "wb")
                 asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 asarray(MAP, float32).tofile(fp)
+                print("******** AVERAGE COLUMN DENSITY %12.4e" % mean(ravel(MAP)))
                 fp.close()
             if (USER.savetau_freq>0.0):  # save optical depth for frequency USER.savetau_freq
                 if (abs((USER.savetau_freq-FREQ)/FREQ) < 0.01 ): # save computed tau value for this frequency
-                    print("******** WRITING THE OPTICAL DEPTH MAP !!!!!!!!!!!!!!!!!!!!!!! *******************")
+                    print("******** WRITING THE OPTICAL DEPTH MAP f=%.3e Hz  !!!!!!!!!!!! *******************" % USER.savetau_freq)
                     fp       = open("%s.%d" %  (USER.file_savetau, idir), "wb")
                     asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
                     cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP

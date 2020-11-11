@@ -174,7 +174,7 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
     if (0):
         clf()
         hist(ABS[m[0],0], 500)
-        SHOW()
+        show()
         sys.exit()
     
     VEC               =  [ [], [], [] ]
@@ -271,7 +271,7 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
         plot(SARRAY[:, IFREQ[1]])
         subplot(224)
         plot(SARRAY[:, IFREQ[2]])
-        SHOW()
+        show()
         sys.exit()
                     
     # Now we have in SARRAY[SIND, nfreq] the absorption vectors for all tree nodes
@@ -299,7 +299,7 @@ def create_library_1(solver, libname, freq, lfreq, file_absorbed, K=1.1, GPU=0):
         plot(SARRAY[:, nfreq//2])
         subplot(224)
         plot(SARRAY[:, (3*nfreq)//4])
-        SHOW()
+        show()
         sys.exit()
     
     # Dump the library to a file
@@ -521,7 +521,7 @@ def solve_with_library_1(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
             loglog(um, y[icell,:], 'b--'+m, ms=3, zorder=4)
             i += 1
         
-        SHOW()
+        show()
         sys.exit()
         
     return
@@ -1037,7 +1037,7 @@ def solve_with_library_2(libname, freq, lfreq, file_absorbed, file_emitted, GPU=
         xlim(10, 3000)
         
         savefig(libname+'.png')
-        # SHOW()
+        # show()
 
     
     
