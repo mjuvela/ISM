@@ -595,6 +595,8 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
                 EMIT[a:b]  =  DIFFUSERAD[a:b, IFREQ] * coeff   # DIFFUSERAD = photons/cm3
             EMIT[nonzero(DENS<1.0e-10)] = 0.0    # empty cells emit nothing
             cl.enqueue_copy(commands[ID], EMIT_buf[ID], EMIT)
+            print(" EMIT_buf UPDATED !!!")
+            time.sleep(5)
         commands[ID].finish()
         t0 = time.time()            
         if (II==0):      # 0=PSPAC
@@ -623,6 +625,8 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
                 RA_buf[ID], DE_buf[ID], OUT_buf[ID], ABU_buf[ID], OPT_buf[ID], 
                 XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID], ROI_DIM_buf, ROI_LOAD_buf)
         elif (II==2):    # 2=DFPAC     --- the same kernel as for CLPAC !!
+            print(" DFPACK KERNEL CALL !!!")
+            time.sleep(5)
             kernel_CL(commands[ID], [GLOBAL,], [LOCAL,],
             np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID],
             SCA_buf[ID], LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], 
@@ -669,6 +673,8 @@ GLOBAL, BATCH  =  GLOBAL_0,  max([1,int(CLPAC/CELLS)])
 print('=== CLPAC %d, GLOBAL %d, BATCH %d' % (CELLS*BATCH, GLOBAL, BATCH))
 
 if (CLPAC>0):
+    print(" CLPACK KERNEL CALL !!!")
+    time.sleep(5)
     skip = 2
     for IFREQ in range(NFREQ):     # loop over single frequencies (all the frequencies)
 
@@ -677,9 +683,8 @@ if (CLPAC>0):
         # Parameters for the current frequency
         FREQ  =  FFREQ[IFREQ]
         if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue # FREQ not simulayted!!
-        print("    FREQ %3d/%3d   %12.4e --  ABS %.3e  SCA %.3e" % (IFREQ+1, NFREQ, FREQ, ABS[0], SCA[0]))
-        
         ABS[0], SCA[0]  = AFABS[0][IFREQ], AFSCA[0][IFREQ]        
+        print("    FREQ %3d/%3d   %12.4e --  ABS %.3e  SCA %.3e" % (IFREQ+1, NFREQ, FREQ, ABS[0], SCA[0]))
         if (WITH_ABU>0): # ABS, SCA, G are vectors
             OPT[:,:] = 0.0
             for idust in range(NDUST):
