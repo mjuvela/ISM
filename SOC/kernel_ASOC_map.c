@@ -1297,3 +1297,51 @@ __kernel void PolMapping(
 #endif  // POLSTAT == 2  -- perspective images with given MAXLOS LOS distance
 
 
+
+
+
+
+__kernel void PSTau(
+                    const      int      no,       //  0 - number of point sources
+                    __global   float3  *PSPOS,    //  1 -- point source positions
+                    const      float3   DIR,      //  2 - direction of observer
+                    const      float3   RA,       //  3 - 2019-04-12 "RA" is axis pointing right !!
+                    const      float3   DE,       //  4
+                    constant   int     *LCELLS,   //  5 - number of cells on each level
+                    constant   int     *OFF,      //  6 - index of first cell on each level
+                    __global   int     *PAR,      //  7 - index of parent cell
+                    __global   float   *DENS,     //  8 - density and hierarchy
+                    const      float    ABS,      //  9  scalar even with WITH_MSF !!!!
+                    const      float    SCA,      // 10
+                    __global   OTYPE   *OPT,      // 11 ABS + SCA, taking into account abundances
+                    __global   float   *pscolden, // 12 column density image
+                    __global   float   *pstau     // 13 
+                   )
+{
+   const int id   = get_global_id(0) ;  // one work item per map pixel
+   if (id>=no) return ;                 // one work item per source
+   float DTAU, TAU=0.0f, colden = 0.0f ;   
+   float3 POS ;
+   float  sx, sy, sz ;
+   int    ind, level, oind, olevel ;
+   POS.x  = PSPOS[id].x ;   POS.y  = PSPOS[id].y ;   POS.z  = PSPOS[id].z ;
+   IndexG(&POS, &level, &ind, DENS, OFF) ;  
+   while (ind>=0) {  // step TOWARDS the observer (maps were integrated stepping AWAY from the observer)
+      oind    = OFF[level]+ind ;    // original cell, before step out of it
+      olevel  = level ;
+      sx      = GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // step TOWARDS the observer !!!
+#if (WITH_ABU>0)
+      DTAU    = sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+#else
+      DTAU    = sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
+#endif     
+      TAU    += DTAU ;
+      colden += sx*DENS[oind] ;
+   }   
+   pscolden[id] = colden * LENGTH ;                 // saving optical depth instead of column density
+   pstau[id]    = TAU ;
+}
+
+
+
+

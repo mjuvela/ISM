@@ -327,8 +327,14 @@ if (USER.DEVICES=='c'): # F***ing Intel compiler...
 # VARGS += "-cl-fast-relaxed-math =  -cl-unsafe-math-optimizations -cl-finite-math-only"
 # VARGS += "-cl-fast-relaxed-math =  -cl-unsafe-math-optimizations"
 # VARGS += "-cl-denorms-are-zero -cl-mad-enable -cl-no-signed-zeros -cl-fast-relaxed-math -cl-uniform-work-group-size"
-VARGS += "-cl-denorms-are-zero -cl-mad-enable -cl-no-signed-zeros -cl-fast-relaxed-math"
-# NVARGS += " -cl-uniform-work-group-size -cl-no-signed-zeros "
+# VARGS += "-cl-denorms-are-zero -cl-mad-enable -cl-no-signed-zeros -cl-fast-relaxed-math"
+# VARGS += "-cl-denorms-are-zero -cl-mad-enable -cl-no-signed-zeros"
+# On NVidia -cl-fast-relaxed-math causes some small array values (such as used for cell links!!)
+#    to appear as zeros on the device !!!!!!!!
+# -cl-fast-relaxed-math = -cl-mad-enable -cl-no-signed-zeros -cl-unsafe-math-optimizations -cl-finite-math-only
+# => DO NOT USE -cl-unsafe-math-optimizations ON NVidia !!!!!!!!!!!
+VARGS += "-cl-mad-enable -cl-no-signed-zeros -cl-finite-math-only"  # this seems ok on NVidia !!
+
 ARGS   += VARGS
 
 # Create contexts, command queu, and program = kernels for the simulation step
@@ -408,8 +414,6 @@ for ID in range(DEVICES):
     else:
         EMINDEX_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4))  # dummy
         
-    print("B") ;
-        
     if (WITH_ABU>0):
         if (USER.OPT_IS_HALF):
             OPT_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 2*CELLS*2))  # ABS, SCA
@@ -426,8 +430,6 @@ for ID in range(DEVICES):
     else:
         HPBG_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY, 4*3))  # DUMMY
         HPBGP_buf.append( cl.Buffer(context[ID], mf.READ_ONLY, 4*3))  # DUMMY        
-        
-    print("C") ;
         
     if (1):
         # data on external point sources...
@@ -448,7 +450,6 @@ for ID in range(DEVICES):
         ABS, SCA = zeros(NDUST, float32), zeros(NDUST, float32)
     # Buffers for split-packages kernel,  we have work item per 100 surface elements
     # 512^3 root grid, MAXL=7 => (6*512**2/100.0)*(3**6)*12*4B = 0.51 GB
-    print("D") ;
     if (USER.DO_SPLIT):
         # now we need to allocate BUFFER only based on work items (not surface elements)
         BUFFER_buf.append(   cl.Buffer(context[ID], mf.READ_WRITE,  4*GLOBAL_SPLIT*12*MAX_SPLIT)  )
@@ -461,7 +462,6 @@ for ID in range(DEVICES):
 # SIDPOS = asarray([  0.0, 0.0, 0.0,    1.0, 0.0, 0.0,   0.0, 1.0, 0.0,   1.0, 1.0, 0.0,
 #                     0.0, 0.0, 1.0,    1.0, 0.0, 1.0,   0.0, 1.0, 1.0,   1.0, 1.0, 1.0 ], float32)
 
-print("E") ;
 for ID in range(DEVICES):        
     cl.enqueue_copy(commands[ID], LCELLS_buf[ID], LCELLS)
     cl.enqueue_copy(commands[ID], OFF_buf[ID],    OFF)
@@ -525,7 +525,13 @@ for ID in range(DEVICES):
     print("LOCAL %d, GLOBAL %d" % (LOCAL, GLOBAL))
     kernel_parents[ID](commands[ID], [GLOBAL,], [LOCAL,], DENS_buf[ID], LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID])
     commands[ID].finish()
-
+    
+if (0): # -cl-unsafe-math-optimizations caused some DENS values to appear as zeros on the device !!!
+    print("HOST        DENS[886247] = %.4e   DENS[1886248] = %.4e   DENS[2886249] = %.4e\n" % (DENS[886247],DENS[1886248],DENS[2886249]))
+    cl.enqueue_copy(commands[ID], DENS, DENS_buf[0])
+    commands[ID].finish()    
+    print("FROM DEVICE DENS[886247] = %.4e   DENS[1886248] = %.4e   DENS[2886249] = %.4e\n" % (DENS[886247],DENS[1886248],DENS[2886249]))
+    sys.exit()    
     
 # EMITTED will be mmap array  EMITTED[icell, ifreq], possibly REMIT_NFREQ frequencies
 # assert(REMIT_NFREQ==NFREQ)
@@ -1021,8 +1027,12 @@ else:
         OIFREQ = -1   # true index of the saved frequency, in case we have LIB_ABS==True
         for IFREQ in range(NFREQ):
 
+            Tpre = time.time()            
             FREQ = FFREQ[IFREQ]
-            ## print("IFREQ %d   =   %12.4e ..... LIMITS [%.3e,%.3e]Hz" % (IFREQ, FREQ, USER.SIM_F[0], USER.SIM_F[1]))
+
+            sys.stdout.write("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
+            sys.stdout.flush()
+            
             
             if (USER.LIB_ABS): 
                 # Simulation for the library method, FSELECT contains the reference frequencies
@@ -1072,7 +1082,6 @@ else:
             cl.enqueue_copy(commands[ID], SCA_buf[ID], SCA)
        
             
-            # print('IFREQ %d / %d  ==> kernel_zero' % (IFREQ, NFREQ))
             kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],1,TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
             
             if (II==0): # update point source luminosities for the current frequency
@@ -1113,13 +1122,16 @@ else:
             else:
                 if (IFREQ==(NFREQ-1)):  FF *= 0.5*(FFREQ[NFREQ-1]-FFREQ[NFREQ-2])
                 else:                   FF *= 0.5*(FFREQ[IFREQ+1]-FFREQ[IFREQ-1])
+            
                 
-            sys.stdout.write("  FREQ %3d/%3d  %10.3e  BG %12.4e  PS %12.4e   TW %10.3e " % (IFREQ+1, NFREQ, FREQ, BG, PS[0], FF))
+            Tpre = time.time()-Tpre
+                
+            sys.stdout.write("   BG %12.4e  PS %12.4e   TW %10.3e" % (BG, PS[0], FF))
             sys.stdout.flush()
-            t000 = time.time()
+            T000 = time.time()
             
             # Upload to device new DSC, CSC, possibly also EMIT
-            t0 = time.time()
+            Tpush = time.time()
             if (WITH_MSF==0): # we have single DSC and CSC arrays, pick values for the current frequency
                 cl.enqueue_copy(commands[ID], DSC_buf[ID], FDSC[0,IFREQ,:])
                 cl.enqueue_copy(commands[ID], CSC_buf[ID], FCSC[0,IFREQ,:])
@@ -1130,7 +1142,7 @@ else:
                 cl.enqueue_copy(commands[ID], DSC_buf[ID], DSC)
                 cl.enqueue_copy(commands[ID], CSC_buf[ID], CSC)
             commands[ID].finish()
-            Tpush += time.time()-t0    
+            Tpush = time.time()-Tpush    
             if (USER.SEED>0): seed = fmod(USER.SEED+SEED0+(DEVICES*IFREQ+ID)*SEED1, 1.0)
             else:             seed = rand()
             
@@ -1192,6 +1204,7 @@ else:
             ## t0 = time.time()            
             commands[ID].finish()
 
+            
             t0 = time.time()            
             ##   2018-12-08 OPT_buf added for (ABS, SCA) in case of abundance variations
             if (II==2): # DFPAC  ---  kernel_ram_cl  ---  [ normal | WITH_ROI_SAVE ]
@@ -1343,11 +1356,8 @@ else:
                 
             commands[ID].finish()                
             Tkernel += time.time()-t0 # REALLY ONLY THE KERNEL EXECUTION TIME
-    
-            
-            sys.stdout.write(' %7.2f\n' % (time.time()-t000))
-            sys.stdout.flush()
-
+                
+            Tpost = time.time()
             
             # #=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=#=
             if (0): # @@
@@ -1397,6 +1407,14 @@ else:
                         # this will be final for INTENSITY[:,:,0] 
                         #   (except for added cell emission below!)
                         # others will be later divided by INTENSITY[:,:,0]
+                
+            Tpost = time.time()-Tpost
+            sys.stdout.write('   %7.2f\n' % (time.time()-T000))
+            #sys.stdout.write(' push %7.2f pre %7.2f\n' % (Tpush, Tpre))
+            sys.stdout.flush()
+                
+            if (0): sys.exit()    # debugging...
+            
         # FOR FREQUENCY ======
         
                                 
@@ -2612,6 +2630,7 @@ if (not(USER.NOABSORBED)):
     # for icell in range(CELLS):    FABSORBED[icell,:] /= DENS[icell]
     # Faster alternative
     # FABSORBED[CELLS, NFREQ]
+    print("Update absorbed (mmap)") 
     for level in range(LEVELS):
         a, b      =   OFF[level], OFF[level]+LCELLS[level]   # index limits for cells on current level
         if (level==0):
@@ -2643,6 +2662,7 @@ if (not(USER.NOABSORBED)):
         #  I  =  (h*nu)/(4*pi) *  n_phot_absorbed_per_cm3 / kappa_per_cm
         # 2019-03-23 -- to be consistent with SAVE_INTENSITY=1,2 options, 
         #               we now save I *** multiplied by 4*pi ***
+        print("Save intensities")
         fp = open("ISRF.DAT", "wb") ;
         if (NDUST>1): 
             print("*** ERROR: SAVE_INTENSITY=3 does not work for multiple dusts (fix it!)")
@@ -3267,6 +3287,83 @@ if (MAP_FAST):
 # end of -- MAP_FAST
 del MAP
 Tmap = time.time()-t0  # total time spent on calculating maps
+
+
+
+
+
+if ((USER.NO_PS>0)&(USER.pssavetau_freq>0.0)&(USER.NPIX['y']>0)):
+    # Calculate column density or tau from each point source to the observer
+    #                   then REMIT_I1==0, REMIT_I2==ONFREQ-1
+    print("PS_SAVETAU  --- USER.NPIX.x = %d" % USER.NPIX['x'])
+
+    PSCOLDEN_buf   = cl.Buffer(context[0], mf.WRITE_ONLY, 4*USER.NO_PS) # colden towards each pointsource
+    PSTAU_buf      = cl.Buffer(context[0], mf.WRITE_ONLY, 4*USER.NO_PS) # tau towards each pointsource
+    kernel_pstau   = program_map.PSTau
+
+    kernel_pstau.set_scalar_arg_dtypes([        
+    # 0         1        2                        3                        4                      
+    # nops      PSPOS    DIR                      RA                       DE                     
+    np.int32,   None,    clarray.cltypes.float3,  clarray.cltypes.float3,  clarray.cltypes.float3,        
+    # 5        6      7      8      9            10     
+    # LCELLS   OFF    PAR    DENS   ABS          SCA    
+    None,      None,  None,  None,  np.float32,  np.float32,
+    # 11     12         13   
+    # OPT    pscolden   pstau
+    None,    None,      None  ])
+        
+    GLOBAL =  Fix(USER.NO_PS, 32)
+    IFREQ  =  argmin(abs(FFREQ-USER.pssavetau_freq))
+    if (abs(FFREQ[IFREQ]-USER.pssavetau_freq)>0.001*FFREQ[IFREQ]):
+        print("*** Requested frequency for PSSAVETAU is not in the frequency grid !!!!")
+        print("***      =>   f = %.3e  ==  %.3f um" % (USER.pssavetau_freq, um2f(USER.pssavetau_freq)))
+    FREQ = FFREQ[IFREQ]
+    # optical parameters
+    if (WITH_ABU>0): # ABS, SCA, G are vectors... precalculated into OPT
+        OPT[:,:] = 0.0
+        if (USER.SINGLE_ABU):
+            # we have exactly two dust components with abundances ABU and 1.0-ABU
+            OPT[:,0] +=       ABU  * AFABS[0][IFREQ]
+            OPT[:,1] +=       ABU  * AFSCA[0][IFREQ]
+            OPT[:,0] +=  (1.0-ABU) * AFABS[1][IFREQ]
+            OPT[:,1] +=  (1.0-ABU) * AFSCA[1][IFREQ]
+        else:
+            for idust in range(NDUST):
+                OPT[:,0]  +=  ABU[:,idust] * AFABS[idust][IFREQ]
+                OPT[:,1]  +=  ABU[:,idust] * AFSCA[idust][IFREQ]
+        if (USER.OPT_IS_HALF):
+            cl.enqueue_copy(commands[0], OPT_buf[0], asarray(OPT, np.float16))
+        else:
+            cl.enqueue_copy(commands[0], OPT_buf[0], OPT)
+    else:          # constant abundance, ABS, SCA, G are scalar
+        ABS[0], SCA[0] = 0.0, 0.0
+        for idust in range(NDUST):
+            ABS[0] += AFABS[idust][IFREQ]
+            SCA[0] += AFSCA[idust][IFREQ]
+    # in map-making ABS and SCA are scalar kernel arguments
+    # Use kernel to do the LOS integration:  column density and optical depth
+    # DENSITY is already on device
+    pscolden = zeros(USER.NO_PS, float32)
+    pstau    = zeros(USER.NO_PS, float32)
+    nops     = USER.NO_PS
+    for idir in range(NDIR): #  loop over directions   0     1           
+        kernel_pstau(commands[0], [GLOBAL,], [LOCAL,], nops, PSPOS_buf[0],
+        # 2         3         4       
+        ODIR[idir], RA[idir], DE[idir],
+        # 5            6           7           8            9       10     
+        LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0],
+        # 11        12             13       
+        OPT_buf[0], PSCOLDEN_buf,  PSTAU_buf)
+        print("******** WRITING THE PS COLUMN DENSITY *******************")
+        cl.enqueue_copy(commands[0], pscolden, PSCOLDEN_buf)
+        cl.enqueue_copy(commands[0], pstau,    PSTAU_buf)
+        fp       = open("%s_%d.dat" % (USER.file_pssavetau, idir), "w")
+        for i in range(nops):
+            fp.write('%6d  %12.4e  %12.4e\n' % (i, pscolden[i], pstau[i]))
+        fp.close()
+        
+    
+    
 
 
 

@@ -40,13 +40,14 @@ H_CC    =  7.372496678e-48
 
 SEED0   =  0.8150982470475214
 SEED1   =  0.1393378751427912
-MAXPS   =  100   # maximum number of point sources
+MAXPS   =  10000   # maximum number of point sources
 
 DEGREE_TO_RADIAN =  0.0174532925199432958
 RADIAN_TO_DEGREE =  57.2957795130823208768
 
 
-MAX_SPLIT = 2560
+# MAX_SPLIT = 2560
+MAX_SPLIT = 5120    #  2020-12-05
 
 def Planck(f, T):      # Planck function
     return 2.0*H_CC*f*f*f / (exp(H_K*f/T)-1.0) 
@@ -94,6 +95,7 @@ class User:
         self.file_sourcemap   = ''   # file to save map of attenuated sources
         self.file_temperature = ''   # file to save dust temperatures
         self.file_savetau     = ''   # file to save column density map or tau map
+        self.file_pssavetau   = ''   # file to save column density and optical depth towards point sources
         self.file_scattering  = ''   # file to save images of scattered light
         self.file_constant_save = '' # file to save heating by constant sources, with reference field
         self.kernel_defs      = ''   # additional defs passed onto kernel compilation
@@ -177,11 +179,13 @@ class User:
         self.REMIT_I2     = 0
         self.KEYS         = {}
         self.PLATFORM     = -1       # number of the OpenCL platform, <0 = figure it out
+        self.IDEVICE      = 0        # index of the device within the selected platform (index over CPUs or GPUs only)
         self.K_DIFFUSE    = 1.0      # scaling of the input diffuse radiation field
         self.SINGLE_ABU   = 0
         self.OPT_IS_HALF  = 0
         self.POL_RHO_WEIGHT = 0 
         self.savetau_freq = -1.0     # if >0, save tau map instead of column density map
+        self.pssavetau_freq = -1.0     # if >0, save tau map instead of column density map
         
         self.ROI           = zeros(6, int32)   # ROI limits in root grid cells [x0,x1,y0,y1,z0,z1] = [x0:(x1+1), ...]
         self.ROI_STEP      = 0       # for ROI_SAVE, subsampling of GL
@@ -199,7 +203,6 @@ class User:
         self.FSELECT       = []      # selected frequencies (simulation using library)
         self.LIB_ABS       = False   # only calculate absorptions at FSELECT frequencies
         self.LIB_MAPS      = False   # only calculate maps from library-solved emission
-
         
         # read inifile
         for line in open(filename).readlines():    
@@ -256,13 +259,16 @@ class User:
                 self.savetau_freq = 0.0   # <0 => no colden, ==0 => colden, >0 => save optical depth
                 if (len(s)>2):
                     self.savetau_freq = um2f(float(s[2]))
-            
+
+            if (key.find('pssavetau')==0):
+                self.file_pssavetau  = s[1]
+                self.pssavetau_freq  = um2f(float(s[2]))
+                    
             if (len(s)<2): continue
             # keywords with a single argument
             key, a  =  s[0], s[1]
             if (key.find('device')==0):      self.DEVICES           = a
             if (key.find('fission')==0):     self.FISSION           = int(a)
-            if (key.find('platform')==0):    self.PLATFORM          = int(a)
             if (key.find('sourcemap')==0):   self.file_sourcemap    = a
             if (key.find('tempera')==0):     self.file_temperature  = a
             if (key.find('cloud')==0):       self.file_cloud        = a
@@ -271,6 +277,13 @@ class User:
             if (key.find('emit')==0):        self.file_emitted      = a
             if (key.find('emit')==0):        self.file_emitted      = a
             if (key.find('split')==0):        self.DO_SPLIT         = int(a)
+            if (key.find('platform')==0):    
+                self.PLATFORM   = int(a)
+                if (len(s)>2):
+                    try:
+                        self.IDEVICE = int(s[2])
+                    except:
+                        self.IDEVICE = 0
             if (key.find('libabs')==0): 
                 self.FSELECT = loadtxt(a)
                 self.LIB_ABS = True
@@ -333,7 +346,6 @@ class User:
             if (key.find('yshear')==0):      self.Y_SHEAR         =  float(a)
             if (key.find('interpol')==0):    self.INTERPOLATE     =  float(a)
             if (key.find('outnside')==0):    self.OUT_NSIDE       =  int(a)
-            
             if (key.find('emwei')==0):
                 self.USE_EMWEIGHT = int(a)   # 0/1 = no weighting / precalculated    a == s[1]
                 if (len(s)>3):
@@ -423,7 +435,7 @@ class User:
                     self.NO_PS += 1
                 else:
                     print("Reached maximum number of point sources = %d", MAXPS)
-                    
+                    sys.exit()
                     
             if ((key=='roi')&(len(s)>=6)):
                 self.ROI = asarray([ int(s[1]), int(s[2]), int(s[3]), int(s[4]), int(s[5]), int(s[6]) ], int32)
@@ -1087,6 +1099,8 @@ def opencl_init(USER):
         context   =  array of compute contexts, one per device
         commands  =  array of command queues, one per device
     """
+    platform         = []
+    devi             = []
     context          = []  # for each device
     commands         = []
     try_platforms    = arange(5)
@@ -1098,9 +1112,9 @@ def opencl_init(USER):
             try:
                 platform  = cl.get_platforms()[iplatform]
                 if (dc=='g'):
-                    devi  = platform.get_devices(cl.device_type.GPU)
+                    devi  = [ platform.get_devices(cl.device_type.GPU)[USER.IDEVICE] ]
                 else:
-                    devi  = platform.get_devices(cl.device_type.CPU)
+                    devi  = [ platform.get_devices(cl.device_type.CPU)[USER.IDEVICE] ]
                 ###
                 if (USER.FISSION>0):
                     print("FISSION %d !" % USER.FISSION)
@@ -1120,7 +1134,10 @@ def opencl_init(USER):
         context.append(cont)
         commands.append(queue)
     # --- end creating kernels
-    print("opencl_init => context", context)
+    print("opencl_init:")
+    print(" platform ", platform)
+    print(" device   ", devi)
+    print(" context  ", context)
     return context, commands
 
 

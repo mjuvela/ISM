@@ -15,6 +15,11 @@
 # define OTYPE float
 #endif
 
+
+#define F2I(x)    (*(__global int*)&x)   //  __global BUFFER -> OTI
+#define I2F(x)    (*(float *)&x)         //           OTI    -> __global BUFFER
+
+
 #define DIMLIM 100 // if base grid NX is larger, use double precision for position
 
 #if (NX>DIMLIM)  // from Index()
@@ -64,7 +69,7 @@ constant double DPEPS       =  2.0e-5  ;  // 2020-07-18
 constant float  EPS         =  5.0e-4f  ; // same => -''- ; add DIMLIM to GetStep
 constant float  PEPS        =  1.0e-4f  ;
 constant float  PEPS2       =  2.0e-4f  ;  // used in "new" IndeOT() only ... was 2e-4
-constant float DEPS         =  5.0e-5f  ;
+constant float  DEPS        =  5.0e-5f  ;
 
 #else
 
@@ -204,16 +209,18 @@ void Index(float3 *pos, int *level, int *ind,
       } // while not root grid
    } // else -- going up
    // Go down - position *is* inside the current ***CELL***
+   // printf("GO DOWN:  %8.4f %8.4f %8.4f  %d %d\n", POS.x, POS.y, POS.z, *level, *ind) ;
    while(DENS[OFF[*level]+(*ind)]<=0.0f) {  // loop until (level,ind) points to a leaf
+      // printf("DENS[%d] = %.5e   ", OFF[*level]+(*ind), DENS[OFF[*level]+(*ind)]) ;
       // convert to sub-octet coordinates -- same for transition from root and from parent octet
       POS.x =  TWO*fmod(POS.x, ONE) ;      POS.y =  TWO*fmod(POS.y, ONE) ;      POS.z =  TWO*fmod(POS.z, ONE) ;
-      // printf("Down:  %9.5f %9.5f %9.5f\n", POS.x, POS.y, POS.z) ;
       float link = -DENS[OFF[*level]+(*ind)] ;
       *ind       = *(int *)&link ;      // first cell in the sub-octet
+      // printf(" => ind %d !!!!!!!!!!!!!!!!!!\n", *ind) ;
       (*level)++ ;
-      // printf("IND %d + %9.5f %9.5f %9.5f = ", *ind, POS.x, POS.y, POS.z) ;
+      // printf("SUBOCTET %9.5f %9.5f %9.5f  %d %d  link %.4e", POS.x, POS.y, POS.z, *level, *ind, link) ;
       *ind      += 4*(int)floor(POS.z) + 2*(int)floor(POS.y) + (int)floor(POS.x) ; // subcell (suboctet)
-      // printf("  %d\n", *ind) ;
+      // printf("  -->  %d\n", *ind) ;
    }
    pos->x = POS.x ;  pos->y = POS.y ;  pos->z = POS.z ; 
    return ;
@@ -247,9 +254,11 @@ float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind,
    dy = (DIR->y>0.0f) ? ((1.0f+PEPS-fmod((*POS).y,1.0f))/((*DIR).y)) : ((-PEPS-fmod((*POS).y,1.0f))/((*DIR).y)) ;
    dz = (DIR->z>0.0f) ? ((1.0f+PEPS-fmod((*POS).z,1.0f))/((*DIR).z)) : ((-PEPS-fmod((*POS).z,1.0f))/((*DIR).z)) ;
    dx     =  min(dx, min(dy, dz))  ;
-   *POS  +=  dx*(*DIR) ;                     // update LOCAL coordinates - overstep by PEPS
+   *POS  +=  dx*(*DIR) ;                    // update LOCAL coordinates - overstep by PEPS
+   // printf("MOVE %.3e   %8.4f %8.4f %8.4f   ", dx, POS->x, POS->y, POS->z) ;
    dx     =  ldexp(dx, -(*level)) ;         // step returned in units [GL] = root grid units
    Index(POS, level, ind, DENS, OFF, PAR) ; // update (level, ind)
+   // printf(" ==>  %8.4f %8.4f %8.4f   %d %9d\n", POS->x, POS->y, POS->z, *level, *ind) ;
    return dx ;                 // step length [GL]
 # endif
 }
@@ -636,6 +645,12 @@ __kernel void Parents(__global   float  *DENS,
          } // if there was a sub-octet
       } // parent cells
    } // parent levels
+#if 0
+   if (id%101==1) {
+      printf("PARENTS => 886247  = %.3e  1886248  = %.3e  2886249  = %.3e\n", 
+             DENS[886247], DENS[1886248], DENS[2886249]) ;      
+   }
+#endif
 }
 
 
