@@ -147,6 +147,14 @@ results are discussed at
 * http://www.interstellarmedium.org/numerical_tools/mbb/
 
 
+## Ocfil - OpenCL program for filament extraction
 
-
+Ocfile directory contains a Python/pyOpenCL program that tries to
+identify filaments from a FITS image, trace the filaments, and
+produce 2D of them (one dimension running along the filament, the
+other being perpendicular). The current GitHub version relies on
+scipy.ndimage routine label(), which may not scale well for large
+images (>1000x1000 pixels). The (simple) program will be described
+in more detail at
+* http://www.interstellarmedium.org/numerical_tools/filaments/
 
