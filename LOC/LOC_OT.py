@@ -256,8 +256,10 @@ GL, MAXCHN, WITH_HALF, PLWEIGHT, LOWMEM, INI['clip'], (COOLING==2),
 LEVELS, TRANSITIONS, HFS, WITH_CRT, DOUBLE_POS, MAX_NBUF, 
 INSTALL_DIR, OTL, NWG, OCTREE, GAUSTORE, WITH_ALI, FIX_PATHS)
 if (1):
-    # OPT  += " -cl-fast-relaxed-math -cl-finite-math-only -cl-unsafe-math-optimizations"
-    OPT  += " -cl-fast-relaxed-math"
+    # -cl-fast-relaxed-math == -cl-mad-enable -cl-no-signed-zeros -cl-unsafe-math-optimizations -cl-finite-math-only
+    # -cl-unsafe-math-optimizations is ***DANGEROUS*** ON NVIDIA
+    OPT += "-cl-mad-enable -cl-no-signed-zeros -cl-finite-math-only"  # this seems ok on NVidia !!
+    
 if (0):
     OPT  += " -cl-std=CL1.1"
 if (INI['GPU']==99):  # Intel fails .... does optimisation work for POCL? Yes - with no visible effect...
