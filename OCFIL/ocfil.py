@@ -5,11 +5,15 @@ from ocfil_aux import *
 
 if (len(sys.argv)<2):
     print("")
-    print("Usage: ocfil  fits_file  [ threshold  [ scale  [ FWHM] ] ]")
+    print("Usage: ocfil  fits_file  [ threshold  [ scale  [ FWHM [METHOD] ] ] ]")
     print("     fits_file =  input image (2D FITS image in hdu=0)")
     print("     threshold =  probability threshold, e.g. 0.3")
     print("     scale     =  step between stencil points in arcsec, ~ scale of filament width")
-    print("     FWHM      =  convolve input map with FWHM [arcsec] before analysis")
+    print("     FWHM      =  if >0, convolve input map with FWHM [arcsec] before analysis")
+    print("     METHOD    =  method for tracing the filaments")
+    print("                  0 = follow the main branch only")
+    print("                  1 = follow the main and side branches using the position-angle estimates")
+    print("                  2 = follow the main and side branches using only the probability image")
     print("""
     ocfil.py is a program to identify and extract 2D images of filaments in a figure:
         - optionally start by convolving the input image
@@ -27,13 +31,19 @@ PLIM      =  0.3                       # probability threshold (to identify conn
 PIX_LIMIT =  30                        # lower limit for the number of pixels in a filament
 STEP      =  ARCMIN_TO_RADIAN          # characteristic scale (step between points in the stencil)
 FWHM      =  -1.0
+METHOD    =  0
 
 F         =  pyfits.open(sys.argv[1])  # open the FITS image to be analysed
 if (len(sys.argv)>2): PLIM      =  float(sys.argv[2])                   # probability threshold
 if (len(sys.argv)>3): STEP      =  float(sys.argv[3])*ARCSEC_TO_RADIAN  # step length [arcsec] -> [radian]
 if (len(sys.argv)>4): FWHM      =  float(sys.argv[4])*ARCSEC_TO_RADIAN  # FWHM for convolution [arcsec] -> [radian]
+if (len(sys.argv)>5): METHOD    =    int(sys.argv[5])                   # FWHM for convolution [arcsec] -> [radian]
+if (FWHM<0.0): FWHM = -ARCSEC_TO_RADIAN
+print("PLIM %3f, STEP %.1f arcsec, FWHM %.1f arcsec, METHOD %d" % (PLIM, STEP*RADIAN_TO_ARCSEC, FWHM*RADIAN_TO_ARCSEC, METHOD))
+
 
 N, M      =  F[0].data.shape            # image dimentions
+print(N*M)
 PIX       =  GetFitsPixelSize(F)        # FITS image pixel size [radians]
 m         =  np.nonzero( (F[0].data!=0.0) & (np.isfinite(F[0].data)) )   # valid pixels
 F[0].data[np.nonzero(~np.isfinite(F[0].data))] = 0.0  # all missing pixels set to zero
@@ -46,7 +56,7 @@ platform, device, context, queue, mf = InitCL(GPU, PLF) # OpenCL environment
 LOCAL     =  [4, 32][GPU>0]             # local work group size
 GLOBAL    =  ((N*M)//32+1)*32           # total number of work items >= number of pixels
 OPT       =  '-D N=%d -D M=%d -D STEP=%.4ff -D LEGS=%d -D NDIR=%d' % (N, M, STEP/PIX, LEGS, NDIR)
-source    =  open('kernel_ocfil.c').read()
+source    =  open(INSTALL_DIR+"/kernel_ocfil.c").read()
 program   =  cl.Program(context, source).build(OPT)
 S         =  np.asarray(F[0].data, np.float32)
 S_buf     =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=S)  # buffer for the input image
@@ -136,25 +146,42 @@ print("Maxima selected")
 R         =  np.zeros((NO, 1000, 3), np.float32)             # coordinates for traces of the filament spines
 R_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*NO*1000*3)  # at most 1000 points along the filament (x, y, p)
 cl.enqueue_copy(queue, P_buf,  P)                            # updated to probability instead of lnP
-Trace     =  program.Trace
-#                                 NO        PLIM        XY      S      P      T      L,     RW   
-Trace.set_scalar_arg_dtypes([     np.int32, np.float32, None,   None,  None,  None,  None,  None])
-Trace(queue, [GLOBAL,], [LOCAL,], NO,       PLIM,       XY_buf, S_buf, P_buf, T_buf, L_buf, R_buf)   # R = 'route'
-cl.enqueue_copy(queue, R,  R_buf)
+
+print("METHOD=%d" % METHOD)
+NP       =  np.zeros(NO, np.int32)
+NP_buf   =  cl.Buffer(context, mf.READ_WRITE, 4*NO)
+if   (METHOD==1):  # Trace filament and sidefilaments using label and position angle images
+    TWD      =  program.TraceWithDirection
+    TWD.set_scalar_arg_dtypes([       np.int32,            None,           None,  None,  None,  None,  None,   None ])
+    POS_buf  =  cl.Buffer(context, mf.READ_WRITE, 4*NO*200)  #  POS[NO, 100, 2] work space
+    TWD(queue, [GLOBAL,], [LOCAL,],   NO,                  XY_buf,         P_buf, T_buf, L_buf, R_buf, NP_buf, POS_buf)
+elif (METHOD==2):  # Trace filament and sidefilaments using only label and probability images
+    TWP      =  program.TraceWithProbability
+    TWP.set_scalar_arg_dtypes([       np.int32,            None,           None,  None,  None,  None,  None,   None ])
+    POS_buf  =  cl.Buffer(context, mf.READ_WRITE, 4*NO*300)  #  POS[NO, 100, 3]
+    TWP(queue, [GLOBAL,], [LOCAL,],   NO,                  XY_buf,         P_buf, T_buf, L_buf, R_buf, NP_buf, POS_buf)
+    queue.finish()    
+else:              # else use METHOD==0, Simple trace of the main filament only
+    Trace    =  program.Trace
+    #                                 NO        PLIM        XY      S      P      T      L,     RW
+    Trace.set_scalar_arg_dtypes([     np.int32, np.float32, None,   None,  None,  None,  None,  None,  None])
+    Trace(queue, [GLOBAL,], [LOCAL,], NO,       PLIM,       XY_buf, S_buf, P_buf, T_buf, L_buf, R_buf, NP_buf)   # R = 'route'
+cl.enqueue_copy(queue, R,   R_buf)
+cl.enqueue_copy(queue, NP,  NP_buf)                                 
 print("Trace done")
 
 ax = pl.subplot(324)
 pl.imshow(F[0].data)
 pl.title("Traces", size=9)
 pl.colorbar()
-NP  = np.zeros(NO, np.int32)  # number of points along the filament
 fp  = open('spine.dat', 'wb') # dump all filament spine traces to a single binary file
 for i in range(NO):           # check the length of each filament (how many steps)
-    m  =  np.nonzero(R[i,:,0]<0.0)
-    if (len(m[0])<1): continue
-    j  =  m[0][0]       # j positions along the filament
-    pl.plot(R[i, 0:j, 0], R[i, 0:j, 1], 'w-', ms=1)
-    NP[i] = j           # number of (x, y) points along the filament
+    j = NP[i] 
+    if (METHOD==0):
+        pl.plot(R[i, 0:j, 0], R[i, 0:j, 1], 'w-', ms=1)
+    else:
+        pl.plot(R[i, 0:j, 0], R[i, 0:j, 1], 'k.', ms=3)
+        pl.plot(R[i, 0:j, 0], R[i, 0:j, 1], 'w.', ms=1)
     print("  Filament %3d has %3d points" % (i, j))
     np.asarray([NP[i],], np.int32).tofile(fp)        # number of points for the current filament
     np.asarray(R[i, 0:j, :], np.float32).tofile(fp)  # (x,y) values
