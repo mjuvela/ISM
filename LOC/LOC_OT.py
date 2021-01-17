@@ -4,7 +4,7 @@
 LOC.py copied to LOC_OT.py  2020-06-15
 because Paths and Update started to have several additional parameters not needed 
 in case of regular cartesian grid. LOC.py was already using separate kernel_update_py_OT.c for OT.
-And OT uses work group per ray while in LOC.py it was still work item per ray.
+And OT uses work group per ray while in LOC.py it was still one work item per ray.
 """
 
 
@@ -13,7 +13,6 @@ INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(INSTALL_DIR)   
 from   LOC_aux import *
 t000 = time.time()
-
 
 
 if (0):
@@ -68,14 +67,14 @@ print("LOC_OT.py, OCTREE=%d, WITH_ALI=%d, DOUBLE_POS=%d, WITH_HALF=%d, PLEIGHT=%
 
 
 
-FIX_PATHS   =  0      # DOES NOT WORK (YET) FOR OCTREE CLOUDS !!!
+FIX_PATHS   =  0
 if (OCTREE>0):
     FIX_PATHS = 0     # does not work for octrees, especially OT4
 # FIX_PATHS does not work for OCTREE>0 cases (yet)
 #   Should work for OCTREE=0 => dispersion on PL is decreased. While this effect is very small
 #   and dispersion is already in the 5th significant digit and the mean PL remains the same to
 #   the fifth significant digit, in test case the minimum Tex increases from 2.69K to 2.81K !!
-
+# 2020-01-10 ... FIX_PATHS *not* used
 
 
 if (OCTREE):
@@ -89,7 +88,7 @@ else:
 
 ONESHOT     =  INI['oneshot']    # no loop over ray offsets, kernel lops over all the rays
 NSIDE       =  int(INI['nside'])
-NDIR        =  12*NSIDE*NSIDE
+NDIR        =  max([6, 12*NSIDE*NSIDE])           # NSIDE=0 => 6 directions, cardinal directions only
 WIDTH       =  INI['bandwidth']/INI['channels']   # channel width [km/s], even for HFS calculations
 AREA        =  2.0*(NX*NY+NY*NZ+NZ*NX) 
 # NRAY should be enough for the largest side of the cloud
@@ -104,10 +103,11 @@ if (ONESHOT):
         print("Option ONESHOT applies to method OCTREE=0, OCTREE=4 and OCTREE=40 only!!")
         sys.exit()
     
-VOLUME      =  1.0/(NX*NY*NZ)         #   Vcell / Vcloud ... for extree it is volume of root-grid cell
+VOLUME      =  1.0/(NX*NY*NZ)         #   Vcell / Vcloud ... for octree it is volume of root-grid cell
 GL          =  INI['angle'] * ARCSEC_TO_RADIAN * INI['distance'] * PARSEC
 APL         =  0.0
-    
+# APL_WEIGHT  =  1.0
+
 print("================================================================================")
 if (OCTREE>0):
     print("CLOUD %s, ROOT TGRID %d %d %d, OTL %d, LCELLS " % (INI['cloud'], NX, NY, NZ, OTL), LCELLS)
@@ -131,8 +131,6 @@ else:
     print("    chi      %10.3e  %10.3e" % (min(ABU[m]),  max(ABU[m])))
 print("GL %.3e, NSIDE %d, NDIR %d, NRAY %d" % (GL, NSIDE, NDIR, NRAY))
 print("================================================================================")
-# @ MAXL3_P20.0 WITH_HALF    10.7/9.6 GB
-# @ MAXL3_P20.0 WITH_HALF=1  10.7/9.6 GB   .... 10.2/9.0
 
 
 if (0):
@@ -174,12 +172,12 @@ SIJ_ARRAY, ESC_ARRAY = None, None
 if (LOWMEM>1): #  NI_ARRAY, SIJ_ARRAY and (for ALI) ESC_ARRAY are mmap files
     SIJ_ARRAY = np.memmap('LOC_SIJ.mmap', dtype='float32', mode='w+', offset=0, shape=(CELLS, TRANSITIONS))
     if (WITH_ALI==0):  
-        ESC_ARRAY =  zeros(4, float32)  # dummy array
+        ESC_ARRAY =  zeros(1, float32)  # dummy array
     else:              
         ESC_ARRAY =  np.memmap('LOC_ESC.mmap', dtype='float32', mode='w+', offset=0, shape=(CELLS, TRANSITIONS))
 else:  # SIJ_ARRAY and ESC_ARRAY normal in-memory arrays
     SIJ_ARRAY   =  zeros((CELLS, TRANSITIONS), float32)
-    if (WITH_ALI==0):  ESC_ARRAY   =  zeros(4, float32)  # dummy array
+    if (WITH_ALI==0):  ESC_ARRAY   =  zeros(1, float32)  # dummy array
     else:              ESC_ARRAY   =  zeros((CELLS, TRANSITIONS), float32)
 
 WITH_CRT    =  INI['with_crt']
@@ -198,7 +196,7 @@ if (WITH_CRT):
 
     
 # unlike for LOC1D.py which has GAU[TRANSITIONS, CELLS, CHANNELS], LOC.py still has
-# GAU[GNO, CHANNELS] ... we probably should have this in global memory, not to restrict GNO...
+# GAU[GNO, CHANNELS] ... we probably should have this in global memory, not to restrict GNO.
 GAUSTORE = '__global'
 GNO      =  100      # number of precalculated Gaussians
 G0, GX, GAU, LIM =  GaussianProfiles(INI['min_sigma'], INI['max_sigma'], GNO, CHANNELS, WIDTH)
@@ -281,6 +279,7 @@ program       =  cl.Program(context, source).build(OPT, cache_dir=None)
 
 # Set up kernels
 kernel_clear   =  program.Clear
+kernel_paths   =  None   # only if PLWEIGHT in use... no we need this also to get correct PACKETS !!
 if (OCTREE>0):
     if (OCTREE==1): 
         print("USING  program.UpdateOT1: offs %d" % INI['offsets'])
@@ -309,7 +308,7 @@ if (OCTREE>0):
 else:
     print("USING  program.Update")
     kernel_sim       =  program.Update
-    kernel_paths     =  program.Paths
+    if (PLWEIGHT):  kernel_paths     =  program.Paths
 
 kernel_solve         =  program.SolveCL
 kernel_parents       =  program.Parents
@@ -657,7 +656,8 @@ if (INI['iterations']>0):
             queue.finish()
             POS, DIR, LEADING = GetHealpixDirection(NSIDE, ioff, idir, NX, NY, NZ, offs, DOUBLE_POS) ## , theta0, phi0)
             
-            print("IDIR %d / %d     %8.5f %8.5f %8.5f" % (idir, NDIR, POS['x'], POS['y'], POS['z']))
+            print("IDIR %2d / %2d     %8.5f %8.5f %8.5f  %7.4f %7.4f %7.4f   %d" % 
+            (idir, NDIR, POS['x'], POS['y'], POS['z'], DIR['x'], DIR['y'], DIR['z'], LEADING))
             
             
             # Calculate DIRWEI part
@@ -715,14 +715,12 @@ if (INI['iterations']>0):
                 if (PLWEIGHT<1):  niter = 0   # just skip the path calculation
                 
                 for ibatch in range(niter):
-                    # print("paths, idir %3d, ioff %3d, batch %d/%d, dir %7.3f %7.3f %7.3f -- PLWEIGHT=%d, NWG=%d" % (idir, ioff, ibatch, niter, DIR['x'], DIR['y'], DIR['z'], PLWEIGHT, NWG))
-                        
+                    # print("paths, idir %3d, ioff %3d, batch %d/%d, dir %7.3f %7.3f %7.3f -- PLWEIGHT=%d, NWG=%d" % (idir, ioff, ibatch, niter, DIR['x'], DIR['y'], DIR['z'], PLWEIGHT, NWG))                        
                     kernel_paths(queue, [GLOBAL,], [LOCAL],
                     #gid0       [CELLS]  [NRAY]    [NRAY]      np.int32
                     ibatch*NWG, PL_buf,   TPL_buf, COUNT_buf,  LEADING,
                     # REAL3  float3  [LEVELS]    [LEVELS]   [CELLS-NX*NY*NZ]  CELLS     [4|8]*NWG*(26+CHANNELS)*MAX_NBUF
                     POS,     DIR,    LCELLS_buf, OFF_buf,   PAR_buf,          RHO_buf,  BUFFER_buf)
-
                     queue.finish()
                     
             elif (OCTREE in [40,]):  # one work item per ray
@@ -737,7 +735,8 @@ if (INI['iterations']>0):
             queue.finish()
             cl.enqueue_copy(queue, COUNT, COUNT_buf)
             queue.finish()
-            for i in range(NRAY):  PACKETS  += COUNT[i]  # total number of packets from the background
+            # PACKETS = total number of packets from the background, including rays continued to model sides
+            for i in range(NRAY):  PACKETS  += COUNT[i]      
 
             if (LEADING in [0,1]):
                 TRUE_APL          +=  1.0/fabs(DIR['x'])     # expected path length per root grid cell
@@ -747,7 +746,7 @@ if (INI['iterations']>0):
                 TRUE_APL          +=  1.0/fabs(DIR['z'])            
     
 
-            if (1):
+            if (PLWEIGHT):
                 cl.enqueue_copy(queue, PL, PL_buf)
                 queue.finish()
                 m = nonzero(RHO[0:NX*NY*NZ]>0.0)
@@ -756,11 +755,11 @@ if (INI['iterations']>0):
              
                     
         ### break
-                
+    ### end for idir
     
     if (PLWEIGHT):
         cl.enqueue_copy(queue, TPL,   TPL_buf)
-        print("PL[20444] = %8.4f" % PL[20444])
+        # print("PL[20444] = %8.4f" % PL[20444])
         if (min(TPL)<0.0):
             print("PATH KERNEL RAN OUT OF BUFFER SPACE !!!")
             sys.exit()
@@ -769,13 +768,27 @@ if (INI['iterations']>0):
     #      rays == AVERAGE NUMBER OF PHOTONS PER PACKAGE
     #   Individual rays are weighted ~   cos(theta) / <cos(theta)>, where the denominator should be 0.5
     #   We provide kernel the weight factors  =  cos(theta) / <cos(theta)>
-    DIRWEI  /=  RCOUNT             #  now DIRWEI is <cos(theta)> for the rays entering each of the six sides
+    if (1):
+        # 2020-01-13 -- revised weighting, BGPAC * cos(theta) / DIRWEI, where DIRWEI
+        #               is the sum of cos(theta) for each side separately
+        #               *and* the weighting of photon packages does not depend on PACKETS variable
+        print("NEW DIRWEI ", DIRWEI)    # nside=0  => DIRWEI[:] ~ 1.0
+        # sys.exit()
+    else:
+        DIRWEI  /=  RCOUNT         #  now DIRWEI is <cos(theta)> for the rays entering each of the six sides
     EWEI    /=  inner_loop ;       #  <1/cosT>
     EWEI     =  1.0/(EWEI*NDIR)    #  emission from a cell ~  (1/cosT) * EWEI, larger fraction when LOS longer 
     if (ONESHOT<1):
         TRUE_APL =  TRUE_APL/4.0   # no division by offs*offs !!   -- fixed 2020-07-20
     APL      =  TRUE_APL
 
+    # average path length APL/(inner_loop*NDIR) through a cell
+    # random rays + cubic shape => average should be 1.222
+    # possible additional weighting   1.222*inner_loop*NDIR/APL ?
+    # APL_WEIGHT  =  1.222*inner_loop*NDIR/APL
+    # APL_WEIGHT *=  0.8
+    # print("APL_WEIGHT = %8.5f" % APL_WEIGHT)
+        
     if (PLWEIGHT):
         cl.enqueue_copy(queue, PL, PL_buf)
         m = nonzero(RHO>0.0)
@@ -784,10 +797,10 @@ if (INI['iterations']>0):
         m = nonzero(RHO[0:NX*NY*NZ]>0.0)
         if (len(m[0])>0):
             print("<PL> for root grid cells: %.3e +- %.3e" % (mean(PL[0:NX*NY*NZ][m[0]]), std(PL[0:NX*NY*NZ][m[0]])))
-        print("PL[20444] = %8.4f" % PL[20444])
+        # print("PL[20444] = %8.4f" % PL[20444])
     print("Paths kernel: %.3f seconds" % (time.time()-t00))
     # @   WITH_HALF=1   68646124 7840992   65.5/7.7 GB
-    print('DIRWEI     ', DIRWEI)
+    # print('DIRWEI     ', DIRWEI)
     
     # @@ 
     if (0):
@@ -862,8 +875,8 @@ if (len(INI['load'])>0):  # load saved level populations
     try:
         fp = open(INI['load'], 'rb')
         nx, ny, nz, lev = fromfile(fp, int32, 4)
-        print(nx, ny, nz, lev)
-        print(NX, NY, NZ, LEVELS)
+        #print(nx, ny, nz, lev)
+        #print(NX, NY, NZ, LEVELS)
         if ((nx!=NX)|(ny!=NY)|(nz!=NZ)|(lev!=LEVELS)):
             print("Reading %s => %d x %d x %d cells, %d levels" % (nx, ny, nz, lev))
             print("but we have now %d x %d x %d cells, %d levels ?? "  % (NX, NY, NZ, LEVELS))
@@ -962,7 +975,7 @@ if (1):
 def Simulate():
     global INI, MOL, queue, LOCAL, GLOBAL, WIDTH, VOLUME, GL, COOLING, NSIDE, HFS
     global RES_buf, GAU_buf, CLOUD_buf, NI_buf, LIM_buf, PL, EWEI, PL_buf
-    global ESC_ARRAY, SIJ_ARRAY
+    global ESC_ARRAY, SIJ_ARRAY, PACKETS
     ncmp    =  1
     tmp_1   =  C_LIGHT*C_LIGHT/(8.0*pi)
     Tbg     =  INI['Tbg']
@@ -978,11 +991,23 @@ def Simulate():
         Aul           =  MOL.A[tran]
         freq          =  MOL.F[tran]
         gg            =  MOL.GG[tran]
-        # BGPHOT = total number of photons entering the cloud via area == AREA
-        BGPHOT        =  Planck(freq, Tbg)*pi*AREA/(PLANCK*C_LIGHT)*(1.0e5*WIDTH)*VOLUME/GL
-        # the number of photons that should be assigned an individual packages ON AVERAGE
-        # individual packages are weighted just with cos(theta)
-        BG            =  BGPHOT/PACKETS        
+        BG            =  1.0
+        if (1):
+            # 2021-01-13 -- weighting directly by cos(theta)/DIRWEI where DIRWEI = sum(cos(theta)) for each side
+            #  BGPHOT = number of photons per a single surface element, not the whole cloud
+            #  ***AND*** only photons into the solid angle where the largest vector component is 
+            #            perpendicular to the surface element !!!!!
+            #            instead of pi, integral is 1.74080 +-   0.00016   ==> total number of photons per LEADING
+            BGPHOT        =  Planck(freq, Tbg)* 1.74080         /(PLANCK*C_LIGHT) * (1.0e5*WIDTH)*VOLUME/GL
+        else:
+            #  BGPHOT = total number of photons entering the cloud via area == AREA
+            BGPHOT        =  Planck(freq, Tbg)* pi      *  AREA /(PLANCK*C_LIGHT) * (1.0e5*WIDTH)*VOLUME/GL
+            # the number of photons that should be assigned an individual packages ON AVERAGE
+            # individual packages have additional relative weights, dirwei/DIRWEI == cos(theta) / <cos(theta)>
+            BG        =  BGPHOT/PACKETS    
+
+        # print("TRAN=%2d  ==>  BGPHOT = BG*PACKETS = %12.4e" % (tran, BGPHOT))
+        
         if (HFS):
             nchn = BAND[tran].Channels()
             ncmp = BAND[tran].N
@@ -1015,6 +1040,20 @@ def Simulate():
         # the next loop is 99% of the Simulate() routine run time
         offs  =  INI['offsets']  # default was 1, one ray per cell
         t000  =  time.time()
+
+        if (0):
+            print("  A_b     %12.4e" % Ab)
+            print("  GL      %12.4e" % GL)
+            print("  GN      %12.4e" % GNORM)
+            print("  Aul     %12.4e" % Aul)
+            print("  freq    %12.4e" % freq)
+            print("  gg      %12.4e" % gg)
+            print("  BGPHOT  %12.4e" % BGPHOT)
+            print("  PACKETS %d"     % PACKETS)
+            print("  BG      %12.4e" % Planck(freq, Tbg))
+
+
+        SUM_DIRWEI = 0.0   # weight ~ cos(theta)/sum(cos(theta)) ... should sum to 1.0 for each side, 6.0 total
         
         for idir in range(NDIR):
             
@@ -1026,24 +1065,49 @@ def Simulate():
                 POS, DIR, LEADING  =  GetHealpixDirection(NSIDE, ioff, idir, NX, NY, NZ, offs, DOUBLE_POS) # < 0.001 seconds !
                 
                 # print("IDIR %3d/%3d   IOFF %2d/%2d   %7.4f %7.4f %7.4f" % (idir+1, NDIR, ioff, 4*offs*offs, DIR['x'], DIR['y'], DIR['z']))
+                dirwei, ewei = 1.0, 1.0
                 
-                # kernel gets  WEI =   cos(theta)/<cos(theta>)>, to weight BG
-                dirwei = 1e20
-                if (LEADING in [0,1]):    
-                    dirwei   =  fabs(DIR['x']) / DIRWEI[LEADING]   # cos(theta) / <cos(theta)>
-                    ewei     =  float32(EWEI / abs(DIR['x']))      # (1/cosT)  /  <1/cosT> / NDIR
-                elif (LEADING in [2,3]):  
-                    dirwei   =  fabs(DIR['y']) / DIRWEI[LEADING]
-                    ewei     =  float32(EWEI / abs(DIR['x']))
-                else:                     
-                    dirwei   =  fabs(DIR['z']) / DIRWEI[LEADING]
-                    ewei     =  float32(EWEI / abs(DIR['x']))
-                
-                # Tbg=6.0K  =>  Cppsimu Tex,bg = 6.12K
-                # dirwei = 1.0      =>  Tex,bg = 6.02 K
-                # dirwei as above    => Tex,bg = 5.94
-
-                                
+                if (1):
+                    # 2021-01-13 --- BGPHOT * cos(theta)/DIRWEI, DIRWEI = sum(cos(theta)) for each side separately
+                    # there is no change at this point, except that DIRWEI is sum, not the average cos(theta)
+                    # *AND* BG is computed without dependence on the PACKETS variable
+                    if (LEADING in   [0, 1]):    
+                        dirwei   =  fabs(DIR['x']) / DIRWEI[LEADING]   # cos(theta)/<cos(theta)>
+                        ewei     =  float32(EWEI / abs(DIR['x']))      # (1/cosT) / <1/cosT> / NDIR ... not used !!
+                    elif (LEADING in [2, 3]):  
+                        dirwei   =  fabs(DIR['y']) / DIRWEI[LEADING]
+                        ewei     =  float32(EWEI / abs(DIR['y']))
+                    else:                     
+                        dirwei   =  fabs(DIR['z']) / DIRWEI[LEADING]
+                        ewei     =  float32(EWEI / abs(DIR['z']))                    
+                    BG     = BGPHOT * dirwei
+                    SUM_DIRWEI += dirwei
+                    dirwei = 1.0        # this is the weight factor that goes to kernel... now not used
+                else:
+                    # kernel gets  WEI = dirwei/DIRWEI ==  cos(theta)/<cos(theta>)>, to weight BG
+                    #   One needs a weighting according to the angle between the ray and the surface.
+                    #   That could be taken care by the density of rays hitting a surface, if the rays 
+                    #   were equidistant in 3d and therefore density of hits on the surface would get 
+                    #   lower by ~1/cos(theta) for more obliques angles.
+                    # *However*, rays are created equidistant on the leading edge, irrespective of cos(theta).
+                    #    Therefore, we do need to include the weighting 1/cos(theta) because we have rays too densely for
+                    #    oblique angles. On the other hand, simulated rays correspond exactly to the true number
+                    #    of photons that should enter the model volume  => it is only a relative weighting
+                    #    and <dirwei/DIRWEI> == 1.0   =>  PHOTONS ~ sum{   (BGPHOT/PACKETS) * (dirwei/DIRWEI)  }
+                    # DIRWEI was computed for each of the six sides separately
+                    if (LEADING in [0, 1]):    
+                        dirwei   =  fabs(DIR['x']) / DIRWEI[LEADING]   # cos(theta)/<cos(theta)>
+                        ewei     =  float32(EWEI / abs(DIR['x']))      # (1/cosT) / <1/cosT> / NDIR ... not used !!
+                    elif (LEADING in [2, 3]):  
+                        dirwei   =  fabs(DIR['y']) / DIRWEI[LEADING]
+                        ewei     =  float32(EWEI / abs(DIR['y']))
+                    else:                     
+                        dirwei   =  fabs(DIR['z']) / DIRWEI[LEADING]
+                        ewei     =  float32(EWEI / abs(DIR['z']))
+                        
+                        
+                # print("         idir %3d  =>  dirwei %8.5f" % (idir, dirwei))
+                               
                 if (ncmp==1):
                     if (WITH_CRT):
                         niter = NRAY//GLOBAL
@@ -1139,10 +1203,13 @@ def Simulate():
                             print("HFS + OCTREE%d not yet implemented" % OCTREE), sys.exit()
                         
                 queue.finish()
-            
-        # end of loop over NDIR
-        print("--- tran=%2d   ncmp=%2d  %.3f seconds" % (tran, ncmp, time.time()-t000))
         
+        # end of loop over NDIR
+        # print("--- tran=%2d   ncmp=%2d  %.3f seconds" % (tran, ncmp, time.time()-t000))
+        # print("--- SUM_DIRWEI %8.5f" % SUM_DIRWEI)
+        
+        # print("**** DIRWEI AVERAGE VALUE %8.4f ***" % (dwsum/dwcount))
+        # average weight was == 1.000 but this reduced Tex ... the weighting is not ok?
         
         # @@ for plot_pl.py
         if (0):  # debugging ... see that Update has the same PL as Path
@@ -1197,13 +1264,13 @@ def Simulate():
                             SIJ_ARRAY[a:b, tran]      =  WRK[a:b, 0] #### / (2.0**l)
                             ESC_ARRAY[a:b, tran]      =  WRK[a:b, 1] #### / (2.0**l)
         else:  # no ALI, SIJ only
-            WRK.shape = (2, CELLS)  # trickery... we use only first CELLS elements
+            WRK.shape = (2, CELLS)         # trickery... we use only first CELLS elements of WRK
             cl.enqueue_copy(queue, WRK[0,:], RES_buf)    # SIJ only .... RES is only RES[CELLS]
-            if (PLWEIGHT==0):        # PLWEIGHT==0 implies OCTREE=0, Cartesian grid without PL weighting
+            if (PLWEIGHT==0):              # PLWEIGHT==0 implies OCTREE=0, Cartesian grid without PL weighting
                 SIJ_ARRAY[:, tran]                    =  WRK[0,:]
             else:
-                if (OCTREE==0):     # Cartesian grid with PL weihgting
-                    SIJ_ARRAY[:, tran]                =  WRK[0,:] * APL/PL[:]
+                if (OCTREE==0):            # Cartesian grid with PL weihgting
+                    SIJ_ARRAY[:, tran]                =  WRK[0,:]  * APL/PL[:]
                 elif (OCTREE in [1,2]):    #  OCTREE=1,2, weight with  (APL/PL) * f(level)
                     a, b                              =  0, LCELLS[0]
                     SIJ_ARRAY[a:b, tran]              =  WRK[0, a:b] * APL/PL[a:b] 
@@ -1214,6 +1281,7 @@ def Simulate():
                         SIJ_ARRAY[a:b, tran]          =  WRK[0,a:b] * (APL/k) / PL[a:b]
                 else:  # OCTREE 3,4,5,40   weight 2**-l  --- except OCTREE=3 is not exact
                     if (PLWEIGHT):  # include APL/PL weighting
+                        # print("*** PLWEIGHT***")
                         a, b                          =  0, LCELLS[0]
                         SIJ_ARRAY[a:b, tran]          =  WRK[0, a:b] * APL/PL[a:b] 
                         for l in range(1, OTL):
@@ -1354,7 +1422,6 @@ def Simulate():
         
 
         
-        
             
 def Cooling():
     """
@@ -1380,6 +1447,8 @@ def Cooling():
     fp = open('cooling.bin', 'wb')
     asarray(COOL, float32).tofile(fp)
     fp.close()
+
+    
     
     
 def Solve(CELLS, MOL, INI, LEVELS, TKIN, RHO, ABU, ESC_ARRAY):
@@ -1433,8 +1502,12 @@ def Solve(CELLS, MOL, INI, LEVELS, TKIN, RHO, ABU, ESC_ARRAY):
         if (icell%(CELLS//20)==0):
             print("  solve   %7d / %7d  .... %3.0f%%" % (icell, CELLS, 100.0*icell/float(CELLS)))
         tkin, rho, chi  =  TKIN[icell], RHO[icell], ABU[icell]
-        if (rho<0.1):     continue
+        if (rho<1.0e-2):  continue
         if (chi<1.0e-20): continue
+        
+        #print("rho = %.3e" % rho)
+        #rho = 1.0e-5
+        
         if (constant_tkin):
             MATRIX[:,:] = COMATRIX[:,:] * rho 
         else:
@@ -1459,12 +1532,15 @@ def Solve(CELLS, MOL, INI, LEVELS, TKIN, RHO, ABU, ESC_ARRAY):
                                 gamma += cab[ip] * MOL.C(iii, jjj, tkin, ip)
                             MATRIX[jjj, iii] = gamma*rho
         if (len(ESC_ARRAY)>1):
-                MATRIX[ll,uu]    +=  ESC_ARRAY[icell, :] / (VOLUME*NI_ARRAY[icell, uu])
+            MATRIX[ll,uu]    +=  ESC_ARRAY[icell, :] / (VOLUME*NI_ARRAY[icell, uu])
         else:
             for t in range(TRANSITIONS):
                 u,l           =  MOL.T2L(t)
                 MATRIX[l,u]  +=  MOL.A[t]
 
+        #   X[l,u] = Aul + Bul*I       =  Aul + Blu*gl/gu*I = Aul + Slu/GG
+        #   X[u,l] = Blu = Bul*gu/gl
+        
         MATRIX[uu, ll]    +=  SIJ_ARRAY[icell, :] /  VOLUME
         MATRIX[ll, uu]    +=  SIJ_ARRAY[icell, :] / (VOLUME * MOL.GG[:])
 
@@ -1475,30 +1551,35 @@ def Solve(CELLS, MOL, INI, LEVELS, TKIN, RHO, ABU, ESC_ARRAY):
         MATRIX[LEVELS-1, :]   =  -MATRIX[0,0]    # replace last equation = last row
         VECTOR[:]             =   0.0
         VECTOR[LEVELS-1]      =  -(rho*chi) * MATRIX[0,0]  # ???
-                    
+
         VECTOR  =  np.linalg.solve(MATRIX, VECTOR)        
         VECTOR  =  np.clip(VECTOR, NI_LIMIT, 1e99)
         VECTOR *=  rho*chi / sum(VECTOR)        
         
         if (0):
+            print("F= %12.4e  Gu = %.3f  Gl = %3f" % (MOL.F[0], MOL.G[1], MOL.G[0]))
+            tex  =  -H_K*MOL.F[0] / log(MOL.G[0]*VECTOR[1]/(MOL.G[1]*VECTOR[0]))
+            print("Tex(1-0) = %.4f" % tex)
             print("CO_ARRAY")
             for j in range(LEVELS):
                 for i in range(LEVELS):
-                    sys.stdout.write('%9.2e ' % (MATRIX[j,i]))
-                sys.stdout.write('   %9.2e\n' % (VECTOR[j]))
+                    sys.stdout.write('%10.4e ' % (MATRIX[j,i]))
+                sys.stdout.write('   %10.4e\n' % (VECTOR[j]))
             print('')
-            print("SIJ")
-            for j in range(TRANSITIONS):
-                sys.stdout.write(' %10.2e' % SIJ_ARRAY[icell,j])
-            sys.stdout.write('\n')
-            print("ESC")
-            for j in range(TRANSITIONS):
-                sys.stdout.write(' %10.2e' % ESC_ARRAY[icell,j])
-            sys.stdout.write('\n')
             print("VECTOR")
             for j in range(LEVELS):
                 sys.stdout.write(' %10.2e' % VECTOR[j])
             sys.stdout.write('\n')
+            print("")
+            print("SIJ")
+            for j in range(TRANSITIONS):
+                sys.stdout.write(' %10.2e' % SIJ_ARRAY[icell,j])
+            sys.stdout.write('\n')
+            if (WITH_ALI):
+                print("ESC")
+                for j in range(TRANSITIONS):
+                    sys.stdout.write(' %10.2e' % ESC_ARRAY[icell,j])
+                sys.stdout.write('\n')
             sys.exit()
             
         max_relative_change =  max(abs((NI_ARRAY[icell, 0:CHECK]-VECTOR[0:CHECK])/(NI_ARRAY[icell, 0:CHECK])))
@@ -1538,22 +1619,7 @@ def SolveCL():
     ave_max_change     = 0.0
     global_max_change  = 0.0
     
-    
     if (OCTREE>0):
-        # follow_ind = 1748403
-        # follow_ind = 1748406
-        # follow_ind = 5089
-        # follow_ind = 474442
-        # follow_ind = 1190988
-        # follow_ind = 1748406
-        # follow_ind =  537288
-        # follow_ind =  1664967
-        # follow_ind =  1748403
-        # follow_ind =  1028856
-        # follow_ind =  1056898
-        # follow_ind =   837288
-        # follow_ind =   837233
-        # follow_ind  =  1143003
         # follow_ind = 6083
         follow_ind =   -1
         for ilevel in range(OTL):
@@ -1652,6 +1718,7 @@ def SolveCL():
             
             
     else:
+        
         for ibatch in range(CELLS//BATCH+1):
             a     = ibatch*BATCH
             b     = min([a+BATCH, CELLS])
@@ -1980,7 +2047,7 @@ for i in range(len(ul)//2):    # loop over transitions
         m = nonzero(RHO>0.0)
         print("  TEX      %3d  = %2d -> %2d,  [%.3f,%.3f]  %.3f K" % (tr, u, l, min(tex[m]), max(tex[m]), mean(tex[m])))
     else:
-        print("  TEX      %3d  = %2d -> %2d,  [%.3d,%.3f]  %.3f K" % (tr, u, l, min(tex), max(tex), mean(tex)))
+        print("  TEX      %3d  = %2d -> %2d,  [%.3f,%.3f]  %.3f K" % (tr, u, l, min(tex), max(tex), mean(tex)))
 
     if (0):
         clf()

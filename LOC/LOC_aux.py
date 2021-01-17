@@ -3,20 +3,20 @@ import  numpy as np
 from    matplotlib.pylab import *
 import  pyopencl as cl
 import  pyopencl.array as cl_array
-import  healpy
+#import  healpy
 from    scipy.interpolate import interp1d
 import  pickle
 ## from   MoleculeO import *
 
 
 C_LIGHT           =  2.99792458e10
-AMU               =  1.6605E-24 
+AMU               =  1.6605e-24 
 H_K               =  4.799243348e-11
 BOLTZMANN         =  1.3806488e-16
 STEFAN_BOLTZMANN  =  5.670373e-5
 PLANCK            =  6.62606957e-27 
 GRAV              =  6.673e-8
-PARSEC            =  3.0857E18
+PARSEC            =  3.0857e18
 ELECTRONVOLT      =  1.6022e-12
 AU                =  149.597871e11
 RSUN              =  6.955e10
@@ -116,7 +116,7 @@ class MoleculeO:
         self.A       =  asarray(d[:,3], float32)
         self.F       =  asarray(d[:,4]*1.0e9, float32)
         fp.readline()                                        # comment
-        self.PARTNERS = int(fp.readline().split()[0])        # number of coll partners
+        self.PARTNERS = int(fp.readline().split()[0])        # number of collisional partners
         self.PNAME    = []
         self.TKIN     = []
         self.CC       = []
@@ -124,9 +124,9 @@ class MoleculeO:
         self.CABU     = []    # abundances of collisional partners
         for ipartner in range(self.PARTNERS):
             # one partner =  one entry in  { PNAME, TKIN, CUL, CC }
-            fp.readline()                                    #  !COLLISIONS BETWEEN
-            self.PNAME.append(fp.readline().split()[1])      #  name ?
-            fp.readline()                                    #  comment
+            fp.readline()                                    # !COLLISIONS BETWEEN
+            self.PNAME.append(fp.readline().split()[1])      # name ?
+            fp.readline()                                    # comment
             nc            = int(fp.readline().split()[0])    # number of transitions
             fp.readline()                                    # comment
             line          = fp.readline()
@@ -191,13 +191,14 @@ class MoleculeO:
             a, b = self.TRANSITION[i,:]
             if ((a<levels)&(b<levels)):
                 ok[i] = 1
-        m = nonzero(ok>0)   # only these transitions remain
+        m = nonzero(ok>0)                  # only these transitions remain
         # TRANSITION[], A[], and F[] may be truncated = higher levels dropped
         self.TRANSITION   =  asarray(self.TRANSITION[m[0],:], np.int32)
-        self.A            =  asarray(self.A[m[0]], np.float32)
+        self.A            =  asarray(self.A[m[0]],  np.float32)
+        self.B            =  asarray(self.B[m[0]],  np.float32)
         self.BB           =  asarray(self.BB[m[0]], np.float32)
-        self.F            =  asarray(self.F[m[0]], np.float32)
-        self.TRANSITIONS  =  len(m[0])     # number of radiative transitions
+        self.F            =  asarray(self.F[m[0]],  np.float32)
+        self.TRANSITIONS  =  len(m[0])                               # number of radiative transitions
         self.GG           =  np.zeros(self.TRANSITIONS, np.float32)  # G indexed with level, GG with transition!
         for t in range(self.TRANSITIONS):
             u, l          =  self.T2L(t)
@@ -282,18 +283,18 @@ def ReadIni(filename):
     'savetau'         : 0,                   #  save optical depths (currently 1D models only)
     'plweight'        : 1,                   #  include path-length weighting for octree4 (affects OT4 only)
     'clip'            : 0.0,                 #  skip calculations when density below this threshold
-    'damping'         : -1.0,                #  with ALI, dampen iterations is daming*old+(1-damping)*new
+    'damping'         : -1.0,                #  with ALI, dampen iterations is damping*old+(1-damping)*new
     'dnlimit'         : -1.0,                #  ni relative change > dnlimit => new = 0.5*old+0.5*new
     'oneshot'         :  0,                  #  OCTREE=40, single kernel call to cover all rays (given side)
     'thermaldv'       :  1,                  #  if >0, add thermal broadening, otherwise use file values as such
-    'kdensity'        :  1.0,                # scale volume densities
-    'ktemperature'    :  1.0,                # scale Tkin
-    'kabundance'      :  1.0,                # scale fractional abundance
-    'kvelocity'       :  1.0,                # scale macroscopic velocity
-    'ksigma'          :  1.0,                # scale microturbulence
-    'maxbuf'          :  40,                 # maximum allocation of rays per root-grid ray
-    'WITH_HALF'       :  0,                  # whether CLOUD is stored in half precision (vx, vy, vz, sigma)
-    'KILL_EMISSION'   :  999999,             # write spectra ignoring emission from cells >= KILL_EMISSION
+    'kdensity'        :  1.0,                #  scale volume densities
+    'ktemperature'    :  1.0,                #  scale Tkin
+    'kabundance'      :  1.0,                #  scale fractional abundance
+    'kvelocity'       :  1.0,                #  scale macroscopic velocity
+    'ksigma'          :  1.0,                #  scale microturbulence
+    'maxbuf'          :  40,                 #  maximum allocation of rays per root-grid ray
+    'WITH_HALF'       :  0,                  #  whether CLOUD is stored in half precision (vx, vy, vz, sigma)
+    'KILL_EMISSION'   :  999999,             #  write spectra ignoring emission from cells >= KILL_EMISSION, 1D models only!!
     }
     lines = open(filename, 'r').readlines()
     for line in lines:        
@@ -389,7 +390,7 @@ def ReadIni(filename):
                 if (s[0].find("thermaldv")>=0):    INI.update({'thermaldv':   x})
                 if (s[0].find("maxbuf")>=0):       INI.update({'maxbuf':      x})
                 if (s[0].find("half")>=0):         INI.update({'WITH_HALF':   x})
-                if (s[0].find("killemi")>=0):      INI.update({'KILL_EMISSION': x})  # kill all emission from cells>x
+                if (s[0].find("killemi")>=0):      INI.update({'KILL_EMISSION': x})  # kill all emission from cells>x, 1D models only!!
                 if (s[0].find("platform")>=0):  
                     INI.update({'platforms':   [x,]})
                     if (len(s)>2): # user also specifies the device within the platform
@@ -704,9 +705,13 @@ def GaussianProfiles(s0, s1, ng, nchn, dv):
         s           =  SIGMA0 * SIGMAX**i
         GAU[i,:]    =  clip(np.exp(-v*v/(s*s)), 1.0e-30, 1.0)      # doppler width ??
         GAU[i,:]   /=  sum(GAU[i,:])
-        m           =  nonzero(GAU[i,:]>3.0e-5)
-        LIM[i]['x'] =  m[0][ 0]
-        LIM[i]['y'] =  m[0][-1]
+        m           =  nonzero(GAU[i,:]>2.0e-5)
+        if (1):
+            LIM[i]['x'] =  m[0][ 0]
+            LIM[i]['y'] =  m[0][-1]
+        else:
+            LIM[i]['x'] = 0
+            LIM[i]['y'] = nchn-1        
     asarray(GAU, np.float32).tofile('gauss_py.dat')
     return SIGMA0, SIGMAX, GAU, LIM
         
@@ -820,9 +825,6 @@ def IRound(a, b):
 
 
 
-
-   
-
 def Pixel2AnglesRing(nside, ipix):
     # Convert Healpix pixel index to angles (phi, theta), theta=0.5*pi-lat, phi=lon
     # Uses formulas for maps in RING order.
@@ -880,6 +882,38 @@ def GetHealpixDirection(nside, ioff, idir, X, Y, Z, offs=1,  DOUBLE_POS=False, t
                     Kernel steps the whole surface at steps of 2 cells, starting from the offsets provided here.
                     offs=1 => ioff=0:4,    offs=2 => ioff=0:16
     """
+    if (DOUBLE_POS):
+        POS   =  cl.cltypes.make_double3()
+        ## DIR   =  cl.cltypes.make_double3()
+    else:
+        POS   =  cl.cltypes.make_float3()
+    DIR   =  cl.cltypes.make_float3()
+    
+    
+    if (nside==0):  # mostly for debugging -- only the six cardinal directions
+        a     =  ioff //  4        #  offsets within a cell
+        b     =  ioff %   4        #  offsetss between 2x2 cells
+        d1    =  (0.01171875+(a//offs)) / offs   +  (b//2)
+        d2    =  (0.91015625+(a% offs)) / offs   +  (b% 2)
+        d1    =  (0.531+(a//offs)) / offs   +  (b//2)
+        d2    =  (0.53+(a% offs)) / offs   +  (b% 2)
+        b     =  1.0e-5
+        #   WHY IS TEX DEPENDENT ON THIS ANGLE ????????????????????????????????
+        #   b=0.3 gives expected Tex when collisions are weak... <PL> = 1.086  
+        b     =  0.3     
+        b     =  1.0e-4
+        a     =  sqrt(1.0-b*b-b*b)
+        if (idir in [0,1]):
+            DIR['x'], DIR['y'], DIR['z']  =  a*[1.0,-1.0][idir % 2], b, b
+            POS['x'], POS['y'], POS['z']  =  0.0, d1, d2
+        elif (idir in [2,3]):
+            DIR['y'], DIR['x'], DIR['z']  =  a*[1.0,-1.0][idir % 2], b, b
+            POS['y'], POS['x'], POS['z']  =  0.0, d1, d2
+        else:
+            DIR['z'], DIR['x'], DIR['y']  =  a*[1.0,-1.0][idir % 2], b, b
+            POS['z'], POS['x'], POS['y']  =  0.0, d1, d2
+        return POS, DIR, idir
+    
     if (with_healpy==False):
         theta, phi =  Pixel2AnglesRing(nside, idir)
     else:
@@ -887,21 +921,10 @@ def GetHealpixDirection(nside, ioff, idir, X, Y, Z, offs=1,  DOUBLE_POS=False, t
     if ((theta0>-2.0*pi)&(phi>-4.0*pi)):
         theta, phi = theta0, phi0
     else:
-        # phi   +=  0.000137534213            # to avoid exact (+-0.666667,+-0.6666667, 0.3333333) directions
+        phi   +=  0.137534213            # to avoid exact (+-0.666667,+-0.6666667, 0.3333333) directions
         # theta  =  0.00005+theta*0.99995
         pass
 
-    if (DOUBLE_POS):
-        POS   =  cl.cltypes.make_double3()
-        ## DIR   =  cl.cltypes.make_double3()
-    else:
-        POS   =  cl.cltypes.make_float3()
-    DIR   =  cl.cltypes.make_float3()
-
-    if (0):
-        phi  += 0.01*pi
-        theta = clip(theta-1.0e-3, 1.0e-3, pi-1.0e-3)
-    
     DIR['x']   =  sin(theta)*cos(phi)
     DIR['y']   =  sin(theta)*sin(phi)
     DIR['z']   =  cos(theta)
@@ -953,9 +976,8 @@ def GetHealpixDirection(nside, ioff, idir, X, Y, Z, offs=1,  DOUBLE_POS=False, t
         d2    =  (0.513975432+(a% offs)) / offs   +  (b% 2)
         d1    =  (0.01171875+(a//offs)) / offs   +  (b//2)
         d2    =  (0.91015625+(a% offs)) / offs   +  (b% 2)
-
                 
-    if (LEADING in[0,1]):     # lower ot upper X-axis face
+    if (LEADING in[0,1]):     # lower or upper X-axis face
         POS['x'], POS['y'], POS['z']  =  0, d1, d2 
     elif (LEADING in[2,3]):  
         POS['y'], POS['x'], POS['z']  =  0, d1, d2
@@ -1227,9 +1249,7 @@ def ReadOverlap(filename, mol, width, transitions, channels):
             print("   icmp %2d, transition %3d, offset %5.1f" % (icmp, OLBAND.GetTransition(iband, icmp), off))
     ####
     return OLBAND, OLTRAN, OLOFF, MAXCMP
-    
 
-    
 
 
 

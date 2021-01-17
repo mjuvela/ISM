@@ -1099,7 +1099,7 @@ __kernel void UpdateHF4(  // @h
                      // if we come this far, we will add the ray if it just hits the current octet
                      pos1    = pos ;  // again the incoming ray, at the leading edge, in level==XL coordinates
                      pos1.y += (DIR.y>0.0f) ? (-ONE*a) : (+ONE*a) ;   // add first offset =       Y **
-                     if ((pos1.y>=ZERO)&&(pos1.y<=TWO)) continue ;     // still inside the current octet, ignore
+                     if ((pos1.y>=ZERO)&&(pos1.y<=TWO)) continue ;    // still inside the current octet, ignore
                      pos1.z += (DIR.z>0.0f) ? (-ONE*b) : (+ONE*b) ;   // add second offset =      Z ***
                      // pos1 = initial coordinates at the leading-edge level, step forward to the Y sidewall
                      if (DIR.y>0.0f)   pos1  +=  ((EPS  -pos1.y)/RDIR.y) * RDIR ;  // step based on    Y ****
@@ -1643,8 +1643,7 @@ __kernel void Paths(  //
    // Rays start on the leading edge, if ray exits through a side, a new one is created 
    // on the opposite side. Ray ends when the downstream edge is reached.
    // Update() does not use PL ==> PL should be identical for all the cells !!
-   int   id  =  get_global_id(0) ;
-   
+   int   id  =  get_global_id(0) ;   
    id += id0 ;
    if    (id>=NRAY) return ;  
    int   INDEX,  nx=(NX+1)/2, ny=(NY+1)/2, nz=(NZ+1)/2 ;   
@@ -1749,12 +1748,12 @@ __kernel void Paths(  //
       
       INDEX      = Index(POS) ;
       if (INDEX<0) {  // exits the cloud... but on which side?
-         if (POS.x>NX)   {  if (LEADING!=0)  POS.x =    EPS ; }   // create new ray
-         if (POS.x<ZERO) {  if (LEADING!=1)  POS.x = NX-EPS ; }   // create new ray
-         if (POS.y>NY) {    if (LEADING!=2)  POS.y =    EPS ; }   // create new ray
-         if (POS.y<ZERO) {  if (LEADING!=3)  POS.y = NY-EPS ; }   // create new ray
-         if (POS.z>NZ) {    if (LEADING!=4)  POS.z =    EPS ; }   // create new ray
-         if (POS.z<ZERO) {  if (LEADING!=5)  POS.z = NZ-EPS ; }   // create new ray
+         if (POS.x>=NX)   {  if (LEADING!=0)  POS.x =    EPS ; }   // create new ray
+         if (POS.x<=ZERO) {  if (LEADING!=1)  POS.x = NX-EPS ; }   // create new ray
+         if (POS.y>=NY)   {  if (LEADING!=2)  POS.y =    EPS ; }   // create new ray
+         if (POS.y<=ZERO) {  if (LEADING!=3)  POS.y = NY-EPS ; }   // create new ray
+         if (POS.z>=NZ)   {  if (LEADING!=4)  POS.z =    EPS ; }   // create new ray
+         if (POS.z<=ZERO) {  if (LEADING!=5)  POS.z = NZ-EPS ; }   // create new ray
          INDEX = Index(POS) ;
          if (INDEX>=0)  COUNT[id] += 1 ;         // ray re-enters
       }
@@ -1781,39 +1780,41 @@ __kernel void Paths(  //
 
 
 __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
-                        const int id0,            //  0 
+                        const int id0,             //  0 
 # if (WITH_HALF==1)
-                        __global short4 *CLOUD,   //  1 [CELLS]: vx, vy, vz, sigma
+                        __global short4 *CLOUD,    //  1 [CELLS]: vx, vy, vz, sigma
 # else
-                        __global float4 *CLOUD,   //  1 [CELLS]: vx, vy, vz, sigma
+                        __global float4 *CLOUD,    //  1 [CELLS]: vx, vy, vz, sigma
 # endif
-                        GAUSTORE  float *GAU,     //  2 precalculated gaussian profiles [GNO,CHANNELS]
-                        constant int2   *LIM,     //  3 limits of ~zero profile function [GNO]
-                        const float      Aul,     //  4 Einstein A(upper->lower)
-                        const float      A_b,     //  5 (g_u/g_l)*B(upper->lower)
-                        const float      GN,      //  6 Gauss normalisation == C_LIGHT/(1e5*DV*freq)
-                        __global float  *PL,      //  7 just for testing
-                        const float      APL,     //  8 average path length [GL]
-                        const float      BG,      //  9 background value (photons)
-                        const float      DIRWEI,  // 10  <cos(theta)> for rays entering leading edge
-                        const float      EWEI,    // 11  1/<1/cosT>/NDIR
-                        const int        LEADING, // 12 leading edge
-                        const REAL3      POS0,    // 13 initial position of id=0 ray
-                        const float3     DIR,     // 14 ray direction
-                        __global float  *NI,      // 15 [CELLS]:  NI[upper] + NB_NB
-                        __global float  *RES,     // 16 [CELLS]:  SIJ, ESC
-                        __global float  *NTRUES   // 17 [GLOBAL*MAXCHN]
+                        GAUSTORE  float *GAU,      //  2 precalculated gaussian profiles [GNO,CHANNELS]
+                        constant int2   *LIM,      //  3 limits of ~zero profile function [GNO]
+                        const float      Aul,      //  4 Einstein A(upper->lower)
+                        const float      A_b,      //  5 (g_u/g_l)*B(upper->lower)
+                        const float      GN,       //  6 Gauss normalisation == C_LIGHT/(1e5*DV*freq)
+                        __global float  *PL,       //  7 just for testing
+                        const float      APL,      //  8 average path length [GL]
+                        const float      BG,       //  9 background value (photons)
+                        const float      DIRWEI,   // 10  <cos(theta)> for rays entering leading edge
+                        const float      EWEI,     // 11  1/<1/cosT>/NDIR
+                        const int        LEADING,  // 12 leading edge
+                        const REAL3      POS0,     // 13 initial position of id=0 ray
+                        const float3     DIR,      // 14 ray direction
+                        __global float  *NI,       // 15 [CELLS]:  NI[upper] + NB_NB
+                        __global float  *RES,      // 16 [CELLS]:  SIJ, ESC
+                        __global float  *NTRUES    // 17 [GLOBAL*MAXCHN]
 # if (WITH_CRT>0)
-                        ,constant float *CRT_TAU, // 18 dust optical depth / GL
-                        constant float *CRT_EMI   // 19 dust emission photons/c/channel/H
+                        ,constant float *CRT_TAU,  // 18 dust optical depth / GL
+                        constant float *CRT_EMI    // 19 dust emission photons/c/channel/H
 # endif                     
 # if (BRUTE_COOLING>0)
-                        ,__global float *COOL     // 14,15 [CELLS] = cooling 
+                        ,__global float *COOL      // 14,15 [CELLS] = cooling 
 # endif
                     )  {
    float weight ;        
    float dx, doppler, w ;
-# if 1
+# if 0 // DOUBLE
+   double  wd, tmp_tau, tmp_emit, nb_nb, factor, escape, absorbed ;
+# else
    float  tmp_tau, tmp_emit, nb_nb, factor, escape, absorbed ;
 # endif
    
@@ -1821,7 +1822,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
    int row, shift, INDEX, c1, c2 ;
    // Each work item processes one ray, rays are two cells apart (ONESHOT==0) to avoid synchronisation
    // Rays start on the leading edge. If ray exits through a side, a new one is created 
-   // on the opposite side and the ray ends when the downstream edge is reached.
+   // on the opposite side and the ray ends when the downstream border is reached.
    int  id = get_global_id(0) ;
    int lid = get_local_id(0) ;
    
@@ -1882,7 +1883,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
    // BG       =  average number of photons per ray
    // DIRWEI   =  cos(theta) / <cos(theta)>,   weight for current direction relative to average
    for(int i=0; i<CHANNELS; i++) NTRUE[i] = BG * DIRWEI ; // DIRWEI ~ cos(theta) / <cos(theta)>
-   
+
 # if (BRUTE_COOLING>0)
    float cool = BG*DIRWEI*CHANNELS ;
    if (INDEX>=0) {
@@ -1899,16 +1900,16 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       
 # if (NX>DIMLIM) // ====================================================================================================
       double dx, dy, dz ;
-      dx = (DIR.x>0.0f)  ?  ((1.0+EPS-fmod(POS.x,ONE))/DIR.x)  :  ((-EPS-fmod(POS.x,ONE))/DIR.x) ;
-      dy = (DIR.y>0.0f)  ?  ((1.0+EPS-fmod(POS.y,ONE))/DIR.y)  :  ((-EPS-fmod(POS.y,ONE))/DIR.y) ;
-      dz = (DIR.z>0.0f)  ?  ((1.0+EPS-fmod(POS.z,ONE))/DIR.z)  :  ((-EPS-fmod(POS.z,ONE))/DIR.z) ;
+      dx = (DIR.x>0.0f)  ?  ((1.0+DEPS-fmod(POS.x,ONE))/DIR.x)  :  ((-DEPS-fmod(POS.x,ONE))/DIR.x) ;
+      dy = (DIR.y>0.0f)  ?  ((1.0+DEPS-fmod(POS.y,ONE))/DIR.y)  :  ((-DEPS-fmod(POS.y,ONE))/DIR.y) ;
+      dz = (DIR.z>0.0f)  ?  ((1.0+DEPS-fmod(POS.z,ONE))/DIR.z)  :  ((-DEPS-fmod(POS.z,ONE))/DIR.z) ;
       dx =  min(dx, min(dy, dz)) ;
 # else
       dx=        (DIR.x<0.0f) ? (-fmod(POS.x,ONE)/DIR.x-EPS/DIR.x) : ((ONE-fmod(POS.x,ONE))/DIR.x+EPS/DIR.x) ;
       dx= min(dx,(DIR.y<0.0f) ? (-fmod(POS.y,ONE)/DIR.y-EPS/DIR.y) : ((ONE-fmod(POS.y,ONE))/DIR.y+EPS/DIR.y)) ;
       dx= min(dx,(DIR.z<0.0f) ? (-fmod(POS.z,ONE)/DIR.z-EPS/DIR.z) : ((ONE-fmod(POS.z,ONE))/DIR.z+EPS/DIR.z)) ;
 # endif
-      
+
       nu        =  NI[2*INDEX]  ;
       nb_nb     =  NI[2*INDEX+1] ;
       
@@ -1932,12 +1933,12 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       // avoid profile function outside profile channels LIM.x, LIM.y
       c1        =  max(LIM[row].x+shift, max(0, shift)) ;
       c2        =  min(LIM[row].y+shift, min(CHANNELS-1, CHANNELS-1+shift)) ;
-      
-      weight    =  (dx/APL)*VOLUME ;   // correct !!
-      tmp_tau   =  dx*nb_nb*GN ;
+            
+      weight    =  (dx/APL)*VOLUME ;                    // correct !!   .. NDIR=0, weight==1.0/6.0
+      tmp_tau   =   dx*nb_nb*GN ;
       if (fabs(tmp_tau)<1.0e-32f) tmp_tau = 1.0e-32f ;  // was e-32
       tmp_emit  =  weight*nu*(Aul/tmp_tau) ;            // GN include grid length [cm]
-      
+
       sum_delta_true =  0.0f ;
       all_escaped    =  0.0f ;
       
@@ -1954,7 +1955,11 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
          // tt     =  (1.0f-exp(-Ttau)) / Ttau ;
          tt     =  (fabs(Ttau)>0.01f) ?  ((1.0f-exp(-Ttau))/Ttau) : (1.0f-Ttau*(0.5f-0.166666667f*Ttau)) ;
          // ttt    = (1.0f-tt)/Ttau
+#  if 1
          ttt    =  (1.0f-tt)/Ttau ;
+#  else
+         ttt    =  (fabs(Ttau)>0.01f) ?  ((1.0f-tt)/Ttau)  : (0.5f-0.166666667f*Ttau) ;
+#  endif
          // Line emission leaving the cell   --- GL in profile
          Lleave =  weight*nu*Aul*pro * tt ;
          // Dust emission leaving the cell 
@@ -1972,15 +1977,18 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       RES[2*INDEX]   += sij ;            //  2020-06-02  divided by VOLUME only in solver 
       // Emission ~ path length dx but also weighted according to direction, works because <WEI>==1.0
       RES[2*INDEX+1] += all_escaped ;    // divided by VOLUME only oin Solve() !!!
+
+      
       
 # else  // not CRT 
       
-#  if  (WITH_ALI>0) //====================================================================================================
       
+      
+#  if  (WITH_ALI>0)      
       for(int ii=c1; ii<=c2; ii++)  {
          w               =  tmp_tau*profile[ii-shift] ;
          factor          =  (fabs(w)>0.01f) ? (1.0f-exp(-w)) : (w*(1.0f-w*(0.5f-0.166666667f*w))) ;
-         escape          =  tmp_emit*factor ;    // emitted photons that escape current cell
+         escape          =  tmp_emit*factor ;    // emitted photons that escape current cell .... tmp_emit  =  weight*nu*(Aul/tmp_tau)
          absorbed        =  NTRUE[ii]*factor ;   // incoming photons that are absorbed
          NTRUE[ii]      +=  escape-absorbed ;         
          sum_delta_true +=  absorbed  ;          // ignore photons absorbed in emitting cell
@@ -1989,23 +1997,40 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       // Update SIJ and ESC
       // without atomics, large dTex in individual cells
       AADD(&(RES[2*INDEX  ]),  A_b*(sum_delta_true/nb_nb)) ; // parentheses!
-      AADD(&(RES[2*INDEX+1]),  all_escaped) ;
+      AADD(&(RES[2*INDEX+1]),  all_escaped) ;      
+#  else  // ELSE NO ALI
       
-#  else  // ELSE NO ALI ====================================================================================================
-      
+#   if 0 // DOUBLE  ... absolutely no effect on optical thin Tex !!
       for(int ii=c1; ii<=c2; ii++)  {
-         w               =  tmp_tau*profile[ii-shift] ;
-         factor          =  (fabs(w)>0.01f) ? (1.0f-exp(-w)) : (w*(1.0f-w*(0.5f-0.166666667f*w))) ;
-         escape          =  tmp_emit*factor ;    // emitted photons that escape current cell
+         wd              =  tmp_tau*profile[ii-shift] ;
+         factor          =  1.0f-exp(-wd) ;
+         escape          =  tmp_emit*factor ;    // emitted photons that escape current cell .... tmp_emit=weight*nu*(Aul/tmp_tau)
          absorbed        =  NTRUE[ii]*factor ;   // incoming photons that are absorbed
          NTRUE[ii]      +=  escape-absorbed ;
          sum_delta_true +=  absorbed - escape ;  // later absorbed ~ W*nu*Aul - escape
          // all_escaped    +=  escape ;             // sum of escaping photons over the profile
-      }   // over channels
+      }  // over channels
       w    =   A_b * (  (weight*nu*Aul  + sum_delta_true) / nb_nb )  ;
+#  else
+      for(int ii=c1; ii<=c2; ii++)  {
+         w               =  tmp_tau*profile[ii-shift] ;
+         factor          =  (fabs(w)>0.01f) ? (1.0f-exp(-w)) : (w*(1.0f-w*(0.5f-0.166666667f*w))) ;
+         escape          =  tmp_emit*factor ;    // emitted photons that escape current cell .... tmp_emit=weight*nu*(Aul/tmp_tau)
+         absorbed        =  NTRUE[ii]*factor ;   // incoming photons that are absorbed
+         NTRUE[ii]      +=  escape-absorbed ;
+         sum_delta_true +=  absorbed - escape ;  // later absorbed ~ W*nu*Aul - escape
+         // all_escaped    +=  escape ;             // sum of escaping photons over the profile
+      }  // over channels
+      w    =   A_b * (  (weight*nu*Aul  + sum_delta_true) / nb_nb )  ;
+#  endif
+      
+      // printf("    dx = %7.4f  ... EPS = %.3e\n", dx, EPS) ;
       AADD((__global float*)(RES+INDEX),   w) ;   // Sij counter update
       
-#  endif // =====================================================================================================================
+      // printf("dx = %8.4f  w = %12.4e  w/dx %12.4e  W = %12.4e  BG = %12.4e\n", dx, w, w/dx, RES[INDEX], BG) ;
+      
+#  endif
+
       
 # endif  // not CRT
       
@@ -2019,6 +2044,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       
       
 # if (FIX_PATHS>0)
+      not used
       // try to precise the position
       count += 1 ;
       if (count%7==2) {
@@ -2076,6 +2102,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
          if (POS.z<=ZERO) {   if (LEADING!=5)    POS.z = NZ-EPS ;    } ;
          INDEX = Index(POS) ;
          if (INDEX>=0) {   // new ray started on the opposite side (same work item)
+            // printf("SIDERAY !!!!!!!\n") ;
             for(int ii=0; ii<CHANNELS; ii++) NTRUE[ii] = BG * DIRWEI ;
 # if (BRUTE_COOLING>0)
             float cool = BG*DIRWEI*CHANNELS ;
