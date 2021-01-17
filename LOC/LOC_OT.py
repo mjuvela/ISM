@@ -41,7 +41,6 @@ if (len(sys.argv)<2):
     sys.exit()
     
 INI         =  ReadIni(sys.argv[1])
-# print(INI)
 
 MOL         =  ReadMolecule(INI['molecule'])
 HFS         =  len(INI['hfsfile'])>0               # HFS with LTE components
@@ -121,6 +120,9 @@ if (WITH_HALF==0):
     print("    vy       %10.3e  %10.3e" % (min(CLOUD['y'][m]), max(CLOUD['y'][m])))
     print("    vz       %10.3e  %10.3e" % (min(CLOUD['z'][m]), max(CLOUD['z'][m])))
     print("    chi      %10.3e  %10.3e" % (min(ABU[m]),  max(ABU[m])))
+    if ((min(TKIN[m])<0.0)|(min(ABU[m])<0.0)|(min(CLOUD['w'][m])<0.0)):
+        print("*** Check the cloud parameters: Tkin, abundance, sigma must all be non-negative")
+        sys.exit()
 else:
     print("    density  %10.3e  %10.3e" % (min(RHO[m]), max(RHO[m])))
     print("    Tkin     %10.3e  %10.3e" % (min(TKIN[m]), max(TKIN[m])))
@@ -129,6 +131,9 @@ else:
     print("    vy       %10.3e  %10.3e" % (min(CLOUD[:,1][m]), max(CLOUD[:,1][m])))
     print("    vz       %10.3e  %10.3e" % (min(CLOUD[:,2][m]), max(CLOUD[:,2][m])))
     print("    chi      %10.3e  %10.3e" % (min(ABU[m]),  max(ABU[m])))
+    if ((min(TKIN[m])<0.0)|(min(ABU[m])<0.0)|(min(CLOUD[:,3][m])<0.0)):
+        print("*** Check the cloud parameters: Tkin, abundance, sigma must all be non-negative")
+        sys.exit()
 print("GL %.3e, NSIDE %d, NDIR %d, NRAY %d" % (GL, NSIDE, NDIR, NRAY))
 print("================================================================================")
 
@@ -532,7 +537,7 @@ MOL_CABU_buf = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=MOL.C
 # new buffer for matrices and the right side of the equilibriumm equations
 BATCH        =  max([1,CELLS//max([LEVELS, TRANSITIONS])]) # now ESC, SIJ fit in NI_buf
 BATCH        =  min([BATCH, CELLS, 16384])        #  16384*100**2 = 0.6 GB
-print(LEVELS, BATCH)
+
 SOL_WRK_buf  = cl.Buffer(context, mf.READ_WRITE, 4*BATCH*LEVELS*(LEVELS+1))
 SOL_RHO_buf  = cl.Buffer(context, mf.READ_ONLY,  4*BATCH)
 SOL_TKIN_buf = cl.Buffer(context, mf.READ_ONLY,  4*BATCH)
@@ -655,9 +660,10 @@ if (INI['iterations']>0):
             
             queue.finish()
             POS, DIR, LEADING = GetHealpixDirection(NSIDE, ioff, idir, NX, NY, NZ, offs, DOUBLE_POS) ## , theta0, phi0)
-            
-            print("IDIR %2d / %2d     %8.5f %8.5f %8.5f  %7.4f %7.4f %7.4f   %d" % 
-            (idir, NDIR, POS['x'], POS['y'], POS['z'], DIR['x'], DIR['y'], DIR['z'], LEADING))
+
+            if (0):
+                print("IDIR %2d / %2d     %8.5f %8.5f %8.5f  %7.4f %7.4f %7.4f   %d" % 
+                (idir, NDIR, POS['x'], POS['y'], POS['z'], DIR['x'], DIR['y'], DIR['z'], LEADING))
             
             
             # Calculate DIRWEI part
@@ -750,8 +756,9 @@ if (INI['iterations']>0):
                 cl.enqueue_copy(queue, PL, PL_buf)
                 queue.finish()
                 m = nonzero(RHO[0:NX*NY*NZ]>0.0)
-                if (len(m[0])>0):
-                    print("  <PL> root grid: %.3e +- %.3e" % (mean(PL[0:NX*NY*NZ][m[0]]), std(PL[0:NX*NY*NZ][m[0]])))
+                if (0):
+                    if (len(m[0])>0):
+                        print("  <PL> root grid: %.3e +- %.3e" % (mean(PL[0:NX*NY*NZ][m[0]]), std(PL[0:NX*NY*NZ][m[0]])))
              
                     
         ### break
@@ -944,7 +951,7 @@ if (not(ok)): # reset LTE populations
             
 LTE_10_pop = zeros(LEVELS, float32)
 for i in range(LEVELS):
-    print(MOL.G[i], MOL.E[i])
+    # print(MOL.G[i], MOL.E[i])
     LTE_10_pop[i] = MOL.G[i] * exp(-MOL.E[i]*PLANCK/(BOLTZMANN*10.0))
 LTE_10_pop /= sum(LTE_10_pop)
 
@@ -1310,10 +1317,10 @@ def Simulate():
             
         if (1):
             m1  =  nonzero(~isfinite(SIJ_ARRAY[m[0],0]))
-            print("SIJ NOT FINITE:", len(m1[0]))
             # m1  =  ([6083,],)
             # m1  =  ([5083,],)
             if (len(m1[0])>0):
+                print("\nSIJ NOT FINITE:", len(m1[0]))
                 print('SIJ  ', SIJ_ARRAY[m[0],0][m1[0]])
                 print('RHO  ',       RHO[m[0]][m1[0]])
                 print('TKIN ',      TKIN[m[0]][m1[0]])
@@ -1749,13 +1756,12 @@ def SolveCL():
     
     if (1):
         mbad = nonzero(~isfinite(sum(SIJ_ARRAY, axis=1)))
-        print('     *** AFTER SOLVE ***')
-        print('     *** SIJ NOT FINITE: %d' % len(mbad[0]))
+        print('      *** SIJ NOT FINITE: %d' % len(mbad[0]))
         if (WITH_ALI):
             mbad = nonzero(~isfinite(sum(ESC_ARRAY, axis=1)))
-            print('     *** ESC NOT FINITE: %d' % len(mbad[0]))
+            print('      *** ESC NOT FINITE: %d' % len(mbad[0]))
         mbad = nonzero(~isfinite(sum(NI_ARRAY,  axis=1)))
-        print('     *** NI  NOT FINITE: %d' % len(mbad[0]))
+        print('      *** NI  NOT FINITE: %d' % len(mbad[0]))
         for i in mbad[0]:
             NI_ARRAY[i,:] =  LTE_10_pop *RHO[i]*ABU[i]
     return ave_max_change
