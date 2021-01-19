@@ -184,7 +184,7 @@ class User:
         self.SINGLE_ABU   = 0
         self.OPT_IS_HALF  = 0
         self.POL_RHO_WEIGHT = 0 
-        self.savetau_freq = -1.0     # if >0, save tau map instead of column density map
+        self.savetau_freq = -1.0       # if >0, save tau map instead of column density map
         self.pssavetau_freq = -1.0     # if >0, save tau map instead of column density map
         
         self.ROI           = zeros(6, int32)   # ROI limits in root grid cells [x0,x1,y0,y1,z0,z1] = [x0:(x1+1), ...]
@@ -308,7 +308,7 @@ class User:
             if (key.find('externalm')==0):   self.file_external_mask= a            
             if (key.find('backg')==0):  # background intensity for each frequency
                 self.file_background   = a
-                if (len(s)>2): self.scale_background = float(s[2])
+                if ((len(s)>2)&(s[2]!='#')): self.scale_background = float(s[2])
             if (key.find('hpbg')==0):   # Healpix map for intensity at each frequency
                 self.file_hpbg = a
                 if (len(s)>2): self.scale_background = float(s[2])
@@ -1483,4 +1483,58 @@ def AnalyseExternalPointSourcesHealpix(NX, NY, NZ, PSPOS, NO_PS):
     print("*** Error: AnalyseExternalPointSourcesHealpix() not implemented !!!") 
     sys.exit()
     
+    
+
+    
+def WriteSampleIni(filename):
+    fp = open(filename, 'w')
+    fp.write('cloud         ambi_soc.cloud   # --> file containing the cloud model\n')
+    fp.write('optical       my.dust          # --> file containing the dust optical properties\n')
+    fp.write('dsc           my.dsc 2500      # --> file containing the scattering function\n')
+    fp.write('background    bg_intensity.bin # --> file containing background intensity for simulated frequencies\n')
+    fp.write('gridlength    0.01             # size of the root-grid cell in the cloud model [pc]\n')
+    fp.write('density       1.0              # scaling of the density values read from the cloud file\n')
+    fp.write('iterations    1                # number of iterations\n')
+    fp.write('seed         -1.0              # seed for the random number generator (<0 mean random seed)\n')
+    fp.write('absorbed      absorbed.dat     # file to store computed absorbed energy (all cells and frequencies)\n')
+    fp.write('emitted       emitted.dat      # file to store the dust emission (all cells and frequencies)\n')
+    fp.write('bgpackets     999999           # number of photon packages sent from the background per freq. \n')
+    fp.write('mapping       64 64 1.0        # pixels NX and NY in the output map and pixel size in root-grid units\n')
+    fp.write('directions    0.01  0.01       # direction (theta, phi) towards the observer [deg] [deg]\n')
+    fp.write('prefix        soc              # prefix for output files \n')
+    fp.write('CLT                            # solve dust temperatures on device (recommended!)\n')
+    fp.write('CLE                            # solve dust emission on device (recommended!)\n')
+    fp.write('# singleabu                    # for case with two dust populations with abundances x and 1-x (saves space)\n')
+    fp.write('# emweight    1                # use weighted sampling for the volume emission (value 1 or 2)\n')
+    fp.write('# remit       10.0  1000.0     # limit simulation of re-emitted photons to some wavelength range [um]\n')
+    fp.write('# ffs         1                # turn forced first scattering on (1=default) or off (=0)\n')
+    fp.write('# cellpackets 999999           # number of photon packages simulated from the medium\n')
+    fp.write('# diffuse     diffuse.bin      # read additional diffuse emission from the given file\n')
+    fp.write('# diffpack    999999           # number of photon packages simulated from a diffuse source filling the cloud\n')
+    fp.write('# hpbg        hp.bin 1.0 1     # Healpix file for background radiation, optional scaling, optional weighted sampling\n')
+    fp.write('# cload       some.bin         # load additional absorptions from an external file\n')
+    fp.write('# pointsources 64.0 64.0 64.0  ps_intensity.bin 1.0 # add a point source to the model\n')
+    fp.write('# pspackets   999999           # number of photon packages to simulate from point sources\n')
+    fp.write('# loadtemp    T.save           # load dust temperatures (e.g. non-stochastic, to recompute emission based on smaller T file\n')
+    fp.write('# csave       some.bin         # save absorptions due to constant sources (not re-emission) to a file\n')
+    fp.write('# saveint     1                # save intensities to a file, argument 1, 2, or 3 (see online documentation)\n')
+    fp.write('# savetau     tau.bin 0.55     # save optical-depth map, second argument wavelength [um], if missing, save column density\n')
+    fp.write('# nosolve                      # do not solve dust temperatures and emission (only save absorptions)\n')
+    fp.write('# simum       0.1 5000.0       # limit radiation field simulation to wavelength range [um]\n')
+    fp.write('# wavelength  0.1 5000.0       # limit wavelengths in the output spectrum files [um]\n')
+    fp.write('# noabsorbed                   # do not save absorptions (e.g. if emission solved within SOC)\n')
+    fp.write('# nomap                        # skip the writing of the map files\n')
+    fp.write('# nosolve                      # skip the solving of dust emission\n')
+    fp.write('# temperature T.soc            # save temperatures to the specified file (non-stochastic heating only)\n')    
+    fp.write('# device      g                # select OpenCL device, c for CPU, g for GPU  \n')
+    fp.write('# platform    0                # select one OpenCL platform (check the order with clinfo)\n')
+    fp.write('# local       1                # override the default OpenCL local work grounp size\n')
+    fp.write('\n')
+    fp.write('# --> The first four lines refer to files that must be prepared *before* running the SOC program')
+    fp.write('# --> see http://www.interstellarmedium.org/radiative_transfer/soc/')
+    fp.close()
+    print("--------------------------------------------------------------------------------")
+    print("A sample SOC ini file has been written to: %s" % filename)
+    print("--------------------------------------------------------------------------------")
+
     

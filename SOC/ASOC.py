@@ -81,7 +81,12 @@ GLOBAL_0    = 32768
 # GLOBAL_0 = 65536
 
 if (len(sys.argv)<2):  
-    print(" SOC input_file")
+    print("Usage:  SOC ini-file")
+    if (os.path.exists('soc_example.ini')):
+        print("A sample inifile already exists in soc_example.ini")
+    else:
+        WriteSampleInit('soc_example.ini')
+        print("A sample inifile has been written to soc_example.ini")
     sys.exit()
 USER = User(sys.argv[1])
 if (not(USER.Validate())):   

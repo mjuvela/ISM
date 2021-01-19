@@ -16,7 +16,7 @@ void __kernel  LibrarySolve(const int       no,      // number of cells to solve
                             __global float *E,       // library emission vectors [N,N,N,NFREQ]
                             __global float *ABS,     // input, absorption values [no, NFREQ]
                             __global float *EMI) {   // output,  emission values [no, NFREQ],   no <= BATCH
-   const int id  = get_global_id(0) ;
+   const int id  = get_global_id(0) ;      // index to current BATCH
    const int lid = get_local_id(0) ;
    if (id>=no) return ;
    float x, y, z, w, W ;
@@ -25,16 +25,19 @@ void __kernel  LibrarySolve(const int       no,      // number of cells to solve
    
 #if (METHOD==0)  // no interpolation, only the closest grid position
    // indexing of the library cube is based on log10() of absorptions, first bin I0, bin width dI0 etc.
-   x =  (log10(clamp(ABS[id*NFREQ+R0], 1.0e-25f, 1.0f))-I0       )/dI0  ;    // index based on the reference intensity 
+   x =  (log10(clamp(ABS[id*NFREQ+R0], 1.0e-29f, 1.0e10f)) - I0        ) / dI0  ;    // index based on the reference intensity 
    i =  clamp((int)round(x), 0, N-1) ;
-   y =  (log10(clamp(ABS[id*NFREQ+R1], 1.0e-25f, 1.0f))-I1[i]    )/dI1[i]  ;
+   y =  (log10(clamp(ABS[id*NFREQ+R1], 1.0e-29f, 1.0e10f)) - I1[i]     ) / dI1[i]  ;
    j =  clamp((int)round(y), 0, N-1) ;
-   z =  (log10(clamp(ABS[id*NFREQ+R2], 1.0e-25f, 1.0f))-I2[i*N+j])/dI2[i*N+j]  ;  // I2[i,j] = I2[N*i+j] !!
+   z =  (log10(clamp(ABS[id*NFREQ+R2], 1.0e-29f, 1.0e10f)) - I2[i*N+j] ) / dI2[i*N+j]  ;  // I2[i,j] = I2[N*i+j] !!
    k =  clamp((int)round(z), 0, N-1) ;   
    // It is possible that X[i,j,k] is far from x, Y[i,j,k] far from y, or Z[i,j,k] far from z,
    // especially because we clamp the indices (i, j, k)   ==>   flag these as "missing library data"
-   if ((fabs(x-X[k+N*(j+N*i)])>1.0f)||(fabs(x-X[k+N*(j+N*i)])>1.0f)||(fabs(x-X[k+N*(j+N*i)])>1.0f)) {
+   if ((fabs(x-X[k+N*(j+N*i)])>1.1f)||(fabs(y-Y[k+N*(j+N*i)])>1.1f)||(fabs(z-Z[k+N*(j+N*i)])>1.1f)) {
       EMI[id*NFREQ] = 1.0e32f ;   // this stands for missing data
+      printf("KERNEL MISSING %10.3e %10.3e %10.3e <> %10.3e %10.3e %10.3e == %2d %2d %2d\n", x, y, z, 
+             X[k+N*(j+N*i)], Y[k+N*(j+N*i)], Z[k+N*(j+N*i)], i, j, k) ;
+      printf("               %10.3e %10.3e  %10.3e %10.3e  %10.3e %10.3e\n", I0, dI0, I1[i], dI1[i], I2[i*N+j], dI2[i*N+j]) ;
       return ;
    }   
    // Otherwise we can just pick the emission vector EMI[i,j,k,:]
