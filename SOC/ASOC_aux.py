@@ -46,8 +46,8 @@ DEGREE_TO_RADIAN =  0.0174532925199432958
 RADIAN_TO_DEGREE =  57.2957795130823208768
 
 
-# MAX_SPLIT = 2560
-MAX_SPLIT = 5120    #  2020-12-05
+MAX_SPLIT = 2560   # for MWM
+# MAX_SPLIT = 5120    #  2020-12-05
 
 def Planck(f, T):      # Planck function
     return 2.0*H_CC*f*f*f / (exp(H_K*f/T)-1.0) 
@@ -207,8 +207,7 @@ class User:
         # read inifile
         for line in open(filename).readlines():    
             # assert((DIFFUSE==1)&(WITHDUST==1)&(DISTANCE<1.0))
-            s = line.split()
-
+            s = line.split('#')[0].split()
             if (len(s)<1): continue
 
             if (0):
@@ -286,11 +285,13 @@ class User:
                         self.IDEVICE = 0
             if (key.find('libabs')==0): 
                 self.FSELECT = loadtxt(a)
+                if (size(self.FSELECT)==1): self.FSELECT = asarray(self.FSELECT, float32).reshape(1,)
                 self.LIB_ABS = True
                 print("Simulating only selected frequencies:")
                 print(self.FSELECT)
-            if (key.find('libmaps')==0): 
+            if (key.find('libmap')==0): 
                 self.FSELECT = loadtxt(a)
+                if (size(self.FSELECT)==1): self.FSELECT = asarray(self.FSELECT, float32).reshape(1,)                
                 self.LIB_MAPS = True
                 print("Writing maps only for selected frequencies:")
                 print(self.FSELECT)
@@ -308,7 +309,7 @@ class User:
             if (key.find('externalm')==0):   self.file_external_mask= a            
             if (key.find('backg')==0):  # background intensity for each frequency
                 self.file_background   = a
-                if ((len(s)>2)&(s[2]!='#')): self.scale_background = float(s[2])
+                if (len(s)>2): self.scale_background = float(s[2])
             if (key.find('hpbg')==0):   # Healpix map for intensity at each frequency
                 self.file_hpbg = a
                 if (len(s)>2): self.scale_background = float(s[2])
@@ -451,7 +452,6 @@ class User:
     
     def Validate(self):
         ok = True
-        print('-'*80)
         if (len(self.file_cloud)<1):
             print("*** Cloud model not definied: keyword cloud")
             ok = False
@@ -461,7 +461,6 @@ class User:
             self.WITH_ALI = 0
         if (self.PSPAC<1):
             self.NO_PS = 0  # no point sources
-        print('-'*80)            
         return ok
             
             
@@ -827,7 +826,8 @@ def mmap_emitted(USER, CELLS, LEVELS, LCELLS, REMIT_NFREQ, OFF, DENS):
             print('*'*80)
             print('*'*80)
             print("Emitted file TRUNCATED:  %s !!" % USER.file_emitted)
-            print('*'*80)
+            print(" LIB_MAPS", USER.LIB_MAPS)
+            print(" FSELECT",  USER.FSELECT)
             print('*'*80)
             print('*'*80)
             print('*'*80)
@@ -1077,19 +1077,20 @@ def set_observer_directions(USER, new_order=True):
         if (fabs(ODIR[i][0])<1.0e-5): ODIR[i][0]=1.0e-5
         if (fabs(ODIR[i][1])<1.0e-5): ODIR[i][1]=1.0e-5
         if (fabs(ODIR[i][2])<1.0e-5): ODIR[i][2]=1.0e-5
-            
-    print("==========================================================================================")
-    print("LON   %.0f,    LAT  %.0f" % (USER.OBS_THETA[i]*RADIAN_TO_DEGREE, USER.OBS_PHI[i]*RADIAN_TO_DEGREE))
-    print("ODIR  %8.4f %8.4f %8.4f" % (ODIR[0][0], ODIR[0][1], ODIR[0][2]))
-    print("RA    %8.4f %8.4f %8.4f" % (RA[0][0], RA[0][1], RA[0][2]))
-    print("DE    %8.4f %8.4f %8.4f" % (DE[0][0], DE[0][1], DE[0][2]))
-    print("==========================================================================================")
+           
+    if (0):
+        print("==========================================================================================")
+        print("LON   %.0f,    LAT  %.0f" % (USER.OBS_THETA[i]*RADIAN_TO_DEGREE, USER.OBS_PHI[i]*RADIAN_TO_DEGREE))
+        print("ODIR  %8.4f %8.4f %8.4f" % (ODIR[0][0], ODIR[0][1], ODIR[0][2]))
+        print("RA    %8.4f %8.4f %8.4f" % (RA[0][0], RA[0][1], RA[0][2]))
+        print("DE    %8.4f %8.4f %8.4f" % (DE[0][0], DE[0][1], DE[0][2]))
+        print("==========================================================================================")
     return NDIR, ODIR, RA, DE
 
 
 
 
-def opencl_init(USER):
+def opencl_init(USER, verbose=False):
     """
     Initialise OpenCL environment.
     Input:
@@ -1108,7 +1109,7 @@ def opencl_init(USER):
     for dc in USER.DEVICES:
         plat, devi, cont, queue = None, None, None, None
         for iplatform in try_platforms:
-            print("DEVICE %s, TRY PLATFORM %d" % (dc, iplatform))
+            if (verbose):  print("DEVICE %s, TRY PLATFORM %d" % (dc, iplatform))
             try:
                 platform  = cl.get_platforms()[iplatform]
                 if (dc=='g'):
@@ -1126,7 +1127,7 @@ def opencl_init(USER):
                 ###
                 cont  = cl.Context(devi)
                 queue = cl.CommandQueue(cont)
-                print("context ", cont)
+                if (verbose): print("context ", cont)
                 break
             except:
                 pass
@@ -1134,10 +1135,11 @@ def opencl_init(USER):
         context.append(cont)
         commands.append(queue)
     # --- end creating kernels
-    print("opencl_init:")
-    print(" platform ", platform)
-    print(" device   ", devi)
-    print(" context  ", context)
+    if (verbose):
+        print("opencl_init:")
+        print(" platform ", platform)
+        print(" device   ", devi)
+        print(" context  ", context)
     return context, commands
 
 

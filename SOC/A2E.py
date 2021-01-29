@@ -2,13 +2,8 @@
 
 # 2019-04-24 -- New version of A2E_pyCL.py - stripped away the iterative solvers and plotting
 import os, sys
-
-# we assume that the Python scripts and *.c kernel files are in this directory
-# HOMEDIR = os.path.expanduser('~/')
-# sys.path.append(HOMEDIR+'/starformation/SOC/')
 INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(INSTALL_DIR)
-
 
 import pyopencl as cl
 from   scipy.interpolate import interp1d
@@ -72,8 +67,12 @@ if (not(os.path.exists(sys.argv[2]))):
     sys.exit(1)
     
     
-#BATCH =  8192     # RESTRICTED BY MEMORY USAGE !!!
-BATCH  = 2560*2
+#BATCH =  8192     # Restricted by available GPU memory? Apparently not (any more).
+BATCH  = 4096        #   52.3 seconds,  5007 cells per second
+BATCH  = 5120        #   46.9 seconds,  5593 cells per second
+BATCH  = 8192        #   37.4 seconds,  7006 cells per second
+# BATCH  = 16384     #   35.9 seconds,  7303 cells per second -- diminishing returns
+# BATCH = 32768      #   36.4 seconds,  7210 cells per second
 NSTOCH = 999
 if (len(sys.argv)>4):
     GPU  = float(sys.argv[4])   #   a.b,  encoding CPU/GPU and platform
@@ -90,6 +89,11 @@ S_FRAC =  clip(np.fromfile(FP, np.float32, NSIZE), 1.0e-32, 1.0e30)      # S_FRA
 NE     =  np.fromfile(FP, np.int32, 1)[0]                                # NE
 SK_ABS =  np.fromfile(FP, np.float32, NSIZE*NFREQ).reshape(NSIZE, NFREQ) # SK_ABS[NSIZE, NFREQ]
 K_ABS  =  sum(SK_ABS, axis=0)
+
+
+for s in sys.argv: sys.stdout.write("%s " % s)
+sys.stdout.write('\n')
+
 
 # since 2018-12-29 also SOC absorbed.data starts with [ cells, nfreq ] only
 fp     =  open(sys.argv[2], 'rb')      # absorbed
@@ -138,21 +142,21 @@ LOCAL = 16
 platforms = arange(4)
 if (fmod(GPU,1.0)>0):  platforms = [ int(10*fmod(GPU,1)), ] # platform is the number after decimal point
 ok = False
-print("--------------------------------------------------------------------------------")
+# print("--------------------------------------------------------------------------------")
 for itry in range(2):
     for iplatform in platforms:
         try:
-            print("LOOKING FOR %s" % ['CPU', 'GPU'][GPU>=1.0])
-            print("iplatform=%d" % iplatform)
+            # print("LOOKING FOR %s" % ['CPU', 'GPU'][GPU>=1.0])
+            # print("iplatform=%d" % iplatform)
             platform = cl.get_platforms()[iplatform]
-            print("platform=", platform)
+            # print("platform=", platform)
             if (GPU>=1.0):
                 device   = platform.get_devices(cl.device_type.GPU)
-                print("GPU DEVICE", device)
+                # print("GPU DEVICE", device)
                 LOCAL    = 32  #  64 -> 32, TS test = no effect
             else:
                 device   = platform.get_devices(cl.device_type.CPU)
-                print("CPU DEVICE", device)
+                # print("CPU DEVICE", device)
                 LOCAL    =  8
             context  = cl.Context(device)
             queue    = cl.CommandQueue(context)
@@ -166,9 +170,9 @@ for itry in range(2):
     else:
         # we tried to find a valid platform and failed
         print("*** ERROR:   A2E.py failed to find any working OpenCL platform !!!")
-        time.sleep(5)
+        time.sleep(10)
         sys.exit()
-print("--------------------------------------------------------------------------------")
+#print("--------------------------------------------------------------------------------")
 
 
 GLOBAL      =  max([BATCH,64*LOCAL])
@@ -366,7 +370,6 @@ for isize in range(NSIZE):
 
     cl.enqueue_copy(queue, AF_buf,    AF)
     noIw  = np.fromfile(FP, np.int32, 1)[0]
-    # print("                              === noIw = %5d ===" % noIw)
     Iw    = np.fromfile(FP, np.float32, noIw)   # [ windex ], loop l=[0,NE-1[, u=[l+1,NE[
     cl.enqueue_copy(queue, Iw_buf,    Iw)
     L1    = np.fromfile(FP, np.int32,   NE*NE)  # [ l*NE + u ]

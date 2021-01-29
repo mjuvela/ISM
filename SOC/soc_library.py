@@ -33,51 +33,105 @@ Solve (within SOC), using only the reference intensities (I0, I1, I2) of a cell:
         
 """
 
-if (not(len(sys.argv)in[3,4])):
-    print("Usage:  soc_library.py  [ solver  absorbed  |  solver.lib absorbed emitted")
-    print("  With two arguments (solver file and absorption file), create te library.")
-    print("  With three arguments (solver file, absorption file, emission file) use the")
-    print("  library to compute the emission.")
+if (not(len(sys.argv)in[4,5,6])):
+    print()
+    print("Usage:  soc_library.py  gpu_tag  [ solver  absorbed  |  solver absorbed emitted  [ofreq.dat]  ]")
+    print("  soc_library.py   gpu_tag solver_file  absorption_file")
+    print("      create te library based on solver file and ASOC-omputed absorptions.")
+    print("  soc_library.py   gpu_tag solver_file  absorption_file  emission_file  [ofreq.dat]")
+    print("      use library to selve emission")
+    print("      the optional file name (here ofreq.dat) lists output frequencies that")
+    print("      can be a subset of all the frequencies in the library")
+    print("One can use equilibrium dust also but then <solver> must be replaced with the dust file.")
+    print("Parameter gpu_tag is 0 for CPU and 1 for GPU. Can be a decimal number including 0.1*platform, ")
+    print("which chooses a specific OpenCL platform (0, 1, ...) ")
+    print()
     sys.exit()
 
-FILE_SOLVER    =  sys.argv[1]
-FILE_ABSORBED  =  sys.argv[2]
+GPU_TAG        =  float(sys.argv[1])    
+FILE_SOLVER    =  sys.argv[2]    # A2E_pre file - or for equilibrium dust directly the dust file
+FILE_ABSORBED  =  sys.argv[3]
 MAKE_LIBRARY   =  True
-if (len(sys.argv)>3):            # emission file given .. we should be only using the library to solve emission
-    FILE_EMITTED = sys.argv[3]
+EQDUST         =  False          # whether one is calculating equilibrium dust
+
+# check if the argument is equilibrium dust or solver file for stochastically heated grains
+EQDUST = False
+try:
+    tmp = open(FILE_SOLVER, 'r').readline()
+    if (tmp.find('eqdust')==0):
+        EQDUST = True
+except:
+    pass
+
+
+OFREQ          =  []             # OFREQ!=[], emission written only for those frequencies
+NOFREQ         =  0
+if (len(sys.argv)>4):            # emission file given .. we should be only using the library to solve emission
+    FILE_EMITTED = sys.argv[4]
     MAKE_LIBRARY = False         # library should already exist...
+    if (len(sys.argv)>5):
+        print(len(sys.argv))
+        OFREQ  = loadtxt(sys.argv[5])
+        if (size(OFREQ)==1): OFREQ = asarray(OFREQ, float32).reshape(1,)
+        NOFREQ = len(OFREQ)
 if (MAKE_LIBRARY==False):        # ... but check this and make the library if it is still missing
     if (os.path.exists('%s.lib' % FILE_SOLVER)==False):
         print("soc_library.py using library %s.lib that does not yet exist" % FILE_SOLVER)
         print("==> we will now first create it")
         os.system('soc_library.py %s %s' % (FILE_SOLVER, FILE_ABSORBED))
         print("Library has been created - continue to solve all cells....")
-        
+    # 2021-01-22  --- if %s.lib exists and MAKE_LIBRARY==False, absorption file may
+    #                 contain all frequencies or just the reference frequencies
+    
+    
 FREQ     = loadtxt('freq.dat')
-RUM      = asarray([0.2, 0.5, 1.2], float32)
-FREF     = um2f(RUM)
+NFREQ    = len(FREQ)
+# RUM      = asarray([0.2, 0.5, 1.2], float32)
+# FREF     = um2f(RUM)
+FREF     = loadtxt('lfreq.dat')
 N        = 30
+NLFREQ   = 3            # number of reference frequencies
 
 # extract intensities at the reference wavelengths
-fp       = open(FILE_ABSORBED, 'rb')
-CELLS, NFREQ = fromfile(fp, int32, 2)
+fp            = open(FILE_ABSORBED, 'rb')
+CELLS, NFFREQ = fromfile(fp, int32, 2)
 fp.close()
-if (NFREQ!=len(FREQ)):
-    print("Inconsistent number of frequencies")
-    sys.exit()
-    
-ABSORBED = np.memmap(FILE_ABSORBED, dtype='float32', mode='r',  shape=(CELLS, NFREQ), offset=8)
-IFREQ    = zeros(3, int32)
-for i in range(3):
-    IFREQ[i] = argmin(abs(FREF[i]-FREQ))
-IREF     = zeros((CELLS, 3), float32)
-for i in range(3):
-    IREF[:, i] = ABSORBED[:,IFREQ[i]]
+if (NFFREQ!=NFREQ):
+    # NFFREQ < NFREQ --- only if MAKE_LIBRARY==False
+    # == we solve with library with input of only the reference frequency absorptions
+    if (MAKE_LIBRARY==True):
+        print("Inconsistent number of frequencies: FREQ has %d, file %d frequencies" % (NFREQ, NFFREQ))
+        sys.exit()
+    else:  # else = use library
+        if (not((NFREQ==NFFREQ)|(NFFREQ==3))):
+            print("Using library... but absorption file has %d rather than 3 or %d frequencies" % (NFFREQ, NFREQ))
+            sys.exit()
+        
+print('FILE_ABSORBED %s, CELLS %d, NFREQ %d, NFFREQ %d' % (FILE_ABSORBED, CELLS, NFREQ, NFFREQ))
+ABSORBED = np.memmap(FILE_ABSORBED, dtype='float32', mode='r',  shape=(CELLS, NFFREQ), offset=8)
+IFREQ    = asarray(arange(3), int32)   # perhaps USELIB and NFFREQ==NLFREQ
+if (NFFREQ>NLFREQ):                    # file contains more than just the reference frequencies
+    if (NFFREQ!=NFREQ):
+        print("*** ERROR in soc_library.py, ABSORBED=%s has %d frequencies, NFREQ = %d" % (FILE_ABSORBED, NFFREQ, NFREQ))
+        sys.exit()
+    for i in range(3):
+        IFREQ[i] = argmin(abs(FREF[i]-FREQ))  # pick reference frequency indices from the full NFREQ
+else:
+    if (MAKE_LIBRARY):
+        print("*** ERROR in soc_library.py, MAKELIB and file %s has only %d frequencies < NFREQ = %d" % (FILE_ABSORBED, NFFREQ, NFREQ))
+        sys.exit()
+print("*** IFREQ = ", IFREQ)    
+        
+        
+IREF     = zeros((CELLS, NLFREQ), float32)
+for i in range(NLFREQ):
+    IREF[:, i]  =  ABSORBED[:,IFREQ[i]]
 IREF     = clip(IREF, 1.0e-25, 1.0)     # IREF[CELLS, 3]
 IREF     = log10(IREF)                  # all interpolations on log scale
 
 
 if (MAKE_LIBRARY):
+    # MAKE_LIBRARY==True => ABSORBED is the full set of frequencies == NFREQ frequencies
     # bins for the first reference frequency
     a, b   =  min(IREF[:,0]), max(IREF[:,0])
     if (1): 
@@ -169,16 +223,20 @@ if (MAKE_LIBRARY):
     
     fp = open('tmp.absorbed', 'wb')
     asarray([cells, NFREQ], int32).tofile(fp)
-    for i in ind:                 # i == index to the full cloud
-        ABSORBED[i,:].tofile(fp)
+    for icell in ind:             # i == index to the full cloud
+        ABSORBED[icell,:].tofile(fp)
     fp.close()
+    
     t000 = time.time()
-    os.system('A2E.py   %s tmp.absorbed tmp.emitted' % FILE_SOLVER)
-    t000 = 1.0e6*(time.time()-t000)/(float(cells))
+    # EQ_solver and A2E  will also solver emission for all NFREQ (freq.dat) frequencies
+    # and the library will always contain emission for all those frequencies
+    print("*** Solve for cells %d, NFREQ %d" % (cells, NFREQ))
+    if (EQDUST):     # tmp.emitted [cells, NFREQ]
+        os.system('EQ_solver.py  %s tmp.absorbed tmp.emitted 1' % FILE_SOLVER)  
+    else:
+        os.system('A2E.py        %s tmp.absorbed tmp.emitted 1' % FILE_SOLVER)
+    t000 = 1.0e6*(time.time()-t000)/(float(cells))   
     print("*** DIRECT SOLVE %.2f USEC PER CELL ***" % t000)
-
-
-            
     
     # Write information on the binning and the emission vectors to a new file
     #  - number of bins
@@ -186,6 +244,10 @@ if (MAKE_LIBRARY):
     #  - bin indices do the cases for which we have the emission
     fp = open('%s.lib' % FILE_SOLVER, 'wb')
     asarray([N, NFREQ], int32).tofile(fp)
+    if (len(FREQ)!=NFREQ): 
+        print("??????")
+        sys.exit()
+    asarray(FREQ, float32).tofile(fp)
     asarray([I0, dI0], float32).tofile(fp)
     asarray(I1,  float32).tofile(fp)
     asarray(dI1, float32).tofile(fp)
@@ -198,7 +260,8 @@ if (MAKE_LIBRARY):
     # The corresponding emission vectors.... or zeros if there were no cells in the bin
     tmp         =  clip(fromfile('tmp.emitted', float32)[2:].reshape(cells, NFREQ), 1.0e-30, 1.0e30)
     TMP         =  1.0e32*ones((N*N*N, NFREQ), float32)   # space for emission for every bin, 1e32 for missing data
-    TMP[m[0],:] =  tmp                                    # only bins for which corresponding cells were available
+    print("*** TMP[%d,%d] <- tmp[%d,%d]" % (N*N*N, NFREQ, cells, NFREQ))
+    TMP[m[0],:] =  tmp                                     # only bins for which corresponding cells were available
     TMP.tofile(fp)
     fp.close()
     # Note --- library lists log10 of intensity and of emission
@@ -207,10 +270,14 @@ if (MAKE_LIBRARY):
     
 else:  # Using the library to solve emission
     
+
+    # MAKE_LIBRARY==False => using existing library to solve emission
+    # - ABSORBED may be the full NFREQ frequencies or only three frequencies
     
     # Read the library information
     fp       = open('%s.lib' % FILE_SOLVER, 'rb')
     N, NFREQ = fromfile(fp, int32, 2)
+    FREQ     = fromfile(fp, float32, NFREQ)
     I0, dI0  = fromfile(fp, float32, 2)
     I1       = fromfile(fp, float32, N)
     dI1      = fromfile(fp, float32, N)
@@ -226,12 +293,22 @@ else:  # Using the library to solve emission
     tmp      = ravel(EMI[:,:,:,0])
     m        = nonzero(tmp<1e30)
     print("Library grid: %d out of %d bins with emission vector" % (len(m[0]), N*N*N))
+
+    # If NOFREQ>0, save only the frequencies listed in OFREQ (must be subset of library frequencies)
+    # check the indices of the output frequencies
+    OIFREQ = []
+    nfreq  = NFREQ   # actual number of frequencies in the EMITTED file
+    if (NOFREQ>0):
+        OIFREQ = zeros(len(OFREQ), int32)
+        for ifreq in range(NOFREQ):
+            OIFREQ[ifreq] = argmin(abs(OFREQ[ifreq]-FREQ)) # closest frequency...
+        nfreq = NOFREQ                                     # actual number of frequencies in the emitted file
+    
     print("EMITTED == %s" % FILE_EMITTED)
     fp = open(FILE_EMITTED, 'wb')
-    asarray([CELLS, NFREQ], int32).tofile(fp)
+    asarray([CELLS, nfreq], int32).tofile(fp)
     fp.close()
-    
-    EMITTED = np.memmap(FILE_EMITTED, dtype='float32', mode='r+',  shape=(CELLS, NFREQ), offset=8)
+    EMITTED = np.memmap(FILE_EMITTED, dtype='float32', mode='r+',  shape=(CELLS, nfreq), offset=8)
     
     # IREF => index to library
     x       =  (IREF[:,0]-I0     )/dI0                # cells =>  bin indices,   x[CELLS]
@@ -241,8 +318,7 @@ else:  # Using the library to solve emission
     z       =  (IREF[:,2]-I2[i,j])/dI2[i,j]           #  z[CELLS]
     k       =  clip(asarray(np.round(z), int32), 0, N-1)
         
-    S       =  zeros(NFREQ, float32)
-    MIS     =  zeros(CELLS//5, int32)                 # store cells without library entry... 20% missing = something is wrong
+    MIS     =  zeros(CELLS//2, int32)                 # store cells without library entry... 50% missing = something is wrong
     mis     =  0
 
     # double check that X[i,j,k] close to x etc.
@@ -250,9 +326,10 @@ else:  # Using the library to solve emission
     m       =  nonzero(bad>3.0)
     print('bad %d' % len(m[0]))
     print('bad', bad[m])
-    print("x", x[m])
-    print("y", y[m])
-    print("z", y[m])
+    if (0):
+        print("x", x[m])
+        print("y", y[m])
+        print("z", y[m])
     
     print(min(i), max(i))
     print(min(j), max(j))
@@ -262,153 +339,75 @@ else:  # Using the library to solve emission
     # ==>     (x, y, z)  ~   (X[i,j,k], Y[i,j,k], Z[i,j,k])
     #  x, y, z, X, Y, Z  are all float indices  (I-I0)/dI0 etc.
         
-    CASE = 4   # 0,1,2,3 = on Python,  4 = on OpenCL
-        
     t000 = time.time()
-    if (CASE in [0, 1, 2, 3]): # PURE PYTHON
-        # must check if  X[ii, jj, kk] close to x[icell] etc. .... e.g. if no emission vectors for any kk for gievn (ii,jj)
-        for icell in range(CELLS):
-            if (icell%10000==0): 
-                print(" CELL %6d / %6d  --- %5.2f %s" % (icell, CELLS, 100.0*icell/float(CELLS), '%'))
-            W    = 0
-            S[:] = 0.0
-            # loop over closest 3x3x3 bins in the library
-            # library grid log10(Iref) values are  (X, Y, Z)
-            #         cell log10(Iref) values are  (x, y, z)  ---> library grid coordinates (i, j, k)
-            CASE = 2
-            if (CASE==0): # only direct matches
-                ii, jj, kk = i[icell], j[icell], k[icell]   # (ii, jj, kk) in the library cube
-                if ((ii>=0)&(EMI[ii, jj, kk, 0]<1e31)):
-                    S   =  1.0*EMI[ii, jj, kk, :]
-                else:
-                    MIS[mis] = icell
-                    mis     += 1
-            elif (CASE==1):  # only direct matches + intensity correction
-                ii, jj, kk = i[icell], j[icell], k[icell]
-                if ((ii>=0)&(EMI[ii, jj, kk, 0]<1e31)):
-                    # coeff = average step on the log scale....   (x-X) = delta(  (I-I0)/dI  )
-                    coeff  =  0.333333 *  (x[icell]-X[ii,jj,kk])*dI0        #  I-I0
-                    coeff +=  0.333333 *  (y[icell]-Y[ii,jj,kk])*dI1[ii]    #  I-I1
-                    coeff +=  0.333333 *  (z[icell]-Z[ii,jj,kk])*dI2[ii,jj] #  I-I2
-                    # now coeff is  ~ delta lg(I)  =>   I *= 10.0**delta
-                    coeff  =  10.0**coeff
-                    S      =  coeff*EMI[ii, jj, kk, :]
-                else:
-                    MIS[mis] = icell
-                    mis     += 1                
-            elif (CASE==2):   # average over up to 3x3x3 bins
-                for ii in range(max([0, i[icell]-1]), min([N, i[icell]+2])):
-                    for jj in range(max([0, j[icell]-1]), min([N, j[icell]+2])):
-                        for kk in range(max([0, k[icell]-1]), min([N, k[icell]+2])):
-                            if (EMI[ii, jj, kk, 0]>1e31): continue        # if this bin does not have an emission vector
-                            if (abs(x[icell]-X[ii,jj,kk])>1.0): continue  # bin is too far from the cell values
-                            if (abs(y[icell]-Y[ii,jj,kk])>1.0): continue
-                            if (abs(z[icell]-Z[ii,jj,kk])>1.0): continue
-                            w   =  1.0/(0.1+(x[icell]-X[ii,jj,kk])**2.0)  #  ~ 1 /  distance_to_bin_entry^p
-                            w  *=  1.0/(0.1+(y[icell]-Y[ii,jj,kk])**2.0)
-                            w  *=  1.0/(0.1+(z[icell]-Z[ii,jj,kk])**2.0)
-                            W  +=  w
-                            S  +=  w*EMI[ii, jj, kk, :]
-                ii, jj, kk = i[icell], j[icell], k[icell]
-                if (icell%10000==-1):
-                    print("   %6d -- %3d %3d %3d -- W=%.3e -- %5.1f %5.1f %5.1f" % \
-                    (icell, i[icell], j[icell], k[icell], W, x[icell]-X[ii,jj,kk], y[icell]-Y[ii,jj,kk], z[icell]-Z[ii,jj,kk]))
-                if (W>0.0):
-                    S        /= W
-                else:
-                    MIS[mis]  = icell
-                    mis      += 1
-            elif (CASE==3):   # average over up to 3x3x3 bins + intensity correction
-                coeff = 1.0
-                for ii in range(max([0, i[icell]-1]), min([N, i[icell]+2])):
-                    for jj in range(max([0, j[icell]-1]), min([N, j[icell]+2])):
-                        for kk in range(max([0, k[icell]-1]), min([N, k[icell]+2])):
-                            if (EMI[ii, jj, kk, 0]<1e31):                        # if this bin does have an emission vector
-                                coeff  =  0.333333 *  (x[icell]-X[ii,jj,kk])*dI0        #  I-I0
-                                coeff +=  0.333333 *  (y[icell]-Y[ii,jj,kk])*dI1[ii]    #  I-I1
-                                coeff +=  0.333333 *  (z[icell]-Z[ii,jj,kk])*dI2[ii,jj] #  I-I2
-                                if ((coeff>-1.0)&(coeff<1.0)):
-                                    pass
-                                else:
-                                    print("--------------------------------------------------------------------------------")
-                                    print(" coeff  %8.3f" % coeff) ;
-                                    print(" %5.2f %5.2f   %5.2f %5.2f   %5.2f %5.2f -- %5.3f %5.3f %5.3f" % (
-                                    x[icell], X[ii,jj,kk],  y[icell], Y[ii,jj,kk],  z[icell], Z[ii,jj,kk],
-                                    dI0, dI1[ii], dI2[ii,jj]))
-                                    print(" %10.3e %10.3e %10.3e..." % (EMI[ii,jj,kk,0], EMI[ii,jj,kk,1], EMI[ii,jj,kk,2]))
-                                    print("--------------------------------------------------------------------------------")
-                                if (abs(coeff)>1.0): continue # the point X/Y/Z(ii,jj,kk) is far from asked x/y/z(icell) !!
-                                coeff  =  10.0**coeff
-                                w      =  1.0/(0.1+(x[icell]-X[ii,jj,kk])**2.0)  #  ~ 1 /  distance_to_bin_entry^p
-                                w     *=  1.0/(0.1+(y[icell]-Y[ii,jj,kk])**2.0)
-                                w     *=  1.0/(0.1+(z[icell]-Z[ii,jj,kk])**2.0)
-                                W     +=  w
-                                S     +=  w*coeff*EMI[ii, jj, kk, :]                        
-                ii, jj, kk = i[icell], j[icell], k[icell]
-                if (icell%1000==-1):
-                    print("   %6d -- %3d %3d %3d -- W=%.3e -- %5.1f %5.1f %5.1f" % \
-                    (icell, i[icell], j[icell], k[icell], W, x[icell]-X[ii,jj,kk], y[icell]-Y[ii,jj,kk], z[icell]-Z[ii,jj,kk]))
-                if (W>0.0):
-                    S        /= W
-                else:
-                    MIS[mis]  = icell
-                    mis      += 1
-                
-            EMITTED[icell,:] = S
-            
-    else:  # OpenCL version
 
-        METHOD   =  0
-        GPU      =  1                  
-        PLF      =  [ 0, 1, 2, 3 ]      
-        platform, device, context, queue, mf = InitCL(GPU, PLF)
-        LOCAL    =  [4, 32][GPU>0]
-        BATCH    =  8192
-        GLOBAL   =  BATCH
-        OPT      = '-D CELLS=%d -D N=%d -D NFREQ=%d -D R0=%d -D R1=%d -D R2=%d -D LOCAL=%d -D METHOD=%d' % \
-        (CELLS, N, NFREQ, IFREQ[0], IFREQ[1], IFREQ[2], LOCAL, METHOD)
-        print(OPT)
-        source   =  open(INSTALL_DIR+"/kernel_soc_library.c").read()
-        program  =  cl.Program(context, source).build(OPT)
-        I1_buf   =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=I1)    #  [N]
-        dI1_buf  =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=dI1)   #  [N]
-        I2_buf   =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=I2)    #  [N,N]
-        dI2_buf  =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=dI2)   #  [N,N]
-        X_buf    =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=X)     #  [N,N,N]
-        Y_buf    =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=Y)     #  [N,N,N]
-        Z_buf    =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=Z)     #  [N,N,N]
-        E_buf    =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=EMI)   #  [N,N,N,NFREQ]
-        ABS_buf  =  cl.Buffer(context, mf.READ_ONLY,   4*NFREQ*BATCH)  
-        EMI_buf  =  cl.Buffer(context, mf.WRITE_ONLY,  4*NFREQ*BATCH)        
-        SOL      =  program.LibrarySolve
-        SOL.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, \
-        None, None, None, None, None, None, None, None, None, None])
-        
-        a        =  0
-        S        =  zeros((BATCH, NFREQ), float32)
-        ABS      =  zeros((BATCH, NFREQ), float32)
-        BAD      =  zeros(CELLS, int32)
-        while(a<CELLS):
-            b    = min([CELLS, a+BATCH])
-            no   = b-a
-            ABS[0:no, :]  = 1.0*ABSORBED[a:b, :]
-            cl.enqueue_copy(queue, ABS_buf, ABS)
-            SOL(queue, [GLOBAL,], [LOCAL,],
-            no, I0, dI0,   I1_buf, dI1_buf,   I2_buf, dI2_buf,   X_buf, Y_buf, Z_buf,   E_buf, ABS_buf, EMI_buf)
-            cl.enqueue_copy(queue, S, EMI_buf)
+    METHOD   =  0
+    GPU      =  (GPU_TAG>=1.0)
+    PLF      =  [ 0, 1, 2, 3 ]
+    if (GPU_TAG%1.0>0.0): PLF = [ int(10.0*(GPU_TAG%1.0)), ] # decimal part -> selected platform
+    print("GPU %d,  " % GPU, PLF)
+    platform, device, context, queue, mf = InitCL(GPU, PLF)
+    LOCAL    =  [4, 32][GPU>0]
+    BATCH    =  8192
+    GLOBAL   =  BATCH
+    # note -- -D NFREQ is always NFREQ, the full set of frequencies
+    #         kernel gets ABS[] that only has the three reference frequencies
+    OPT      = '-D CELLS=%d -D N=%d -D NFREQ=%d -D LOCAL=%d -D METHOD=%d' % \
+                  (CELLS,      N,      NFREQ,      LOCAL,      METHOD)
+    print(OPT)
+    source   =  open(INSTALL_DIR+"/kernel_soc_library.c").read()
+    program  =  cl.Program(context, source).build(OPT)
+    I1_buf   =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=I1)    #  [N]
+    dI1_buf  =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=dI1)   #  [N]
+    I2_buf   =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=I2)    #  [N,N]
+    dI2_buf  =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=dI2)   #  [N,N]
+    X_buf    =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=X)     #  [N,N,N]
+    Y_buf    =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=Y)     #  [N,N,N]
+    Z_buf    =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=Z)     #  [N,N,N]
+    E_buf    =  cl.Buffer(context, mf.COPY_HOST_PTR | mf.READ_ONLY, hostbuf=EMI)   #  [N,N,N,NFREQ]
+    ABS_buf  =  cl.Buffer(context, mf.READ_ONLY,   4*3*BATCH)                      # ONLY reference frequencies
+    EMI_buf  =  cl.Buffer(context, mf.WRITE_ONLY,  4*NFREQ*BATCH)        
+    SOL      =  program.LibrarySolve
+    SOL.set_scalar_arg_dtypes([np.int32, np.float32, np.float32, \
+    None, None, None, None, None, None, None, None, None, None])
+    
+    a        =  0
+    S        =  zeros((BATCH, NFREQ), float32)     # allocated for full set of frequencies
+    ABS      =  zeros((BATCH, 3), float32)         # three reference frequencies
+    BAD      =  zeros(CELLS, int32)
+    while(a<CELLS):
+        b    = min([CELLS, a+BATCH])
+        no   = b-a
+        if (0):
+            ABS[0:no, :]  = 1.0*ABSORBED[a:b, IFREQ]            
+        else:
+            ABS[0:no, 0]  = 1.0*ABSORBED[a:b, IFREQ[0]]
+            ABS[0:no, 1]  = 1.0*ABSORBED[a:b, IFREQ[1]]
+            ABS[0:no, 2]  = 1.0*ABSORBED[a:b, IFREQ[2]]            
+        cl.enqueue_copy(queue, ABS_buf, ABS)
+        SOL(queue, [GLOBAL,], [LOCAL,],
+        no, I0, dI0,   I1_buf, dI1_buf,   I2_buf, dI2_buf,   X_buf, Y_buf, Z_buf,   E_buf, ABS_buf, EMI_buf)
+        cl.enqueue_copy(queue, S, EMI_buf)
+        if (NOFREQ==0):   # we save emission for all frequencies
             EMITTED[a:b, :] = S[0:no, :]
-            # missing emission vectors -- kernel checks the actual distance x-X
-            m    = asarray(a+nonzero(S[0:no, 0]>1.0e31)[0], int32)
-            bad  = len(m)
-            if (bad>0):                
-                MIS[mis:(mis+bad)] = m       # icell for cells not matched by the library
-                mis += bad
-            ##
-            a   += BATCH            
+        else:             # save NOFREQ frequencies only
+            for ifreq in range(NOFREQ):
+                EMITTED[a:b, ifreq] = S[0:no, OIFREQ[ifreq]]
+                
+        # missing emission vectors -- kernel checks the actual distance x-X
+        m    = asarray(a+nonzero(S[0:no, 0]>1.0e31)[0], int32)
+        bad  = len(m)
+        if (bad>0):
+            print("MIS[%d]   mis:(mis+bad) = %d:%d" % (len(MIS), mis, mis+bad))
+            MIS[mis:(mis+bad)] = m       # icell for cells not matched by the library
+            mis += bad
+        ##
+        a   += BATCH            
 
+        
                 
     t000  =  1.0e6*(time.time()-t000)/(float(CELLS))
-    print("*** LIBRARY SOLVE %.2f USEC PER CELL ***" % t000)
+    print("\n*** LIBRARY SOLVE %.2f USEC PER CELL ***\n" % t000)
     if (0): # testing - recompute everything cell by cell
         mis = CELLS
 
@@ -421,19 +420,26 @@ else:  # Using the library to solve emission
     mis  = len(MIS)
     
     # Recompute missing cells one by one -- note that some may be outside the limits of the library cube
-    if (mis<1):
-        print("*** All cells matched by entries in the library ***")
-    else:
+    if ((mis>0)&(NFFREQ==NFREQ)): # some cells missing... but we can solve them without the library!!
         print("*** Missing cells: %d, %.3f %s of all cells" % (mis, 100.0*mis/float(CELLS), '%'))
         fp = open('missing.dat', 'wb')
         asarray([mis, NFREQ], int32).tofile(fp)
         for s in range(mis):
             asarray(ABSORBED[MIS[s],:], float32).tofile(fp)
         fp.close()
-        os.system('A2E.py %s missing.dat emitted.add 1' % FILE_SOLVER)
+        
+        if (EQDUST):
+            os.system('EQ_solver.py  %s missing.dat  emitted.add 1' % FILE_SOLVER)
+        else:
+            os.system('A2E.py        %s missing.dat  emitted.add 1' % FILE_SOLVER)
+        
         ADD = fromfile('emitted.add', float32)[2:].reshape(mis, NFREQ)
-        for s in range(mis):
-            EMITTED[MIS[s], :] = ADD[s]
+        if (NOFREQ==0):                       # copy all frequencies
+            for icell in range(mis):          # loop over cells
+                EMITTED[MIS[icell], :] = ADD[icell]
+        else:                                 # copy only the NOFREQ selected output frequencies
+            for ifreq in range(NOFREQ):       # loop over selected frequencies
+                EMITTED[MIS, ifreq] = ADD[:, OIFREQ[ifreq]]  # ... all of the missing cells
         
         # add the missing entries also back to the library
         for s in range(mis):
@@ -454,11 +460,12 @@ else:  # Using the library to solve emission
             X[ii, jj, kk]      =  x[icell]
             Y[ii, jj, kk]      =  y[icell]
             Z[ii, jj, kk]      =  z[icell]
-            EMI[i[icell], j[icell], k[icell], :] =  ADD[s]
+            EMI[i[icell], j[icell], k[icell], :] =  ADD[s]    # library will always have the emission for all frequencies
             
-        # rewrite the library
+        # rewrite the library ... but do not overwrite the old one?
         fp = open('%s.lib.new' % FILE_SOLVER, 'wb')
         asarray([N, NFREQ], int32).tofile(fp)
+        asarray(FREQ, float32).tofile(fp)
         asarray([I0, dI0], float32).tofile(fp)
         asarray(I1,  float32).tofile(fp)
         asarray(dI1, float32).tofile(fp)
@@ -471,4 +478,14 @@ else:  # Using the library to solve emission
         # The corresponding emission vectors.... or zeros if there were no cells in the bin
         EMI.tofile(fp)
         fp.close()
+    
+    else:
+        if (mis<1):
+            print("*** All cells matched by entries in the library ***")
+        else:
+            print("*** soc_library.py -- %d cells without answer in the library" % mis)
+            print("***                   but file %s does contain only absorptions at %d frequencies" % (FILE_ABSORBED, NFFREQ))
+            print("***                   emission of those cells set to ***ZERO***")
+            EMITTED[MIS[:], :] =  0.0
+                
         

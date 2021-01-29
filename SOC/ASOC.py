@@ -227,9 +227,7 @@ else:
     if (USER.DFPAC>0):
         DFPAC = Fix(Fix(USER.DFPAC, CELLS), LOCAL) # multiple of both LOCAL and CELLS
 # Either CLPAC==DFPAC or CLPAC=0 and DFPAC>=0
-print('*'*80)
 print('PACKETS: PSPAC %d   BGPAC %d  CLPAC %d  DFPAC %d' % (PSPAC, BGPAC, CLPAC, DFPAC))
-print('*'*80)
 asarray([BGPAC, PSPAC, DFPAC, CLPAC], int32).tofile('packet.info')
 
 if (USER.ITERATIONS<1):
@@ -295,9 +293,7 @@ if (USER.DO_SPLIT):
     # change  GLOBAL_SPLIT so that SELEM*GLOBAL >= AREA but not more
     GLOBAL_SPLIT  =  Fix((USER.AREA//SELEM)+1, LOCAL)
 
-print('-'*90)
 print("PS_METHOD=%d, WITH_ABU=%d, WITH_MSF=%d" % (USER.PS_METHOD, WITH_ABU, WITH_MSF))
-print('-'*90)
 
 
 ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D FACTOR=%.4ef \
@@ -317,7 +313,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, USER.savetau_freq, USER.MINLOS, USER.MAXLOS,
    USER.FFS, NODIR, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
    ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT )
-print(ARGS)
+# print(ARGS)
 VARGS = ""
 # VARGS += " -cl-nv-cstd=CL1.1 -cl-nv-arch sm_20 -cl-single-precision-constant -cl-mad-enable"
 # VARGS += " -cl-fast-relaxed-math -cl-nv-opt-level=2"
@@ -380,12 +376,7 @@ ROI_LIM_buf  = None
 #  400e6 cells => saves 1.5 GB device memory !!
 NEED_EMIT_BUF = (USER.LOAD_TEMPERATURE) | (DFPAC>0) | (CLPAC>0) | (not(USER.NOSOLVE)) \
               | ('SUBITERATIONS' in USER.KEYS) | (not(USER.NOMAP)) | (USER.POLMAP>0)
-print("----------------------------------------")
-print("NEED_EMIT_BUF = %d" % NEED_EMIT_BUF)
-print("----------------------------------------")
-
-
-print("Creating buffers...")
+# print("NEED_EMIT_BUF = %d" % NEED_EMIT_BUF)
 
 for ID in range(DEVICES):
     LCELLS_buf.append( cl.Buffer(context[ID], mf.READ_ONLY,  LCELLS.nbytes))
@@ -401,12 +392,12 @@ for ID in range(DEVICES):
         CSC_buf.append(    cl.Buffer(context[ID], mf.READ_ONLY,  4*USER.DSC_BINS*NDUST))
     PAR_buf.append(    cl.Buffer(context[ID], mf.READ_WRITE, 4*max([1, (CELLS-NX*NY*NZ)])) )  # 2019-02-19
     if (NEED_EMIT_BUF):
-        print("EMIT_buf allocated for CELLS")
+        # print("EMIT_buf allocated for CELLS")
         EMIT_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  4*CELLS))
     else:
         EMIT_buf.append(   cl.Buffer(context[ID], mf.READ_ONLY,  4))   # dummy buffer !!
 
-    print("TABS allocated for CELLS")
+    # print("TABS allocated for CELLS")
     TABS_buf.append(   cl.Buffer(context[ID], mf.READ_WRITE, 4*CELLS))
     PS_buf.append(     cl.Buffer(context[ID], mf.READ_ONLY,  4*max([1,USER.NO_PS])))
     PSPOS_buf.append(  cl.Buffer(context[ID], mf.READ_ONLY,  USER.PSPOS.nbytes))
@@ -1034,11 +1025,7 @@ else:
 
             Tpre = time.time()            
             FREQ = FFREQ[IFREQ]
-
-            sys.stdout.write("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
-            sys.stdout.flush()
-            
-            
+                        
             if (USER.LIB_ABS): 
                 # Simulation for the library method, FSELECT contains the reference frequencies
                 if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001): continue
@@ -1086,6 +1073,9 @@ else:
             cl.enqueue_copy(commands[ID], ABS_buf[ID], ABS) 
             cl.enqueue_copy(commands[ID], SCA_buf[ID], SCA)
        
+
+            sys.stdout.write("  FREQ %3d/%3d  %10.3e" % (IFREQ+1, NFREQ, FREQ))
+            sys.stdout.flush()
             
             kernel_zero(commands[ID],[GLOBAL,],[LOCAL,],1,TABS_buf[ID],XAB_buf[ID],INT_buf[ID],INTX_buf[ID],INTY_buf[ID],INTZ_buf[ID])
             
@@ -2010,8 +2000,6 @@ if (not('SUBITERATIONS' in USER.KEYS)):
 
                     
             if (len(TNEW)<1e8):
-                print('-'*80)
-                print('-'*80)
                 print('CHECKING TEMPERATURES')
                 mok  = nonzero(DENS>1.0e-8)
                 mbad = nonzero(~isfinite(TNEW))
@@ -2024,8 +2012,6 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 TNEW[mok] = clip(TNEW[mok], 3.0, 1600.0)
                 if (len(TNEW)<1e7):
                     print('    TNEW: %.3e %.3e %.3e  ' % tuple(np.percentile(TNEW[mok], (0, 50, 100))))
-                print('-'*80)
-                print('-'*80)
             
                     
             # Save temperatures -- file format is the same as for density (including links!)
@@ -2735,7 +2721,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     # MAP has already been allocated for the correct size
     # USER.LIB_MAPS =>  emission and maps will both be only for the USER.FSELECT frequencies
     #                   then REMIT_I1==0, REMIT_I2==ONFREQ-1
-    print("MAP_SLOW  --- USER.NPIX.x = %d" % USER.NPIX['x'])
+    # print("MAP_SLOW  --- USER.NPIX.x = %d" % USER.NPIX['x'])
     MAP_buf      = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
     SAVETAU_buf  = cl.Buffer(context[0], mf.WRITE_ONLY, MAP.nbytes)
     # source      = open(os.getenv("HOME")+ "/starformation/SOC/kernel_ASOC_map.c").read()
@@ -2805,8 +2791,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 iiii = argmin(abs((FREQ-USER.FSELECT)))
                 # print("  FREQ %12.4e  ... closest FSELECT %12.4e\n" % (FREQ, USER.FSELECT[iiii]))
                 continue                    
-        print("FREQ %.3e Hz = %8.2f um   ---   MAP_FREQ  [%.3e, %.3e] Hz  =  [%7.2f, %7.2f] um" %
-        (FREQ, f2um(FREQ), USER.MAP_FREQ[0], USER.MAP_FREQ[1],  f2um(USER.MAP_FREQ[1]), f2um(USER.MAP_FREQ[0])))
+        # print("FREQ %.3e Hz = %8.2f um   ---   MAP_FREQ  [%.3e, %.3e] Hz  =  [%7.2f, %7.2f] um" % (FREQ, f2um(FREQ), USER.MAP_FREQ[0], USER.MAP_FREQ[1],  f2um(USER.MAP_FREQ[1]), f2um(USER.MAP_FREQ[0])))
             
         # OIFREQ is   [0,NFREQ[ or [REMIT_I1,REMIT_I2] and with LIB_MAPS it is [0, ONFREQ[
         #  => it is always directly the index to the EMITTED array
@@ -2871,7 +2856,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 # 14         15          16          17      
                 USER.INTOBS, OPT_buf[0], SAVETAU_buf, ROI_LIM_buf)
             else:  # the same without ROI
-                print("  *** kernel_map ***") 
+                # print("  *** kernel_map ***") 
                 kernel_map(commands[0], [GLOBAL,], [LOCAL,],
                 USER.MAP_DX, USER.NPIX, MAP_buf, EMIT_buf[0], ODIR[idir], RA[idir], DE[idir],
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0], USER.MAPCENTRE,
@@ -2881,16 +2866,16 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
             asarray(MAP,float32).tofile(fpmap[idir])  # directly all the selected frequencies
             if ((first_loop)&(USER.savetau_freq<=0.0)):
                 # Save column density only after the calculation of the first frequency
-                print("******** WRITING THE COLUMN DENSITY MAP f=%.3e Hz  !!!!!!!!!!!! *******************" % USER.savetau_freq)                
+                # print("*** WRITING THE COLUMN DENSITY MAP f=%.3e Hz" % USER.savetau_freq)                
                 fp       = open("%s.%d" %  (USER.file_savetau, idir), "wb")
                 asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
                 cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
                 asarray(MAP, float32).tofile(fp)
-                print("******** AVERAGE COLUMN DENSITY %12.4e" % mean(ravel(MAP)))
+                # print("*** AVERAGE COLUMN DENSITY %12.4e" % mean(ravel(MAP)))
                 fp.close()
             if (USER.savetau_freq>0.0):  # save optical depth for frequency USER.savetau_freq
                 if (abs((USER.savetau_freq-FREQ)/FREQ) < 0.01 ): # save computed tau value for this frequency
-                    print("******** WRITING THE OPTICAL DEPTH MAP f=%.3e Hz  !!!!!!!!!!!! *******************" % USER.savetau_freq)
+                    # print("*** WRITING THE OPTICAL DEPTH MAP f=%.3e Hz" % USER.savetau_freq)
                     fp       = open("%s.%d" %  (USER.file_savetau, idir), "wb")
                     asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fp)
                     cl.enqueue_copy(commands[0], MAP, SAVETAU_buf) # same number of pixels as MAP
@@ -3164,7 +3149,7 @@ if (MAP_HIER):
     
 if (MAP_FAST):
     if (1):
-        print("*** kernel_ASOC_map_X.c (fast mapping) does not yet exist for ASOC.py -- use slow mapping instead ****")        
+        print("*** kernel_ASOC_map_X.c (fast mapping) does not yet exist for ASOC.py -- use slow mapping instead")        
     if (WITH_ABU>0):
         print("*** Error:  MAP_FAST currently possible only when dust abundances are constant!"), sys.exit()
     if (USER.LIB_MAPS):
@@ -3320,7 +3305,7 @@ if ((USER.NO_PS>0)&(USER.pssavetau_freq>0.0)&(USER.NPIX['y']>0)):
     GLOBAL =  Fix(USER.NO_PS, 32)
     IFREQ  =  argmin(abs(FFREQ-USER.pssavetau_freq))
     if (abs(FFREQ[IFREQ]-USER.pssavetau_freq)>0.001*FFREQ[IFREQ]):
-        print("*** Requested frequency for PSSAVETAU is not in the frequency grid !!!!")
+        print("*** Requested frequency for PSSAVETAU is not in the frequency grid")
         print("***      =>   f = %.3e  ==  %.3f um" % (USER.pssavetau_freq, um2f(USER.pssavetau_freq)))
     FREQ = FFREQ[IFREQ]
     # optical parameters
@@ -3359,7 +3344,7 @@ if ((USER.NO_PS>0)&(USER.pssavetau_freq>0.0)&(USER.NPIX['y']>0)):
         LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0],
         # 11        12             13       
         OPT_buf[0], PSCOLDEN_buf,  PSTAU_buf)
-        print("******** WRITING THE PS COLUMN DENSITY *******************")
+        print("*** Writing the ps column density")
         cl.enqueue_copy(commands[0], pscolden, PSCOLDEN_buf)
         cl.enqueue_copy(commands[0], pstau,    PSTAU_buf)
         fp       = open("%s_%d.dat" % (USER.file_pssavetau, idir), "w")
