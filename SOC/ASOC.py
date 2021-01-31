@@ -743,17 +743,26 @@ kernel_ram_hp    = program[ID].SimRAM_HP   # healpix background
 kernel_ram_cl    = program[ID].SimRAM_CL   # cell emission
 
 if (USER.DO_SPLIT):
+    # Isotropic background + photon splitting
     kernel_bg_split  = program[ID].SimBgSplit
     kernel_bg_split.set_scalar_arg_dtypes([
     # 0          1         2           3         4     5      6           7           8      9 
     # PACKETS,   BATCH,    SEED,       ABS,   SCA,  BG,         TW,         LCELLS, OFF,   PAR 
     np.int32,    np.int32, np.float32, None, None,  np.float32, np.float32, None,   None, None,
-    # 10    11    12    13    14    15    16    17    18    19    20  
-    # DENS, EMIT, TABS, DSC,  CSC,  INT,  INTX, INTY, INTZ, OPT,  ABU,
-    None,   None, None, None, None, None, None, None, None, None, None,
-    # 21    
-    # BUFFER
-    None    ])
+    # 10    11    12    13    14    15    16    17    18    19    20     21
+    # DENS, EMIT, TABS, DSC,  CSC,  INT,  INTX, INTY, INTZ, OPT,  ABU,   BUFFER
+    None,   None, None, None, None, None, None, None, None, None, None,  None])
+    # 2021-01-31 Healpix background + photon splitting
+    kernel_hp_split  = program[ID].SimHpSplit
+    kernel_hp_split.set_scalar_arg_dtypes([
+    # 0          1          2            3      4      5           6           7      8   
+    # PACKETS,   BATCH,     SEED,        ABS,   SCA,   TW,         LCELLS,     OFF,   PAR 
+    np.int32,    np.int32,  np.float32,  None,  None,  np.float32, None,       None,  None,
+    # 9,    10    11    12    13    14    15    16    17    18    19    20     21     22    
+    # DENS, EMIT, TABS, DSC,  CSC,  INT,  INTX, INTY, INTZ, OPT,  BG,   HPBGP, ABU,   BUFFER
+    None,   None, None, None, None, None, None, None, None, None, None, None,  None,  None])
+    
+    
 
 
 if ((USER.WITH_ROI_LOAD<=0)&(USER.WITH_ROI_SAVE<=0)):  # normal case
@@ -964,6 +973,8 @@ else:
                 # no systematic traversal of surface elements => use all GLOBAL work items
                 BATCH    =  100
                 GLOBAL   =  Fix(BGPAC/BATCH, 64)
+                if (USER.DO_SPLIT>0):    # however, if we split packages, for memory reasons a smaller GLOBAL_SPLIT
+                    GLOBAL = Fix(GLOBAL_SPLIT, 64)
                 BGPAC    =  GLOBAL*BATCH
                 WBG      =  np.pi/PLANCK
                 WBG     /=  (GLOBAL*BATCH)/(2*(NX*NY+NX*NZ+NY*NZ))    # /= packages per element
@@ -1200,11 +1211,15 @@ else:
             commands[ID].finish()
 
             
+            #  II==0  =   point sources, PSPAC
+            #  II==1  =   background (isotropic of Healpix), BGPAC
+            #  II==2  =   constant diffuse emission from the medium (not linked to dust temperature), DFPAC
+            #  II==3  =   region-of-interest (ROI) emission 
+            
             t0 = time.time()            
             ##   2018-12-08 OPT_buf added for (ABS, SCA) in case of abundance variations
-            if (II==2): # DFPAC  ---  kernel_ram_cl  ---  [ normal | WITH_ROI_SAVE ]
+            if (II==2):    #  DFPAC  ---  kernel_ram_cl  ---  [ normal | WITH_ROI_SAVE ]
                 if (USER.WITH_ROI_SAVE<=0):
-                    ## print("               kernel_ram_cl, BATCH=%d" % BATCH)
                     kernel_ram_cl(commands[ID], [GLOBAL,], [LOCAL,],
                     np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], FF,
                     LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID],
@@ -1220,20 +1235,24 @@ else:
                     TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID],
                     EMWEI_buf[ID], INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], EMINDEX_buf[ID],
                     OPT_buf[ID], ABU_buf[ID], ROI_buf, ROI_SAVE_buf)
-            elif (II<2):       
-                # PSPAC (II==0), BGPAC
-                if ((II==1)&(USER.DO_SPLIT)):
-                    # 2020-07-16 --- trying package splitting for simulation of background packages
-                    kernel_bg_split(commands[ID], [GLOBAL_SPLIT,], [LOCAL,],
-                    PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], BG, FF, LCELLS_buf[ID], OFF_buf[ID], 
-                    PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID], TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
-                    INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID], ABU_buf[ID],
-                    BUFFER_buf[ID])
-                else:
-                    if ((II==1)&(len(HPBG)>0)):   # DFPAC  --- kernel_ram_hp ---  [ normal ]
-                        # If we use Healpix map for background, the normal isotropic background is not simulated
-                        #  => all background is already included in the Healpix map
-                        #print("               kernel_ram_hp")
+            elif (II<2):  #  PSPAC, BGPAC  --- either isotropic or Healpix, with photon splitting or not
+                if ((II==1)&(USER.DO_SPLIT)):  # BGPAC + split
+                    if (len(HPBG)>0):          # using Healpix background sky
+                        # 2021-01-31 added this missing combination Healpix background + photon splitting
+                        kernel_hp_split(commands[ID], [GLOBAL_SPLIT,], [LOCAL,],
+                        PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], FF, LCELLS_buf[ID], OFF_buf[ID], 
+                        PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID], TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
+                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
+                        HPBG_buf[ID], HPBGP_buf[ID], ABU_buf[ID], BUFFER_buf[ID])
+                    else:                      # using fully isotropic background sky
+                        # 2020-07-16 --- trying package splitting for simulation of background packages
+                        kernel_bg_split(commands[ID], [GLOBAL_SPLIT,], [LOCAL,],
+                        PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], BG, FF, LCELLS_buf[ID], OFF_buf[ID], 
+                        PAR_buf[ID], DENS_buf[ID], EMIT_buf[ID], TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
+                        INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID], ABU_buf[ID],
+                        BUFFER_buf[ID])
+                else:   # PSPAC or BGPAC but without photon splitting
+                    if ((II==1)&(len(HPBG)>0)):   # BGPAC + Healpix, without photon splitting
                         kernel_ram_hp(commands[ID], [GLOBAL,], [LOCAL,],
                         PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], FF, LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], 
                         DENS_buf[ID], EMIT_buf[ID], TABS_buf[ID], DSC_buf[ID], CSC_buf[ID], XAB_buf[ID],
@@ -1243,9 +1262,7 @@ else:
                         # The arguments of kernel_ram_pb are defined by the ROI_LOAD and ROI_SAVE options
                         # although it is only for source ii==2 that ROI_LOAD is actually used
                         #   BGPAC/PSPAC --- kernel_ram_pb  --- [ normal | WITH_ROI_SAVE | WITH_ROI_LOAD | both ]
-                        if ((USER.WITH_ROI_SAVE<=0)&(USER.WITH_ROI_LOAD<=0)): # normal case -- normal argument list
-                            #print("               kernel_ram_pb")
-                            # print(PACKETS, BATCH)
+                        if ((USER.WITH_ROI_SAVE<=0)&(USER.WITH_ROI_LOAD<=0)):   # normal case without ROI
                             kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
                             # SOURCE      PACKETS  BATCH  SEED  ABS
                             np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
@@ -1259,9 +1276,7 @@ else:
                             INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID], OPT_buf[ID],
                             # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
                             ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID])
-                        elif ((USER.WITH_ROI_SAVE>0)&(USER.WITH_ROI_LOAD>0)): # both
-                            # Both ROI_LOAD and ROI_SAVE
-                            #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))
+                        elif ((USER.WITH_ROI_SAVE>0)&(USER.WITH_ROI_LOAD>0)):   # both ROI_LOAD and ROI_SAVE
                             kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
                             # SOURCE      PACKETS  BATCH  SEED  ABS
                             np.int32(II), PACKETS, BATCH, seed, ABS_buf[ID], 
@@ -1276,7 +1291,7 @@ else:
                             # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
                             ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
                             ROI_DIM_buf, ROI_LOAD_buf, ROI_buf, ROI_SAVE_buf)
-                        elif (USER.WITH_ROI_SAVE>0):      # only ROI_SAVE
+                        elif (USER.WITH_ROI_SAVE>0):                            # only ROI_SAVE
                             #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))            
                             kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
                             # SOURCE      PACKETS  BATCH  SEED  ABS
@@ -1292,7 +1307,7 @@ else:
                             # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
                             ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
                             ROI_buf, ROI_SAVE_buf)
-                        else:                              # only ROI_LOAD
+                        else:                                                   # only ROI_LOAD
                             #print("               kernel_ram_pb -- WITH_ROI_SAVE %d, WITH_ROI_LOAD %d" % (USER.WITH_ROI_SAVE, USER.WITH_ROI_LOAD))
                             kernel_ram_pb(commands[ID], [GLOBAL,], [LOCAL,],
                             # SOURCE      PACKETS  BATCH  SEED  ABS
@@ -1308,7 +1323,6 @@ else:
                             # ABU        XPS_NSIDE          XPS_SIDE          XPS_AREA           
                             ABU_buf[ID], XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID],
                             ROI_DIM_buf, ROI_LOAD_buf)
-                            
                             
             elif (II==3):  # II==3  == ROI_LOAD source
                 ## print("II=3 -- ROI_LOAD -- USER.WITH_ROI_LOAD=%d" % USER.WITH_ROI_LOAD)
