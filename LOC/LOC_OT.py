@@ -49,7 +49,7 @@ TRANSITIONS =  MOL.Transitions(LEVELS)             # how many transitions among 
 CHANNELS    =  INI['channels']
 OCTREE      =  INI['octree']                       # 0 = regular Cartesian, 1 = octree, 2 = octree with ray splitting
 WITH_ALI    =  (INI['WITH_ALI']>0)
-DOUBLE_POS  =  ((OCTREE==4)|(OCTREE==40))    # 2020-08-01 this was the working combination (not very fast though)
+DOUBLE_POS  =  ((OCTREE==4)|(OCTREE==40))          # 2020-08-01 this was the working combination (not very fast though)
 MAX_NBUF    =  40
 MAX_NBUF    =  INI['maxbuf']
 PLWEIGHT    =  INI['plweight']
@@ -253,12 +253,15 @@ OPT = " -D NX=%d -D NY=%d -D NZ=%d -D NRAY=%d -D CHANNELS=%d -D WIDTH=%.5ff -D O
 -D VOLUME=%.5ef -D CELLS=%d -D LOCAL=%d -D GLOBAL=%d -D GNO=%d -D SIGMA0=%.5ff -D SIGMAX=%.4ff \
 -D GL=%.4ef -D MAXCHN=%d -D WITH_HALF=%d -D PLWEIGHT=%d -D LOC_LOWMEM=%d -D CLIP=%.3ef -D BRUTE_COOLING=%d \
 -D LEVELS=%d -D TRANSITIONS=%d -D WITH_HFS=%d -D WITH_CRT=%d -D DOUBLE_POS=%d -D MAX_NBUF=%d \
--I%s -D OTLEVELS=%d -D NWG=%d -D WITH_OCTREE=%d -D GAUSTORE=%s -D WITH_ALI=%d -D FIX_PATHS=%d" % \
+-I%s -D OTLEVELS=%d -D NWG=%d -D WITH_OCTREE=%d -D GAUSTORE=%s -D WITH_ALI=%d -D FIX_PATHS=%d \
+-D MINMAPLEVEL=%d -D MAP_INTERPOLATION=%d " % \
 (NX, NY, NZ, NRAY, CHANNELS, WIDTH, ONESHOT, VOLUME, CELLS, LOCAL, GLOBAL, GNO, G0, GX,
 GL, MAXCHN, WITH_HALF, PLWEIGHT, LOWMEM, INI['clip'], (COOLING==2),
 LEVELS, TRANSITIONS, HFS, WITH_CRT, DOUBLE_POS, MAX_NBUF, 
-INSTALL_DIR, OTL, NWG, OCTREE, GAUSTORE, WITH_ALI, FIX_PATHS)
-if (1):
+INSTALL_DIR, OTL, NWG, OCTREE, GAUSTORE, WITH_ALI, FIX_PATHS, 
+int(INI['minmaplevel']), INI['MAP_INTERPOLATION'])
+
+if (0):
     # -cl-fast-relaxed-math == -cl-mad-enable -cl-no-signed-zeros -cl-unsafe-math-optimizations -cl-finite-math-only
     # -cl-unsafe-math-optimizations is ***DANGEROUS*** ON NVIDIA
     OPT += "-cl-mad-enable -cl-no-signed-zeros -cl-finite-math-only"  # this seems ok on NVidia !!
@@ -1797,13 +1800,20 @@ def WriteSpectra(INI, u, l):
     STEP        =  INI['grid'] / INI['angle']
     emissivity  =  (PLANCK/(4.0*pi))*freq*Aul*int2temp    
     direction   =  cl.cltypes.make_float2()
-    direction['x'], direction['y'] = INI['direction']   # theta, phi
-
+    direction['x'], direction['y'] = INI['direction']                   # theta, phi = observer direction
+    centre       =  cl.cltypes.make_float3()
+    centre['x'],  centre['y'], centre['z'] =  0.5*NX, 0.5*NY, 0.5*NZ    # map centre in root grid coordinates
+    if (isfinite(sum(INI['map_centre']))):  
+        centre['x']  =   INI['map_centre'][0]
+        centre['y']  =   INI['map_centre'][1]
+        centre['z']  =   INI['map_centre'][2]
+        print("MAP CENTRE: ", INI['map_centre'])
+ 
     if (HFS): # note -- GAU is for CHANNELS channels = maximum over all bands!!
         for i in range(ncmp):
             HF[i]['x']  =  round(BAND[tran].VELOCITY[i]/WIDTH) # offset in channels (from centre of the spectrum)
             HF[i]['y']  =  BAND[tran].WEIGHT[i]
-            print("       offset  %5.2f km/s, weight %5.3f" % (HF[i]['x'], HF[i]['y']))
+            print("       offset  %5.2f channels, weight %5.3f" % (HF[i]['x'], HF[i]['y']))
         HF[0:ncmp]['y']  /= sum(HF[0:ncmp]['y'])
         cl.enqueue_copy(queue, HF_buf, HF)
 
@@ -1816,8 +1826,8 @@ def WriteSpectra(INI, u, l):
         kernel_spe  = program.Spectra        
         #                                 0     1     2     3           4                  5
         kernel_spe.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
-        # 6         7         8           9           10          11    12    13    14   
-        np.float32, np.int32, np.float32, np.float32, np.float32, None, None, None, None])
+        # 6         7         8           9           10          11    12    13    14    15                
+        np.float32, np.int32, np.float32, np.float32, np.float32, None, None, None, None, cl.cltypes.float3])
     else:
         if (OCTREE):
             kernel_spe  = program.Spectra        
@@ -1825,14 +1835,14 @@ def WriteSpectra(INI, u, l):
             kernel_spe.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
             # 6         7         8           9           10          11    12  
             np.float32, np.int32, np.float32, np.float32, np.float32, None, None,
-            # 13   14     15    16
-            None,  None, None, None, np.int32])
+            # 13   14     15    16   17        18                 
+            None,  None, None, None, np.int32, cl.cltypes.float3])
         else:
             kernel_spe  = program.Spectra        
             #                                 0     1     2     3           4                  5
             kernel_spe.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
-            # 6         7         8           9           10          11    12    
-            np.float32, np.int32, np.float32, np.float32, np.float32, None, None, np.int32])
+            # 6         7         8           9           10          11    12    14        15                
+            np.float32, np.int32, np.float32, np.float32, np.float32, None, None, np.int32, cl.cltypes.float3])
         
     if (HFS):
         # Same kernel used with both OCTREE==0 and OCTREE==4, argument list differs
@@ -1844,9 +1854,9 @@ def WriteSpectra(INI, u, l):
             #  6        7         8           9           10          11      12     
             #  DE       NRA       STEP        BG          emis        NTRUE   SUM_TAU
             np.float32, np.int32, np.float32, np.float32, np.float32, None,   None,
-            # 13      14        15     16     
-            # NCHN    NCOMP     HF     PROFILE
-            np.int32, np.int32, None,  None   ])
+            # 13      14        15     16       17                 
+            # NCHN    NCOMP     HF     PROFILE  MAP_CENTRE
+            np.int32, np.int32, None,  None,    cl.cltypes.float3 ])
         elif (OCTREE==4):
             kernel_spe_hf  = program.SpectraHF
             #                                    0     1     2     3           4                  5      
@@ -1858,9 +1868,9 @@ def WriteSpectra(INI, u, l):
             # 13      14        15      16   
             # LCELLS  OFF       PAR     RHO  
             None,     None,     None,   None,
-            # 17      18        19     20
-            # NCHN    NCOMP     HF     PROFILE 
-            np.int32, np.int32, None,  None])
+            # 17      18        19     20       21
+            # NCHN    NCOMP     HF     PROFILE  MAP_CENTRE
+            np.int32, np.int32, None,  None,    cl.cltypes.float3 ])
         else:
             print("SpectraHF has not been defined for OCTREE=%d" % OCTREE), sys.exit()
         
@@ -1888,23 +1898,24 @@ def WriteSpectra(INI, u, l):
     tau         =  zeros(NRA, float32)
     follow      =  -1
     for de in range(NDE):
-        DE      =  +(de-0.5*(NDE-1.0))*STEP
+        DE      =  de-0.5*(NDE-1.0)
+        ## DE      =  +de
         if (HFS): # since CHANNELS has been changed, all transitions written using this kernel ???
             if (OCTREE==0):
                 print("HFS:  OCTREE==0   GLOBAL %d  LOCAL %d" % (GLOBAL, LOCAL))
                 kernel_spe_hf(queue, [GLOBAL,], [LOCAL,],
                 # 0        1        2         3     4          5       6   7    8     9   10         
                 CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity,
-                # 11        12       13    14    15      16          
-                NTRUE_buf, STAU_buf, nchn, ncmp, HF_buf, PROFILE_buf)
+                # 11        12       13    14    15      16           17     
+                NTRUE_buf, STAU_buf, nchn, ncmp, HF_buf, PROFILE_buf, centre)
             elif (OCTREE==4):
                 kernel_spe_hf(queue, [GLOBAL,], [LOCAL,],
                 # 0        1        2         3     4          5       6   7    8     9
                 CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, 
                 # 10        11         12        13          14       15       16      
                 emissivity, NTRUE_buf, STAU_buf, LCELLS_buf, OFF_buf, PAR_buf, RHO_buf,
-                #  17  18    19      20         
-                nchn,  ncmp, HF_buf, PROFILE_buf)
+                #  17  18    19      20           21     
+                nchn,  ncmp, HF_buf, PROFILE_buf, centre)
             else:
                 print("kernel_spe_hfs exists only for OCTREE==0 and OCTREE==4"), sys.exit()
         else:
@@ -1913,8 +1924,8 @@ def WriteSpectra(INI, u, l):
                 kernel_spe(queue, [GLOBAL,], [LOCAL,],
                 # 0        1        2         3     4          5       6   7    8     9   10          11         12       
                 CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, NTRUE_buf, STAU_buf,
-                # 13         14         
-                CRT_TAU_buf, CRT_EMI_buf)
+                # 13         14           15     
+                CRT_TAU_buf, CRT_EMI_buf, centre)
             else:
                 if (OCTREE):
                     follow = -1
@@ -1929,12 +1940,12 @@ def WriteSpectra(INI, u, l):
                     kernel_spe(queue, [GLOBAL,], [LOCAL,],
                     # 0        1        2         3     4          5       6   7    8     9   10         
                     CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, 
-                    # 11       12        13          14       15       16
-                    NTRUE_buf, STAU_buf, LCELLS_buf, OFF_buf, PAR_buf, RHO_buf, follow)
+                    # 11       12        13          14       15       16       17      18     
+                    NTRUE_buf, STAU_buf, LCELLS_buf, OFF_buf, PAR_buf, RHO_buf, follow, centre)
                 else:
                     kernel_spe(queue, [GLOBAL,], [LOCAL,],
-                    # 0        1        2         3     4          5       6   7    8     9   10          11         12      
-                    CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, NTRUE_buf, STAU_buf, -1)
+                    # 0        1        2         3     4          5       6   7    8     9   10          11         12        13  14
+                    CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, NTRUE_buf, STAU_buf, -1, centre)
                     
                     
         # save spectrum

@@ -475,7 +475,7 @@ float GetStepOT(float3 *POS, const float3 *DIR, int *level, int *ind,
    dx =                (DIR->x<ZERO) ? (-fmod(POS->x,ONE)/DIR->x-EPS/DIR->x) : ((ONE-fmod(POS->x,ONE))/DIR->x+EPS/DIR->x) ;
    dx = min(dx,(float)((DIR->y<ZERO) ? (-fmod(POS->y,ONE)/DIR->y-EPS/DIR->y) : ((ONE-fmod(POS->y,ONE))/DIR->y+EPS/DIR->y))) ;
    dx = min(dx,(float)((DIR->z<ZERO) ? (-fmod(POS->z,ONE)/DIR->z-EPS/DIR->z) : ((ONE-fmod(POS->z,ONE))/DIR->z+EPS/DIR->z))) ;
-   dx = clamp(dx, EPS, TWO) ;
+   dx = clamp(dx, (float)EPS, 2.0f) ;
    
 #  if 0
    int follow=0 ;
@@ -840,14 +840,16 @@ void __kernel SolveCL(
    }
 #endif
    
-#if 1
+#if 0
    if (id==follow_i) {
       printf("SIJ ") ;
       for(int t=0; t<TRANSITIONS; t++) printf(" %10.3e", SIJ[id*TRANSITIONS+t]) ;
       printf("\n") ;
+# if (WITH_ALI>0)
       printf("ESC ") ;
       for(int t=0; t<TRANSITIONS; t++) printf(" %10.3e", ESC[id*TRANSITIONS+t]) ;
       printf("\n") ;
+# endif
       printf("NI< ") ;
       for(int t=0; t<LEVELS; t++) printf(" %10.3e", V[t]) ;
       printf("\n") ;
@@ -933,7 +935,7 @@ void __kernel SolveCL(
 #endif
    
    
-#if 1
+#if 0
    if (id==follow_i) {
       for(int j=0; j<LEVELS; j++) {      // row
          for(int i=0; i<LEVELS; i++) {   // column
@@ -952,7 +954,7 @@ void __kernel SolveCL(
       tmp  +=  V[i] ;
    }
    for(int i=0; i<LEVELS; i++)  B[i]  =  V[i]*RHO[id]*ABU[id] / tmp ;  // B ro, X rw
-#if 1
+#if 0
    if (id==follow_i) {
       printf("NI> ") ;
       for(int t=0; t<LEVELS; t++) printf(" %10.3e", B[t]) ;

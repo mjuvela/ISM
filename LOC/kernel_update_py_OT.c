@@ -67,7 +67,8 @@ __kernel void Spectra(
                       __global   int    *PAR,
                       __global   float  *RHO,
 #endif
-                      const int FOLLOW
+                      const int FOLLOW,
+                      const float3    CENTRE           // map centre in current
                      )
 {
    // each work item calculates one spectrum for 
@@ -80,55 +81,54 @@ __kernel void Spectra(
    int i ;
    float RA, maxi ;  // grid units, offset of current ray
    // DE  =   (id-0.5f*(NDEC-1.0f))*STEP ;
-   RA  =   -(id-0.5f*(NRA-1.0f))*STEP ;   // spectra from left to right = towards -RA
+   // RA  =   -(id-0.5f*(NRA-1.0f))*STEP ;   // spectra from left to right = towards -RA
+   RA  =   id  ;
    // calculate the initial position of the ray
    REAL3   POS, dr, RPOS ;
    float3  DIR ;
    REAL    dx, dy, dz ;
-   POS.x   =  0.500001f*NX ;  POS.y = 0.500001f*NY ;  POS.z = 0.500001f*NZ ;
-#if 1
    DIR.x   =   sin(D.x)*cos(D.y) ;     // D.x = theta,   D.y = phi
    DIR.y   =   sin(D.x)*sin(D.y) ;
    DIR.z   =   cos(D.x)            ;
    REAL3 RV, DV ; 
-   // Definition:  DEC follows +Z
+   // Definition:  DE follows +Z, RA is now right
    if (DIR.z>0.9999f) {
-      RV.x= 0.0001f ;  RV.y=-0.9999f ; RV.z=0.0001f ;
-      DV.x=-0.9999f ;  DV.y= 0.0001f ; DV.z=0.0001f ; 
+      RV.x= 0.0001f ;  RV.y=+0.9999f ; RV.z=0.0001f ;    // RA = Y
+      DV.x=-0.9999f ;  DV.y= 0.0001f ; DV.z=0.0001f ;    // DE = -X
    } else {
-      if (DIR.z<-0.9999f) {
-         RV.x= 0.0001f ;  RV.y=-0.9999f ; RV.z=0.0001f ;
+      if (DIR.z<-0.9999f) {                              // view from -Z =>  (Y,X)
+         RV.x= 0.0001f ;  RV.y=+0.9999f ; RV.z=0.0001f ;
          DV.x=+0.9999f ;  DV.y= 0.0001f ; DV.z=0.0001f ; 
       } else {
-         // EV  =   DIR z (0,0,1)
-         RV.x = DIR.y ; RV.y = -DIR.x ; RV.z = ZERO ;  RV = normalize(RV) ;
+         // RA orthogonal to DIR and to +Z,   DIR=(1,0,0) => RV=(0,+1,0)
+         //                                   DIR=(0,1,0) => RV=(-1,0,0)
+         RV.x = -DIR.y ;   RV.y = +DIR.x ;  RV.z = ZERO ;  RV = normalize(RV) ;
          // DV  =   RV x DIR
-         DV.x = RV.y*DIR.z-RV.z*DIR.y ;
-         DV.y = RV.z*DIR.x-RV.x*DIR.z ;
-         DV.z = RV.x*DIR.y-RV.y*DIR.x ;
+         DV.x = -RV.y*DIR.z+RV.z*DIR.y ;
+         DV.y = -RV.z*DIR.x+RV.x*DIR.z ;
+         DV.z = -RV.x*DIR.y+RV.y*DIR.x ;
       }
    }
    
-   // Offsets in RA and DE directions
-   POS.x  +=  RA*RV.x + DE*DV.x ;
-   POS.y  +=  RA*RV.y + DE*DV.y ;
-   POS.z  +=  RA*RV.z + DE*DV.z ;
+   // Offsets in RA and DE directions, (RA, DE) are just indices [0, NRA[, [0,NDE[
+   // CENTRE are the indices for the map centre using the current pixel size
+   // POS is already at the map centre
+   POS.x  =  CENTRE.x + (RA-0.5*(NRA-1.0f))*STEP*RV.x + DE*STEP*DV.x ;
+   POS.y  =  CENTRE.y + (RA-0.5*(NRA-1.0f))*STEP*RV.y + DE*STEP*DV.y ;
+   POS.z  =  CENTRE.z + (RA-0.5*(NRA-1.0f))*STEP*RV.z + DE*STEP*DV.z ;
+   
+   
+   // int ID = ((fabs(POS.y-1.5)<0.02)&&(fabs(POS.z-0.7)<0.02)) ? id : -1 ;
+   int ID = ((fabs(POS.y-2.0)<0.05)&&(fabs(POS.z-1.5)<0.02)) ? id : -1 ;
+   
+   
+   
+   // printf("%6.2f %6.2f  %8.4f %8.4f %8.4f    %8.4f %8.4f %8.4f\n", RA, DE, POS.x, POS.y, POS.z, DIR.x, DIR.y, DIR.z) ;
+   // if (id==ID) printf("%6.2f %6.2f   %8.4f %8.4f %8.4f\n", RA, DE, POS.x, POS.y, POS.z) ;
+   
    // Change DIR to direction away from the observer
    DIR *= -1.0f ;
-#else
-   // RA offset
-   POS.x  +=  +RA * sin(D.y)  ;          // RA in grid units
-   POS.y  +=  -RA * cos(D.y)  ;
-   POS.z  +=   ZERO ;
-   // DE offset
-   POS.x  +=  -DE* cos(D.x) * cos(D.y) ; // DE in grid units
-   POS.y  +=  -DE* cos(D.x) * sin(D.y) ;
-   POS.z  +=   DE* sin(D.x) ;   
-   // direction AWAY from the observer
-   DIR.x   = -sin(D.x)*cos(D.y) ;
-   DIR.y   = -sin(D.x)*sin(D.y) ;
-   DIR.z   = -cos(D.x);
-#endif
+   
    if (fabs(DIR.x)<1.0e-10f) DIR.x = 1.0e-10f ;
    if (fabs(DIR.y)<1.0e-10f) DIR.y = 1.0e-10f ;
    if (fabs(DIR.z)<1.0e-10f) DIR.z = 1.0e-10f ;
@@ -143,6 +143,48 @@ __kernel void Spectra(
    else             dz = (NZ  -POS.z)/DIR.z ;
    dx      =  max(dx, max(dy, dz)) + 1.0e-4f ;  // max because we are outside
    POS.x  +=  dx*DIR.x ;   POS.y  +=  dx*DIR.y ;   POS.z  +=  dx*DIR.z ;   // even for OT, still in root grid units
+   
+   
+   
+   
+   int level0 ;
+#if (MAP_INTERPOLATION>0)
+   int   slevel, sind, ind0, ind ;
+   float A1, A2,  B1, B2,  a, b, K, dopA, dopB ;
+   float3 ADIR, BDIR ;
+   REAL3  MPOS, POS0 ;
+   if (fabs(DIR.x)>fabs(DIR.y)) {
+      if (fabs(DIR.z)>fabs(DIR.x)) {
+         ADIR.x=0.0005f ; ADIR.y=1.0f ; ADIR.z=-DIR.y/DIR.z ;
+      } else {
+         ADIR.x=-DIR.z/DIR.x ; ADIR.y=0.0005f ; ADIR.z=1.0f ;
+      }
+   } else {
+      if (fabs(DIR.z)>fabs(DIR.y)) {
+         ADIR.x=0.0005f ; ADIR.y=1.0f ; ADIR.z=-DIR.y/DIR.z ;
+      } else {
+         ADIR.x=1.0f ; ADIR.y=-DIR.x/DIR.y ; ADIR.z=0.0005f ;
+      }
+   }
+   ADIR   = normalize(ADIR) ;
+   BDIR.x = DIR.y*ADIR.z-DIR.z*ADIR.y ;
+   BDIR.y = DIR.z*ADIR.x-DIR.x*ADIR.z ;
+   BDIR.z = DIR.x*ADIR.y-DIR.y*ADIR.x ;
+   BDIR   = normalize(BDIR) ;
+# if (MAP_INTERPOLATION==2)
+   float LA, LB ;  // cell sizes relative to root grid cells
+# endif
+# if (MAP_INTERPOLATION==3)
+   float C1, C2, LA, LB, LC, dopC, w0, wA, wB, wC, c ;
+   // float3  XDIR ;   XDIR = ADIR ; ADIR = BDIR ; BDIR = XDIR ;
+# endif
+# if 0
+   printf("DIR:   %8.4f %8.4f %8.4f\n", DIR.x,  DIR.y,  DIR.z) ; 
+   printf("ADIR:  %8.4f %8.4f %8.4f\n", ADIR.x, ADIR.y, ADIR.z) ;
+   printf("BDIR:  %8.4f %8.4f %8.4f\n", BDIR.x, BDIR.y, BDIR.z) ;
+# endif
+#endif
+   
    
    
    
@@ -167,20 +209,21 @@ __kernel void Spectra(
    float Ctau, Cemit, pro, distance=0.0f ;
 #endif
    
-   
    float distance = 0.0f ;
+   
+   
+   
    
    while (INDEX>=0) {
       
-      
-      // if (RHO[INDEX]>10.0) printf("%7d  %8.4f %8.4f %8.4f  rho %.3e\n", id, POS.x, POS.y, POS.z, RHO[INDEX]) ;
-      
+#if (MAP_INTERPOLATION>0)
+      POS0 = POS ;    level0 = OTL ;   ind0 = OTI ;     K = ldexp(1.0f, -level0) ;
+#endif
       
       
 #if (WITH_OCTREE>0)   // INDEX  =  OFF[OTL] + OTI ;  --- update INDEX at the end of the step
       // OCTREE==5 uses level=0 coordinates POS=[0,1], not [0,NX]
-      dx     =  GetStepOT(&POS, &DIR, &OTL, &OTI, RHO, OFF, PAR, 99, NULL, -1) ; // updates POS, OTL, OTI
-      distance += dx ;                  
+      dx        =  GetStepOT(&POS, &DIR, &OTL, &OTI, RHO, OFF, PAR, 99, NULL, -1) ; // updates POS, OTL, OTI
       // RPOS = POS ; RootPos(&RPOS, OTL, OTI, OFF, PAR) ;
 #else
       if (DIR.x<0.0f)   dx = -     fmod(POS.x,ONE)  / DIR.x - EPS/DIR.x;
@@ -189,18 +232,280 @@ __kernel void Spectra(
       else              dy =  (ONE-fmod(POS.y,ONE)) / DIR.y + EPS/DIR.y;
       if (DIR.z<0.0f)   dz = -     fmod(POS.z,ONE)  / DIR.z - EPS/DIR.z;
       else              dz =  (ONE-fmod(POS.z,ONE)) / DIR.z + EPS/DIR.z;
-      dx         =  min(dx, min(dy, dz)) + EPS ;  // actual step
-#endif      
+      dx         =  min(dx, min(dy, dz)) + EPS ;      // actual step
+#endif
+      
+      
+      
+      
+      
+      
+      
+#if (MAP_INTERPOLATION>0)  // @@ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      
+      
+# if (MAP_INTERPOLATION==1) 
+      
+#  if 1  // little to no effect from substepping ???
+      if (dx>(0.13*K)) {       // limit step size  ---- K = current cell size in GL units, K <= 1
+         dx    =  0.13*K ;     // step in GL units
+         OTL   =  level0 ;   OTI = ind0 ;   
+         POS.x =  POS0.x + 0.13f*DIR.x ;  // step in current POS coordinates, in old cell
+         POS.y =  POS0.y + 0.13f*DIR.y ; 
+         POS.z =  POS0.z + 0.13f*DIR.z ; 
+      }
+#  endif
+      doppler =  CLOUD[INDEX].x*DIR.x + CLOUD[INDEX].y*DIR.y + CLOUD[INDEX].z*DIR.z ;
+      
+      slevel  =  level0 ;   sind = ind0 ;  
+      MPOS.x  =  POS0.x+(0.49f*dx/K)*DIR.x ;  MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;  MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+      a       =  GetStepOT(&MPOS, &ADIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) / K ;
+      if ((a>0.0f)&&(a<=0.5f)&&(sind>=0)) {
+         ind   =  OFF[slevel] + sind ;         A1 = NI[2*ind] ;    A2 = NI[2*ind+1] ;
+         dopA  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;         
+      } else {
+         slevel =  level0 ;    sind = ind0 ;    ADIR *= -1.0f ;   
+         MPOS.x =  POS0.x+(0.49f*dx/K)*DIR.x ;   MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;   MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+         a      =  GetStepOT(&MPOS, &ADIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) / K ;
+         if ((a>0.0f)&&(a<=0.5f)&&(sind>=0)) {
+            ind   =  OFF[slevel] + sind ;      A1 =  NI[2*ind] ;   A2 = NI[2*ind+1] ;
+            dopA  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+         } else {
+            a = 0.5f ;   A1 = 0.0f ;   A2 = 0.0f ;  dopA = 0.0f ;
+         }
+      }
+
+      slevel = level0 ;   sind = ind0 ;
+      MPOS.x = POS0.x+(0.49f*dx/K)*DIR.x ; MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;  MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+      b      =  GetStepOT(&MPOS, &BDIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) / K ;      
+      if ((b>0.0f)&&(b<=0.51f)&&(sind>=0)) {
+         ind   =  OFF[slevel] + sind ;         B1 =  NI[2*ind] ;   B2 = NI[2*ind+1] ;
+         dopB  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;     
+      } else {
+         slevel =  level0 ;    sind = ind0 ;    BDIR *= -1.0f ;   
+         MPOS.x = POS0.x+(0.49f*dx/K)*DIR.x ; MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ; MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+         b      =  GetStepOT(&MPOS, &BDIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) / K ;
+         if ((b>0.0f)&&(b<=0.51f)&&(sind>=0)) {
+            ind   =  OFF[slevel] + sind ;      B1 =  NI[2*ind] ;   B2 = NI[2*ind+1] ;
+            dopB  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+         } else {
+            b = 0.5f ;   B1 = 0.0f ;   B2 = 0.0f ;  dopB = 0.0f ;
+         }
+      }
+            
+      // if (slevel<level0) b = 0.5f*(b+0.5f) ;  // if b was in larger cell, it should get smaller weight?
+      a   =  0.5f-a ;      b = 0.5f-b ;
+#  if 0
+      a   =  0.6f*a ;      b *= 0.6f ;
+#  endif
+      doppler =  (1.0f-a-b)*doppler       + a*dopA + b*dopB ;
+      // if (id==ID) printf("   %6.3f %6.3f   %6.3f\n", a, b, 1.0f-a-b) ; 
+      nu      =  (1.0f-a-b)*NI[2*INDEX  ]  +  a*A1   +  b*B1 ;   // INDEX = still index of the step start
+      A2      =  (1.0f-a-b)*NI[2*INDEX+1]  +  a*A2   +  b*B2 ;
+      tau     =  (fabs(A2)<1.0e-30f) ? (dx*1.0e-30f*GN*GL) : clamp((float)(dx*A2*GN*GL), -2.0f, 1.0e10f) ;
+      
+      
+# endif  // MAP_INTERPOLATION==1
+      
+      
+      
+      
+      
+      
+      
+# if (MAP_INTERPOLATION==2) // 22222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222
+      //  (X1, Y1)  == (0.0, 0.0) ==  centre of current cell
+      //  (X2, Y2)  =  (0.0, 0.5*(K+LA))   centre of the next cell in direction ADIR
+      //  (X3, Y3)  =  (0.5*(K+LB), 0.0)   centre of the next cell in direction BDIR
+      //
+      //     W1 =  (2*b+LB)/(K+LB) + (2*a-L0)/(K+LA)
+      //     W2 =  (K-2*a)/(K+LA)
+      //     W3 =  1-W1-W2
+      // L0==K, LA, LB  are the cell sizes in root grid length units
+      // a, b are the step lengths to cell boundary, also in root grid length units
+      doppler  =  CLOUD[INDEX].x*DIR.x + CLOUD[INDEX].y*DIR.y + CLOUD[INDEX].z*DIR.z ;
+      slevel   =  level0 ;   sind = ind0 ;  
+      MPOS.x   =  POS0.x+(0.49f*dx/K)*DIR.x ;  MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;  MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+      // dx    =  GetStepOT( &POS,  &DIR, &OTL,    &OTI,  RHO, OFF, PAR, 99, NULL, -1) ;
+      a        =  GetStepOT(&MPOS, &ADIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) ;  // [GL]
+      if ((a<=(0.5f*K))&&(sind>=0)) {
+         ind   =  OFF[slevel] + sind ;          A1 = NI[2*ind] ;    A2 = NI[2*ind+1] ;
+         dopA  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+         LA    =  ldexp(1.0f, -slevel) ;
+      } else {
+         slevel   =  level0 ;    sind = ind0 ;     ADIR *= -1.0f ;   
+         MPOS.x   =  POS0.x+(0.49f*dx/K)*DIR.x ;   MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;   MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+         a        =  GetStepOT(&MPOS, &ADIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) ;
+         if ((a<=(0.5f*K))&&(sind>=0)) {
+            ind   =  OFF[slevel] + sind ;       A1 =  NI[2*ind] ;   A2 = NI[2*ind+1] ;
+            dopA  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+            LA    =  ldexp(1.0f, -slevel) ;
+         } else {
+            a = 0.5f*K ;   A1 = NI[2*INDEX] ;   A2 = NI[2*INDEX+1] ;  dopA = doppler ;
+         }
+      }
+      slevel   = level0 ;    sind = ind0 ;
+      MPOS.x   = POS0.x+(0.49f*dx/K)*DIR.x ; MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;  MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+      b        =  GetStepOT(&MPOS, &BDIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1)  ; // [GL]
+      if ((b<=(0.5f*K))&&(sind>=0)) {
+         ind   =  OFF[slevel] + sind ;         B1 =  NI[2*ind] ;   B2 = NI[2*ind+1] ;
+         dopB  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+         LB    =  ldexp(1.0f, -slevel) ;
+         // COMMENT OUT THE FOLLOWING PRINTF EVERYTHING WILL BE NAN ?????????? ONLY ON GPU ....
+         // if (id==ID) printf("    B: %02d %6d ", slevel, sind) ;
+      } else {
+         slevel =  level0 ;    sind = ind0 ;    BDIR *= -1.0f ;   
+         MPOS.x = POS0.x+(0.49f*dx/K)*DIR.x ; MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ; MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+         b      =  GetStepOT(&MPOS, &BDIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) ;
+         if ((b<=(0.5f*K))&&(sind>=0)) {
+            ind   =  OFF[slevel] + sind ;      B1 =  NI[2*ind] ;   B2 = NI[2*ind+1] ;
+            dopB  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+            LB    =  ldexp(1.0f, -slevel) ;
+            // if (id==ID) printf("    B: %02d %6d ", slevel, sind) ;                     
+         } else {
+            b = 0.5f*K ;   B1 = NI[2*INDEX] ;   B2 = NI[2*INDEX+1] ;  dopB = doppler ;
+            // if (id==ID) printf("    B: %02d %6d ", -1, -1) ;
+         }
+      }
+      b       =   (2.0f*b+LB)/(K+LB) + (2.0f*a-K)/(K+LA) ;   // b = W1 ~ Centre
+
+      a       =   (K-2.0f*a)/(K+LA) ;                        // a = W2 ~ A,   (1-a-b) ~ B
+      doppler =   b*doppler      + a*dopA + (1.0f-a-b)*dopB ;
+      nu      =   b*NI[2*INDEX  ]  +  a*A1   +  (1.0f-a-b)*B1 ;   // INDEX = still index of the step start
+      A2      =   b*NI[2*INDEX+1]  +  a*A2   +  (1.0f-a-b)*B2 ;
+      
+      tau     =  (fabs(A2)<1.0e-30f) ? (dx*1.0e-30f*GN*GL) : clamp((float)(dx*A2*GN*GL), -2.0f, 1.0e10f) ;
+      // if (id==ID) printf("   W: %6.3f %6.3f %6.3f   nu %10.3e  tau %10.3e\n", b, a, 1.0f-a-b, nu, tau) ; // centre, ADIR, BDIR  = this, A, B      
+
+      
+      
+# endif // MAP_INTERPOLATION==2 22222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222
+      
+
+      
+      
+
+      
+# if (MAP_INTERPOLATION==3) // four point interpolation
+#  if 0
+      if (dx>(0.14*K)) {       
+         dx    =  0.14*K ;                // step in GL units
+         OTL   =  level0 ;   OTI = ind0 ;   
+         POS.x =  POS0.x + 0.14f*DIR.x ;  // step in current POS coordinates, in old cell
+         POS.y =  POS0.y + 0.14f*DIR.y ; 
+         POS.z =  POS0.z + 0.14f*DIR.z ; 
+      }
+#  endif
+      dopC = C1 = C2 = 0.0f ;
+      LC   = -1.0f ;
+      //  original cell + ADIR + BDIR + (NDIR+ADIR)
+      doppler  =  CLOUD[INDEX].x*DIR.x + CLOUD[INDEX].y*DIR.y + CLOUD[INDEX].z*DIR.z ;
+      // ADIR
+      slevel   =  level0 ;   sind = ind0 ;  
+      MPOS.x   =  POS0.x+(0.49f*dx/K)*DIR.x ;  MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;  MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+      a        =  GetStepOT(&MPOS, &ADIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) ;
+      if ((a<=(0.5f*K))&&(sind>=0)) {
+         ind   =  OFF[slevel] + sind ;          A1 = NI[2*ind] ;    A2 = NI[2*ind+1] ;
+         dopA  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+         LA    =  ldexp(1.0f, -slevel) ;
+      } else {
+         slevel   =  level0 ;    sind = ind0 ;     ADIR *= -1.0f ;   
+         MPOS.x   =  POS0.x+(0.49f*dx/K)*DIR.x ;   MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;   MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+         a        =  GetStepOT(&MPOS, &ADIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) ;
+         if ((a<=(0.5f*K))&&(sind>=0)) {
+            ind   =  OFF[slevel] + sind ;       A1 =  NI[2*ind] ;   A2 = NI[2*ind+1] ;
+            dopA  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+            LA    =  ldexp(1.0f, -slevel) ;
+         } else {
+            a = 0.5f*K ;   A1 = NI[2*INDEX] ;   A2 = NI[2*INDEX+1] ;  dopA = doppler ;
+         }
+      }
+      // BDIR
+      slevel   = level0 ;    sind = ind0 ;
+      MPOS.x   = POS0.x+(0.49f*dx/K)*DIR.x ; MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ;  MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+      b        =  GetStepOT(&MPOS, &BDIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1)  ;
+      if ((b<=(0.5f*K))&&(sind>=0)) {
+         ind   =  OFF[slevel] + sind ;          B1 =  NI[2*ind] ;   B2 = NI[2*ind+1] ;
+         dopB  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+         LB    =  ldexp(1.0f, -slevel) ;
+         // BDIR+ADIR
+         MPOS.x += 0.01f*BDIR.x ;  MPOS.y += 0.01f*BDIR.y ;  MPOS.z += 0.01f*BDIR.z ; // further from the border
+         c     =  GetStepOT(&MPOS, &ADIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1)  ;
+         if (sind>=0) {
+            ind   =  OFF[slevel] + sind ;       C1 =  NI[2*ind] ;   C2 = NI[2*ind+1] ;
+            dopC  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+            LC    =  ldexp(1.0f, -slevel) ;
+         }
+      } else {
+         slevel =  level0 ;    sind = ind0 ;    BDIR *= -1.0f ;   
+         MPOS.x = POS0.x+(0.49f*dx/K)*DIR.x ; MPOS.y = POS0.y+(0.49f*dx/K)*DIR.y ; MPOS.z = POS0.z+(0.49f*dx/K)*DIR.z ;
+         b      =  GetStepOT(&MPOS, &BDIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1) ;
+         if ((b<=(0.5f*K))&&(sind>=0)) {
+            ind   =  OFF[slevel] + sind ;       B1 =  NI[2*ind] ;   B2 = NI[2*ind+1] ;
+            dopB  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+            LB    =  ldexp(1.0f, -slevel) ;
+            // BDIR+ADIR
+            MPOS.x += 0.01f*BDIR.x ;  MPOS.y += 0.01f*BDIR.y ;  MPOS.z += 0.01f*BDIR.z ; // further from the border
+            c     =  GetStepOT(&MPOS, &ADIR, &slevel, &sind, RHO, OFF, PAR, 99, NULL, -1)  ;
+            if (sind>=0) {
+               ind   =  OFF[slevel] + sind ;    C1 =  NI[2*ind] ;   C2 = NI[2*ind+1] ;
+               dopC  =  CLOUD[ind].x*DIR.x + CLOUD[ind].y*DIR.y + CLOUD[ind].z*DIR.z ;
+               LC    =  ldexp(1.0f, -slevel) ;
+            }
+         } else {
+            b = 10.0f*K ;   B1 = NI[2*INDEX] ;   B2 = NI[2*INDEX+1] ;  dopB = doppler ;
+         }
+      }
+
+            
+      
+#  define FUN(x) (sqrt(x))
+      
+      // distance (0.5*K-a ,  0.5*K-b) for original cell = (doppler, NI[2*INDEX...]
+      // distance (a+0.5*LA,      0.0) for cell (dopA, A1, A2)
+      // distance (     0.0, b+0.5*LB) for cell (dopB, B1, B2)
+      // distance (b+0.5*L4, c+0.5*L4) for cell (dopC, C1, C2)
+      w0      =   1.0f / FUN(   (0.02f*K)*(0.02f*K) + (0.5f*K-a)*(0.5f*K-a) + (0.5f*K-b)*(0.5f*K-b)  ) ;
+      
+      if (b>0.3f*K)   b *= 1.0f + (b-0.3f)*3.0f ;
+      
+      wA      =   1.0f / FUN(   (a+0.5*LA)*(a+0.5*LA) + (0.5f*LA-b)*(0.5f*LA-b)   ) ;
+      wB      =   1.0f / FUN(   (b+0.5*LB)*(b+0.5*LB) + (0.5f*LB-a)*(0.5f*LB-a)   ) ;
+      wC      =   (LC>0.0f)  ?  FUN(1.0f/((b+0.5*LC)*(b+0.5*LC) + (c+0.5*LC)*(c+0.5*LC))) : 0.0f ;
+      
+      // wA= wC = 0.0f ;
+      
+      c       =   1.0f/(w0+wA+wB+wC) ;
+      
+      if (id==100)  printf("%10.3e %10.3e %10.3e   %.2f %.2f %.2f %.2f   %10.3e %10.3e %10.3e %10.3e\n", a, b, c,   K, LA, LB, LC,   w0, wA, wB, wC) ;
+      
+      doppler =   c*(w0*doppler         +  wA*dopA + wB*dopB  + wC*dopC) ;
+      nu      =   c*(w0*NI[2*INDEX  ]   +  wA*A1   + wB*B1    + wC*C1  ) ;
+      A2      =   c*(w0*NI[2*INDEX+1]   +  wA*A2   + wB*B2    + wC*C2  ) ;
+      
+      tau     =  (fabs(A2)<1.0e-30f) ? (dx*1.0e-30f*GN*GL) : clamp((float)(dx*A2*GN*GL), -2.0f, 1.0e10f) ;
+
+           
+# endif // MAP_INTERPOLATION==3
+      
+      
+      
+      
+      
+#else //  -- no interpolation --- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      
+# if (WITH_HALF==0)
+      doppler    =  CLOUD[INDEX].x*DIR.x + CLOUD[INDEX].y*DIR.y + CLOUD[INDEX].z*DIR.z ;
+# else
+      doppler    =  
+        vload_half(0,&(CLOUD[4*INDEX]))*DIR.x + 
+        vload_half(1,&(CLOUD[4*INDEX]))*DIR.y + 
+        vload_half(2,&(CLOUD[4*INDEX]))*DIR.z ;
+# endif
       nu         =       NI[2*INDEX] ;           
-      
-      
-      
-      // if (id==11) printf("  %8.4f %8.4f %8.4f\n", POS.x, POS.y, POS.z) ;
-      
-      
-#if 0
+# if 0
       tau        =  dx * NI[2*INDEX+1]*GN*GL ;        // need to separate GN and GL ?
-#else
+# else
       // if (fabs(NI[INDEX].y)<1.0e-24f) {
       //    tau     =  dx * 1.0e-24f * GN * GL ;
       // } else {
@@ -214,22 +519,18 @@ __kernel void Spectra(
       //    tau = clamp(tau, -2.0f, 1.0e10f) ;
       // }
       tau =  (fabs(NI[2*INDEX+1])<1.0e-30f) ? (dx*1.0e-30f*GN*GL) : clamp((float)(dx*NI[2*INDEX+1]*GN*GL), -2.0f, 1.0e10f) ;
-#endif       
+# endif       
       
+#endif // --- no interpolation --- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      
+      
+      
+      distance  += dx ;                  
       
 #if 1      
       tau        =  clamp(tau, 1.0e-30f, 1.0e10f) ;  // $$$  KILL ALL MASERS
 #endif
       
-      
-#if (WITH_HALF==0)
-      doppler    =  CLOUD[INDEX].x*DIR.x + CLOUD[INDEX].y*DIR.y + CLOUD[INDEX].z*DIR.z ;
-#else
-      doppler    =  
-        vload_half(0,&(CLOUD[4*INDEX]))*DIR.x + 
-        vload_half(1,&(CLOUD[4*INDEX]))*DIR.y + 
-        vload_half(2,&(CLOUD[4*INDEX]))*DIR.z ;
-#endif
       
       
 #if (WITH_HALF==0)
@@ -247,6 +548,14 @@ __kernel void Spectra(
       emissivity =  emis0 * nu * dx * GL ;    // emissivity =  H_PIx4 * freq * nu * Aul *dx  * I2T ;
       
       // printf("Doppler %.3e,  sigma %.3e, row %d/%d\n", doppler, CLOUD[INDEX].w, row, GNO) ;
+      
+      
+#if 1
+      if (level0<MINMAPLEVEL) {
+         tau = 0.0f ; emissivity = 0.0f ;   // ignore cells below MINMAPLEVEL
+      }
+#endif
+      
       
       
 #if (WITH_CRT>0)
@@ -279,6 +588,8 @@ __kernel void Spectra(
    } // while INDEX>=0
    
    
+
+#if 1
    for (i=0; i<CHANNELS; i++) {
       // NTRUE[i] -=  BG*(1.0f-exp(-SUM_TAU[i])) ;
       // optical depths 1e-10 or below => final NTRUE may be negative???
@@ -286,8 +597,6 @@ __kernel void Spectra(
       dtau   =   NTRUE[i] ;
       //  tau*(1-0.5*tau*(1-0.333333*tau)) better for |tau|<0.02
       NTRUE[i] -=  BG * ((fabs(tau)>0.01f ) ?  (1.0f-exp(-tau))  :  (tau*(1.0f-tau*(0.5f-0.166666667f*tau)))) ;
-      
-      
 #if 0
       if (NTRUE[i]<-1.0e-6) {
          printf("%12.4e -> %12.4e,   BG=%12.4e  x  %12.4e, SUM_TAU=%.3e\n", dtau, NTRUE[i], BG,
@@ -295,7 +604,21 @@ __kernel void Spectra(
       }
 #endif
    } // for i over CHANNELS
+#else  // WITHOUT BACKGROUND -- ONLY FOR TESTING
+   if (id==0) printf("x?") ;
+#endif
    
+   
+   
+#if 0
+   if (id==ID) {
+      if (isfinite(NTRUE[CHANNELS/2])) {
+         printf("+++ NTRUE[%d] = %10.3e\n", CHANNELS/2, NTRUE[CHANNELS/2]) ;
+      } else {
+         printf("--- NTRUE[%d] = %10.3e\n", CHANNELS/2, NTRUE[CHANNELS/2]) ;
+      }
+   }
+#endif
    
    
 }
@@ -524,7 +847,8 @@ __kernel void SpectraHF(  // @h
                           const int NCHN,                // 13/17 channels (in case of HF spectrum)
                           const int NCOMP,               // 14/18 number of components
                           __global float2 *HF,           // 15/19 channel offsets, weights
-                          __global float *PROFILE        // 16/20 PROFILE[GLOBAL*MAXCHN]
+                          __global float *PROFILE,       // 16/20 PROFILE[GLOBAL*MAXCHN]
+                          const float3  CENTRE           //  map centre, offset in units of the pixel size
                        )
 {
    // printf("SpectraHF\n") ;
@@ -539,7 +863,9 @@ __kernel void SpectraHF(  // @h
    __global float *SUM_TAU = &(SUM_TAU_ARRAY[id*MAXCHN]) ;
    int i ;
    float RA ; // grid units, offset of current ray
-   RA  =   -(id-0.5f*(NRA-1.0f))*STEP ;
+   // RA  =   -(id-0.5f*(NRA-1.0f))*STEP ;
+   // RA  =   -id*STEP ;
+   RA  =   id ; 
    
    
    // calculate the initial position of the ray
@@ -547,34 +873,36 @@ __kernel void SpectraHF(  // @h
    float3 DIR ;
    // float dx, dy, dz ;
    double dx, dy, dz ;
-   POS.x   =  0.500001f*NX ;  POS.y = 0.500001f*NY ;  POS.z = 0.500001f*NZ ;
 # if 1
    DIR.x   =   sin(D.x)*cos(D.y) ;
    DIR.y   =   sin(D.x)*sin(D.y) ;
    DIR.z   =   cos(D.x)            ;
    REAL3 RV, DV ;
-   // Definition:  DEC follows +Z
+   // Definition:  DE follows +Z, RA is now right
    if (DIR.z>0.9999f) {
-      RV.x= 0.0001f ;  RV.y=-0.9999f ; RV.z=0.0001f ;
-      DV.x=-0.9999f ;  DV.y= 0.0001f ; DV.z=0.0001f ; 
+      RV.x= 0.0001f ;  RV.y=+0.9999f ; RV.z=0.0001f ;    // RA = Y
+      DV.x=-0.9999f ;  DV.y= 0.0001f ; DV.z=0.0001f ;    // DE = -X
    } else {
-      if (DIR.z<-0.9999f) {
-         RV.x= 0.0001f ;  RV.y=-0.9999f ; RV.z=0.0001f ;
+      if (DIR.z<-0.9999f) {                              // view from -Z =>  (Y,X)
+         RV.x= 0.0001f ;  RV.y=+0.9999f ; RV.z=0.0001f ;
          DV.x=+0.9999f ;  DV.y= 0.0001f ; DV.z=0.0001f ; 
       } else {
-         // EV  =   DIR z (0,0,1)
-         RV.x = DIR.y ; RV.y = -DIR.x ; RV.z = ZERO ;  RV = normalize(RV) ;
+         // RA orthogonal to DIR and to +Z,   DIR=(1,0,0) => RV=(0,+1,0)
+         //                                   DIR=(0,1,0) => RV=(-1,0,0)
+         RV.x = -DIR.y ;   RV.y = +DIR.x ;  RV.z = ZERO ;  RV = normalize(RV) ;
          // DV  =   RV x DIR
-         DV.x = RV.y*DIR.z-RV.z*DIR.y ;
-         DV.y = RV.z*DIR.x-RV.x*DIR.z ;
-         DV.z = RV.x*DIR.y-RV.y*DIR.x ;
+         DV.x = -RV.y*DIR.z+RV.z*DIR.y ;
+         DV.y = -RV.z*DIR.x+RV.x*DIR.z ;
+         DV.z = -RV.x*DIR.y+RV.y*DIR.x ;
       }
    }
+   
    // printf("OBS = %.4f %.4f %.4f    RA = %.4f %.4f %.4f    DE = %.4f %.4f %.4f \n",          DIR.x, DIR.y, DIR.z,  RV.x, RV.y, RV.z,  DV.x, DV.y, DV.z) ;
+   
    // Offsets in RA and DE directions
-   POS.x  +=  RA*RV.x + DE*DV.x ;
-   POS.y  +=  RA*RV.y + DE*DV.y ;
-   POS.z  +=  RA*RV.z + DE*DV.z ;
+   POS.x  =  CENTRE.x + (RA-0.5*(NRA-1.0f))*STEP*RV.x + DE*STEP*DV.x ;
+   POS.y  =  CENTRE.y + (RA-0.5*(NRA-1.0f))*STEP*RV.y + DE*STEP*DV.y ;
+   POS.z  =  CENTRE.z + (RA-0.5*(NRA-1.0f))*STEP*RV.z + DE*STEP*DV.z ;
    // Change DIR to direction away from the observer
    DIR *= -1.0f ;
 # else
@@ -1883,7 +2211,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
    // BG       =  average number of photons per ray
    // DIRWEI   =  cos(theta) / <cos(theta)>,   weight for current direction relative to average
    for(int i=0; i<CHANNELS; i++) NTRUE[i] = BG * DIRWEI ; // DIRWEI ~ cos(theta) / <cos(theta)>
-
+   
 # if (BRUTE_COOLING>0)
    float cool = BG*DIRWEI*CHANNELS ;
    if (INDEX>=0) {
@@ -1909,7 +2237,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       dx= min(dx,(DIR.y<0.0f) ? (-fmod(POS.y,ONE)/DIR.y-EPS/DIR.y) : ((ONE-fmod(POS.y,ONE))/DIR.y+EPS/DIR.y)) ;
       dx= min(dx,(DIR.z<0.0f) ? (-fmod(POS.z,ONE)/DIR.z-EPS/DIR.z) : ((ONE-fmod(POS.z,ONE))/DIR.z+EPS/DIR.z)) ;
 # endif
-
+      
       nu        =  NI[2*INDEX]  ;
       nb_nb     =  NI[2*INDEX+1] ;
       
@@ -1933,12 +2261,12 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       // avoid profile function outside profile channels LIM.x, LIM.y
       c1        =  max(LIM[row].x+shift, max(0, shift)) ;
       c2        =  min(LIM[row].y+shift, min(CHANNELS-1, CHANNELS-1+shift)) ;
-            
+      
       weight    =  (dx/APL)*VOLUME ;                    // correct !!   .. NDIR=0, weight==1.0/6.0
       tmp_tau   =   dx*nb_nb*GN ;
       if (fabs(tmp_tau)<1.0e-32f) tmp_tau = 1.0e-32f ;  // was e-32
       tmp_emit  =  weight*nu*(Aul/tmp_tau) ;            // GN include grid length [cm]
-
+      
       sum_delta_true =  0.0f ;
       all_escaped    =  0.0f ;
       
@@ -1977,7 +2305,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       RES[2*INDEX]   += sij ;            //  2020-06-02  divided by VOLUME only in solver 
       // Emission ~ path length dx but also weighted according to direction, works because <WEI>==1.0
       RES[2*INDEX+1] += all_escaped ;    // divided by VOLUME only oin Solve() !!!
-
+      
       
       
 # else  // not CRT 
@@ -2011,7 +2339,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
          // all_escaped    +=  escape ;             // sum of escaping photons over the profile
       }  // over channels
       w    =   A_b * (  (weight*nu*Aul  + sum_delta_true) / nb_nb )  ;
-#  else
+#   else
       for(int ii=c1; ii<=c2; ii++)  {
          w               =  tmp_tau*profile[ii-shift] ;
          factor          =  (fabs(w)>0.01f) ? (1.0f-exp(-w)) : (w*(1.0f-w*(0.5f-0.166666667f*w))) ;
@@ -2022,7 +2350,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
          // all_escaped    +=  escape ;             // sum of escaping photons over the profile
       }  // over channels
       w    =   A_b * (  (weight*nu*Aul  + sum_delta_true) / nb_nb )  ;
-#  endif
+#   endif
       
       // printf("    dx = %7.4f  ... EPS = %.3e\n", dx, EPS) ;
       AADD((__global float*)(RES+INDEX),   w) ;   // Sij counter update
@@ -2030,7 +2358,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       // printf("dx = %8.4f  w = %12.4e  w/dx %12.4e  W = %12.4e  BG = %12.4e\n", dx, w, w/dx, RES[INDEX], BG) ;
       
 #  endif
-
+      
       
 # endif  // not CRT
       
@@ -2045,8 +2373,8 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       
 # if (FIX_PATHS>0)
       not used
-      // try to precise the position
-      count += 1 ;
+        // try to precise the position
+        count += 1 ;
       if (count%7==2) {
          if (LEADING<2) {
             float s =  (LEADING==0) ?  (POS.x/DIR.x) : ((POS.x-NX)/DIR.x) ;
@@ -6558,7 +6886,7 @@ __kernel void PathsOT4(  // @p
    REAL3 POS, pos, pos0, pos1, RDIR ;
    POS.x  = POS0.x ; POS.y  = POS0.y ; POS.z  = POS0.z ;
    RDIR.x = DIR.x ;  RDIR.y = DIR.y ;  RDIR.z = DIR.z ;
-
+   
    // HEAD are the four subscells on the leading edge
    int HEAD[4] ;   // the sub-indices of the four leading-edge subcells
 #  if (ONESHOT<1)
@@ -6681,7 +7009,7 @@ __kernel void PathsOT4(  // @p
          OTL   +=  1  ;                          // step to the next refinement level
          SID    =  4*(int)floor(POS.z) + 2*(int)floor(POS.y) + (int)floor(POS.x) ; // SID for subcell with the ray
          OTI    =  *(int *)&flo + SID ;          // cell of the incoming ray
-
+         
 #  if 0
          if (OTI>=24141184) {
             printf("--- LEADING EDGE A --------------------------------------------------------------\n") ;
@@ -6706,7 +7034,7 @@ __kernel void PathsOT4(  // @p
          if (c2>0) {  // split the ray and choose one of the new ones to be followed first
             BUFFER[c1+0]  =  OTL ;               // level where the split is done
             BUFFER[c1+1]  =  I2F(OTI) ;          // buffer contains OTI of the original ray
-         
+            
 #  if 0
             if (OTI>=24141183) {
                printf("--- LEADING EDGE B ---------------------------------------------------------------\n") ;
@@ -6819,7 +7147,7 @@ __kernel void PathsOT4(  // @p
             POS.y     =  fmod(POS.y,ONE) + (int)((SID/2)%2) ;
             POS.z     =  fmod(POS.z,ONE) + (int)( SID/4)    ;
             RL        =  OTL ;      // leading edge rays created at level OTL
-       
+            
 #  if 0
             if (OTI>=24141183) {
                printf("--- LEADING EDGE C ---------------------------------------------------------------\n") ;
@@ -6835,7 +7163,7 @@ __kernel void PathsOT4(  // @p
          }  //  c2>0  == other leading-edge subrays added
       } // RHO < 0.0 == we entered refined region
       
-
+      
       
       
       INDEX = OFF[OTL]+OTI ;   // global index -- must be now >=0 since we went down a level
@@ -6863,7 +7191,7 @@ __kernel void PathsOT4(  // @p
 #  endif
          continue ;
       }
-
+      
       
 #  if 0
       if ((FOLLOW)||(OTI>=24141184)) {
@@ -7153,9 +7481,9 @@ __kernel void PathsOT4(  // @p
             // leading-edge subrays (below) must be stored as separate BUFFER entries (different NBUF).
             BUFFER[c1+0] = XL ;        // at level XL all rays stored as level XL rays
             BUFFER[c1+1] = I2F(ind) ;  // index of *original ray*, at level XL
-
+            
             // We leave the original ray as the current one == (OTL, OTI, POS), these unchanged.
-#if 0            
+#   if 0            
             if (ind>=24141184) {
                printf("--- SIDERAYS --- ind = %d  -------------------------------------------------------\n", ind) ;
                printf(" %9d  %2d %9d  P %9.7f %9.7f %9.7f   D %7.4f %7.4f %7.4f  RHO %.3e\n", 
@@ -7164,7 +7492,7 @@ __kernel void PathsOT4(  // @p
                printf("-----------------------------------------------------------------------------------\n") ;
                printf("0:") ; report(OTL, OTI, RL, &POS, OFF, PAR, NBUF) ;
             }
-#endif       
+#   endif       
             
             
 #   if (DEBUG>0)
@@ -7192,7 +7520,7 @@ __kernel void PathsOT4(  // @p
             NBUF += 1 ;
             
             // if (NBUF>30) printf("ADD SIDERAYS  LEVEL %d -> %d     NBUF = %2d\n", OTL, XL, NBUF) ;
-
+            
 #   if (SAFE>0)
             if (NBUF>=MAX_NBUF) {
                printf("gid %7d ------  NBUF = %d !!!!!!!!!!!!!!!!!!!!!!\n", gid, NBUF) ;
@@ -7218,7 +7546,7 @@ __kernel void PathsOT4(  // @p
       
 #  if (SAFE>0)
       if (NBUF>=MAX_NBUF) {
-         printf("ABORT !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n") ;
+         printf("ABORT --- NBUF>=MAX_NBUF !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n") ;
          TPL[gid] = -1.0e20 ; return ;    // one should probably abort, unless plweight is used
       }
 #  endif
@@ -7261,7 +7589,7 @@ __kernel void PathsOT4(  // @p
       
       AADD(&(PL[INDEX]), dr) ;
       tpl       += dr ;               // just the total value for current idir, ioff
-
+      
       
       // The new index at the end of the step  --- OTL >= OTL  => INDEX may not refer to a leaf cell
       INDEX    =  (OTI>=0) ?  (OFF[OTL]+OTI) : (-1) ;  // OTL, OTI, POS already updated = end of the current step
@@ -7335,7 +7663,7 @@ __kernel void PathsOT4(  // @p
             printf("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n") ; 
          }
 #  endif
-
+         
          // this stored ray is at level OTL but may be in a cell that is itself still further
          // refined => this will be handled at the start of the main loop => possible further
          // refinement before on the rays is stepped forward
@@ -7362,7 +7690,7 @@ __kernel void PathsOT4(  // @p
          
       }  // (INDEX<0)
       
-          
+      
    } // while INDEX>=0  --- stops when buffer is empty and the main level-0 ray has exited
    
    TPL[gid] += tpl ;   // TPL[NRAY]
@@ -7430,7 +7758,7 @@ __kernel void UpdateOT4(  // @u
    // decrease in the hierarchy level.
    int id  = get_global_id(0), lid = get_local_id(0), gid = get_group_id(0), ls  = get_local_size(0) ;
    __global float *BUFFER = &BUFFER_ALL[gid*(26+CHANNELS)*MAX_NBUF] ;  // here gid ~ NWG
-
+   
    
    if (gid>=NWG)  return ;
    gid += gid0 ;  // becomes running index over NRAY ....           here gid ~ NRAY
@@ -8923,7 +9251,7 @@ __kernel void PathsOT5(  //
       
       dr      =  GetStepOT(&POS, &DIR, &OTL, &OTI, RHO, OFF, PAR, OTLO, NULL   , LEADING) ; // step [GL] == root grid units !!
       
-
+      
       AADD(&(PL[INDEX]), dr) ;
       
       
