@@ -295,6 +295,10 @@ def ReadIni(filename):
     'maxbuf'          :  40,                 #  maximum allocation of rays per root-grid ray
     'WITH_HALF'       :  0,                  #  whether CLOUD is stored in half precision (vx, vy, vz, sigma)
     'KILL_EMISSION'   :  999999,             #  write spectra ignoring emission from cells >= KILL_EMISSION, 1D models only!!
+    'map_centre'      : [NaN, NaN, NaN],     #  (x,y,z) placed at the map centre
+    'minmaplevel'     : -1,                  #  only hierarky levels level>minmaplevel used in map calculation
+    'MAP_INTERPOLATION': -1,                 #  spatial interpolation in map making
+    'FITS'            :  0                   #  if >0, save spectra and tau as FITS images
     }
     lines = open(filename, 'r').readlines()
     for line in lines:        
@@ -302,11 +306,17 @@ def ReadIni(filename):
         if (len(s)<1): continue
         if ((line[0:1]=='#')|(s[0]=='#')): continue
 
+        if (len(s)>3): # three float arguments
+            try:
+                a, b, c = float(s[1]), float(s[2]), float(s[3])
+                if (s[0].find('mapcent')>=0):   INI.update({'map_centre':  [a, b, c]})
+            except:
+                pass        
         if (len(s)>2): # two float arguments
             try:
                 a, b = float(s[1]), float(s[2])
-                if (s[0].find('points')>=0):   INI.update({'points':    [int(a), int(b)]})
-                if (s[0].find('directi')>=0):  INI.update({'direction': [a*pi/180.0, b*pi/180.0]})
+                if (s[0].find('points')>=0):   INI.update({'points':      [int(a), int(b)]})
+                if (s[0].find('directi')>=0):  INI.update({'direction':   [a*pi/180.0, b*pi/180.0]})
             except:
                 pass        
         if (len(s)>1): # keywords with one argument
@@ -332,7 +342,8 @@ def ReadIni(filename):
                 elif (s[0].find('3')>0):  INI['octree'] = 3
                 elif (s[0].find('2')>0):  INI['octree'] = 2
                 elif (s[0].find('1')>0):  INI['octree'] = 1
-                else:                     INI['octree'] = 0
+                else:                     INI['octree'] = 4 #  0 -> 4, default changed 2021-03-14
+                print("*** OCTREE %d ***" % INI['octree'])
             if (s[0].find('cloud')>=0):   INI.update({'cloud':    s[1]})
             if (s[0].find('molec')>=0):   INI.update({'molecule': s[1]})
             if (s[0].find('load')==0):    INI.update({'load':     s[1]})
@@ -391,6 +402,9 @@ def ReadIni(filename):
                 if (s[0].find("maxbuf")>=0):       INI.update({'maxbuf':      x})
                 if (s[0].find("half")>=0):         INI.update({'WITH_HALF':   x})
                 if (s[0].find("killemi")>=0):      INI.update({'KILL_EMISSION': x})  # kill all emission from cells>x, 1D models only!!
+                if (s[0].find('minmaplevel')>=0):  INI.update({'minmaplevel'  : x})
+                if (s[0].find("mapint")>=0):       INI.update({'MAP_INTERPOLATION':   x})
+                if (s[0].find("FITS")>=0):         INI.update({'FITS':        x})                
                 if (s[0].find("platform")>=0):  
                     INI.update({'platforms':   [x,]})
                     if (len(s)>2): # user also specifies the device within the platform
@@ -1306,3 +1320,44 @@ def ConvolveSpectra1D(filename, fwhm_as, GPU=0, platforms=[0,1,2,3,4], angle_as=
     fp.close()
     return V0+arange(NCHN)*DV, SPE
 
+
+
+def MakeEmptyFitsDim(lon, lat, pix, m, n, dv=0.0, nchn=0, sys_req='fk5'):
+    """
+    Make an empty fits object.
+    Inputs:
+        lon, lat  = centre coordinates of the field [radians]
+        pix       = pixel size [radians]
+        m, n      = width and height in pixels
+        sys_req   = coordinate system, 'fk5' or 'galactic'
+    """
+    import astropy.io.fits as pyfits
+    A         = zeros((n, m), float32)
+    hdu       = pyfits.PrimaryHDU(A)
+    F         = pyfits.HDUList([hdu])
+    F[0].header.update(CRVAL1 =  lon*180.0/pi)
+    F[0].header.update(CRVAL2 =  lat*180.0/pi)
+    F[0].header.update(CDELT1 = -pix*180.0/pi)
+    F[0].header.update(CDELT2 =  pix*180.0/pi)
+    F[0].header.update(CRPIX1 =  0.5*(m+1))
+    F[0].header.update(CRPIX2 =  0.5*(n+1))
+    if (sys_req=='galactic'):
+        F[0].header.update(CTYPE1   = 'GLON-TAN')
+        F[0].header.update(CTYPE2   = 'GLAT-TAN')
+        F[0].header.update(COORDSYS = 'GALACTIC')
+    else:
+        F[0].header.update(CTYPE1   = 'RA---TAN')
+        F[0].header.update(CTYPE2   = 'DEC--TAN')
+        F[0].header.update(COORDSYS = 'EQUATORIAL')
+        F[0].header.update(EQUINOX  = 2000.0)
+    if (nchn>0):
+        F[0].data = zeros((nchn, n, m), float32)
+        F[0].header['NAXIS' ] =  3
+        F[0].header['NAXIS3'] =  nchn
+        F[0].header['CRPIX3'] =  0.5*nchn
+        F[0].header['CRVAL3'] =  0.0
+        F[0].header['CDELT3'] =  dv
+        F[0].header['CTYPE3'] = 'velocity'
+    else:
+        F[0].data = zeros((n, m), float32)
+    return F

@@ -1886,12 +1886,17 @@ def WriteSpectra(INI, u, l):
     WRK[:,1]    =  wrk               # nb_nb
     wrk         =  []
     cl.enqueue_copy(queue, NI_buf, WRK)
-        
-    fp          =  open('%s_%s_%02d-%02d.spe' % (INI['prefix'], MOL.NAME, u, l), 'wb')
-    asarray([NRA, NDE, nchn], int32).tofile(fp)
-    asarray([-0.5*(nchn-1.0)*WIDTH, WIDTH], float32).tofile(fp)
-    fptau       =  open('%s_%s_%02d-%02d.tau' % (INI['prefix'], MOL.NAME, u, l), 'wb')
 
+    if (INI['FITS']==0):
+        fp          =  open('%s_%s_%02d-%02d.spe' % (INI['prefix'], MOL.NAME, u, l), 'wb')
+        asarray([NRA, NDE, nchn], int32).tofile(fp)
+        asarray([-0.5*(nchn-1.0)*WIDTH, WIDTH], float32).tofile(fp)
+        fptau       =  open('%s_%s_%02d-%02d.tau' % (INI['prefix'], MOL.NAME, u, l), 'wb')
+    else:
+        # pix  =   INI['grid']
+        fp    =  MakeEmptyFitsDim(0.0, 0.0, INI['grid']*ARCSEC_TO_RADIAN, NRA, NDE, WIDTH, nchn)
+        fptau =  MakeEmptyFitsDim(0.0, 0.0, INI['grid']*ARCSEC_TO_RADIAN, NRA, NDE, WIDTH, nchn)
+        
     NTRUE       =  zeros((NRA, nchn), float32)
     ANGLE       =  INI['angle']
     ave_tau     =  0.0
@@ -1955,18 +1960,31 @@ def WriteSpectra(INI, u, l):
         ira  = argmax(WWW)
         # if (WWW[ira]>300): print("de=%3d  max(W)=%7.2f for ra=%d" % (de, WWW[ira], ira))
                     
-        
-        for ra in range(NRA):
-            asarray([(ra-0.5*(NRA-1.0))*ANGLE, (de-0.5*(NDE-1.0))*ANGLE], float32).tofile(fp) # offsets
-            NTRUE[ra,:].tofile(fp)       # spectrum
-        # save optical depth
-        cl.enqueue_copy(queue, NTRUE, STAU_buf)
-        for ra in range(NRA):
-            tau[ra]  =  np.max(NTRUE[ra,:])
-        ave_tau +=  sum(tau)   # sum of the peak tau values of the individual spectra
-        tau.tofile(fptau)      # file containing peak tau for each spectrum
-    fp.close()
-    fptau.close()
+        if (INI['FITS']==0):
+            for ra in range(NRA):
+                asarray([(ra-0.5*(NRA-1.0))*ANGLE, (de-0.5*(NDE-1.0))*ANGLE], float32).tofile(fp) # offsets
+                NTRUE[ra,:].tofile(fp)       # spectrum
+            # save optical depth
+            cl.enqueue_copy(queue, NTRUE, STAU_buf)
+            for ra in range(NRA):
+                tau[ra]  =  np.max(NTRUE[ra,:])
+            ave_tau +=  sum(tau)   # sum of the peak tau values of the individual spectra
+            tau.tofile(fptau)      # file containing peak tau for each spectrum
+        else:
+            for ra in range(NRA):
+                fp[0].data[:, de, ra] = NTRUE[ra,:]
+            # save optical depth
+            cl.enqueue_copy(queue, NTRUE, STAU_buf)
+            for ra in range(NRA):
+                fptau[0].data[:, de, ra]  = NTRUE[ra,:]
+    # --- for de
+    if (INI['FITS']==0):
+        fp.close()
+        fptau.close()
+    else:
+        fp.writeto('%s_%s_%02d-%02d.fits'        % (INI['prefix'], MOL.NAME, u, l), overwrite=True)
+        fptau.writeto('%s_%s_%02d-%02d_tau.fits' % (INI['prefix'], MOL.NAME, u, l), overwrite=True)
+        del fp, fptau
     print("  SPECTRUM %3d  = %2d -> %2d,  <tau_peak> = %.3e" % (tran, u, l, ave_tau/(NRA*NDE)))
     
     
