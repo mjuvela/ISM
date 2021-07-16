@@ -113,25 +113,25 @@ if (OCTREE>0):
 m = nonzero(RHO>0.0)  # only leaf nodes
 print("    CELLS    %d" % CELLS)
 if (WITH_HALF==0):
-    print("    density  %10.3e  %10.3e" % (min(RHO[m]), max(RHO[m])))
-    print("    Tkin     %10.3e  %10.3e" % (min(TKIN[m]), max(TKIN[m])))
-    print("    Sigma    %10.3e  %10.3e" % (min(CLOUD['w'][m]), max(CLOUD['w'][m])))
-    print("    vx       %10.3e  %10.3e" % (min(CLOUD['x'][m]), max(CLOUD['x'][m])))
-    print("    vy       %10.3e  %10.3e" % (min(CLOUD['y'][m]), max(CLOUD['y'][m])))
-    print("    vz       %10.3e  %10.3e" % (min(CLOUD['z'][m]), max(CLOUD['z'][m])))
-    print("    chi      %10.3e  %10.3e" % (min(ABU[m]),  max(ABU[m])))
-    if ((min(TKIN[m])<0.0)|(min(ABU[m])<0.0)|(min(CLOUD['w'][m])<0.0)):
+    print("    density  %10.3e  %10.3e" % (np.min(RHO[m]),  np.max(RHO[m])))
+    print("    Tkin     %10.3e  %10.3e" % (np.min(TKIN[m]), np.max(TKIN[m])))
+    print("    Sigma    %10.3e  %10.3e" % (np.min(CLOUD['w'][m]), np.max(CLOUD['w'][m])))
+    print("    vx       %10.3e  %10.3e" % (np.min(CLOUD['x'][m]), np.max(CLOUD['x'][m])))
+    print("    vy       %10.3e  %10.3e" % (np.min(CLOUD['y'][m]), np.max(CLOUD['y'][m])))
+    print("    vz       %10.3e  %10.3e" % (np.min(CLOUD['z'][m]), np.max(CLOUD['z'][m])))
+    print("    chi      %10.3e  %10.3e" % (np.min(ABU[m]),  np.max(ABU[m])))
+    if ((np.min(TKIN[m])<0.0)|(np.min(ABU[m])<0.0)|(np.min(CLOUD['w'][m])<0.0)):
         print("*** Check the cloud parameters: Tkin, abundance, sigma must all be non-negative")
         sys.exit()
 else:
-    print("    density  %10.3e  %10.3e" % (min(RHO[m]), max(RHO[m])))
-    print("    Tkin     %10.3e  %10.3e" % (min(TKIN[m]), max(TKIN[m])))
-    print("    Sigma    %10.3e  %10.3e" % (min(CLOUD[:,3][m]), max(CLOUD[:,3][m])))
-    print("    vx       %10.3e  %10.3e" % (min(CLOUD[:,0][m]), max(CLOUD[:,0][m])))
-    print("    vy       %10.3e  %10.3e" % (min(CLOUD[:,1][m]), max(CLOUD[:,1][m])))
-    print("    vz       %10.3e  %10.3e" % (min(CLOUD[:,2][m]), max(CLOUD[:,2][m])))
-    print("    chi      %10.3e  %10.3e" % (min(ABU[m]),  max(ABU[m])))
-    if ((min(TKIN[m])<0.0)|(min(ABU[m])<0.0)|(min(CLOUD[:,3][m])<0.0)):
+    print("    density  %10.3e  %10.3e" % (np.min(RHO[m]),        np.max(RHO[m])))
+    print("    Tkin     %10.3e  %10.3e" % (np.min(TKIN[m]),       np.max(TKIN[m])))
+    print("    Sigma    %10.3e  %10.3e" % (np.min(CLOUD[:,3][m]), np.max(CLOUD[:,3][m])))
+    print("    vx       %10.3e  %10.3e" % (np.min(CLOUD[:,0][m]), np.max(CLOUD[:,0][m])))
+    print("    vy       %10.3e  %10.3e" % (np.min(CLOUD[:,1][m]), np.max(CLOUD[:,1][m])))
+    print("    vz       %10.3e  %10.3e" % (np.min(CLOUD[:,2][m]), np.max(CLOUD[:,2][m])))
+    print("    chi      %10.3e  %10.3e" % (np.min(ABU[m]),        np.max(ABU[m])))
+    if ((np.min(TKIN[m])<0.0)|(np.min(ABU[m])<0.0)|(np.min(CLOUD[:,3][m])<0.0)):
         print("*** Check the cloud parameters: Tkin, abundance, sigma must all be non-negative")
         sys.exit()
 print("GL %.3e, NSIDE %d, NDIR %d, NRAY %d" % (GL, NSIDE, NDIR, NRAY))
@@ -498,7 +498,8 @@ if (HFS):
 
 if (COOLING==2):
     COOL_buf = cl.Buffer(context,mf.WRITE_ONLY, 4*CELLS)
-    
+
+# 2021-07-14 -- INI['points'] is now the maximum over all map views
 NTRUE_buf =  cl.Buffer(context, mf.READ_WRITE, 4*max([INI['points'][0], NRAY])*MAXCHN)
 STAU_buf  =  cl.Buffer(context, mf.READ_WRITE, 4*max([INI['points'][0], NRAY])*MAXCHN)
 WRK       =  np.zeros((CELLS,2), np.float32)     #  NI=(nu, nb_nb)  and  RES=(SIJ, ESC)
@@ -524,7 +525,7 @@ CUL   =  zeros((PARTNERS,NCUL,2), int32)
 for i in range(PARTNERS):
     CUL[i, :, :]  =  MOL.CUL[i][:,:]
     # KERNEL USES ONLY THE CUL ARRAY FOR THE FIRST PARTNER -- CHECK THAT TRANSITIONS ARE IN THE SAME ORDER
-    delta =   np.max(ravel(MOL.CUL[i]-MOL.CUL[0]))
+    delta =   max(ravel(MOL.CUL[i]-MOL.CUL[0]))
     if (delta>0):
         print("*** ERROR: SolveCL assumes all partners have C in the same order of transitions!!"), sys.exit()
 MOL_CUL_buf  = cl.Buffer(context, mf.READ_ONLY, 4*PARTNERS*NCUL*2)
@@ -602,7 +603,7 @@ if (OCTREE>0):
     
 
 PROFILE_buf = cl.Buffer(context, mf.READ_WRITE, 4)  # dummy
-if (LOWMEM & HFS):
+if ((LOWMEM>0) & HFS):
     # the writing of spectra needs GLOBAL*MAXCHN for the profile vectors
     print("PROFILE BUFFER ALLOCATED FOR %d x %d = %.3e FLOATS" % (GLOBAL, MAXCHN, GLOBAL*MAXCHN))
     PROFILE_buf = cl.Buffer(context, mf.READ_WRITE, 4*GLOBAL*MAXCHN)
@@ -770,7 +771,7 @@ if (INI['iterations']>0):
     if (PLWEIGHT):
         cl.enqueue_copy(queue, TPL,   TPL_buf)
         # print("PL[20444] = %8.4f" % PL[20444])
-        if (min(TPL)<0.0):
+        if (np.min(TPL)<0.0):
             print("PATH KERNEL RAN OUT OF BUFFER SPACE !!!")
             sys.exit()
         
@@ -996,6 +997,7 @@ def Simulate():
         hf       = MOL.F*PLANCK/VOLUME        
     sys.stdout.write('      ')
     for tran in range(MOL.TRANSITIONS): # ------>
+        t_tran        =  time.time()
         upper, lower  =  MOL.T2L(tran)
         Ab            =  MOL.BB[tran]
         Aul           =  MOL.A[tran]
@@ -1315,8 +1317,9 @@ def Simulate():
                             
         m = nonzero(RHO>0.0)
         if (WITH_ALI>0):
-            print(" TRANSITION %2d  <SIJ> %12.5e   <ESC> %12.5e" % 
-            (tran, mean(SIJ_ARRAY[m[0],tran]), mean(ESC_ARRAY[m[0],tran])))
+            print(" TRANSITION %2d  <SIJ> %12.5e   <ESC> %12.5e  T/TRAN  %6.1f" %
+            (tran, mean(SIJ_ARRAY[m[0],tran]), mean(ESC_ARRAY[m[0],tran]), time.time()-t_tran))
+
             
         if (1):
             m1  =  nonzero(~isfinite(SIJ_ARRAY[m[0],0]))
@@ -1592,7 +1595,7 @@ def Solve(CELLS, MOL, INI, LEVELS, TKIN, RHO, ABU, ESC_ARRAY):
                 sys.stdout.write('\n')
             sys.exit()
             
-        max_relative_change =  max(abs((NI_ARRAY[icell, 0:CHECK]-VECTOR[0:CHECK])/(NI_ARRAY[icell, 0:CHECK])))
+        max_relative_change =  np.max(abs((NI_ARRAY[icell, 0:CHECK]-VECTOR[0:CHECK])/(NI_ARRAY[icell, 0:CHECK])))
         NI_ARRAY[icell,:]   =  VECTOR        
         ave_max_change     +=  max_relative_change
         global_max_change   =  max([global_max_change, max_relative_change])    
@@ -1793,201 +1796,205 @@ def WriteSpectra(INI, u, l):
     GNORM       =  (C_LIGHT/(1.0e5*WIDTH*freq))    #  GRID_LENGTH **NOT** multiplied in    
     int2temp    =  C_LIGHT*C_LIGHT/(2.0*BOLTZMANN*freq*freq)
     BG          =  int2temp * Planck(freq, INI['Tbg'])
-    NRA, NDE    =  INI['points']
-    DE          =  0.0    
-    GLOBAL      =  IRound(NRA, LOCAL)    
-    ##NTRUE       =  zeros(NRA*INI['channels'], float32)
-    STEP        =  INI['grid'] / INI['angle']
-    emissivity  =  (PLANCK/(4.0*pi))*freq*Aul*int2temp    
-    direction   =  cl.cltypes.make_float2()
-    direction['x'], direction['y'] = INI['direction']                   # theta, phi = observer direction
-    centre       =  cl.cltypes.make_float3()
-    centre['x'],  centre['y'], centre['z'] =  0.5*NX, 0.5*NY, 0.5*NZ    # map centre in root grid coordinates
-    if (isfinite(sum(INI['map_centre']))):  
-        centre['x']  =   INI['map_centre'][0]
-        centre['y']  =   INI['map_centre'][1]
-        centre['z']  =   INI['map_centre'][2]
-        print("MAP CENTRE: ", INI['map_centre'])
- 
-    if (HFS): # note -- GAU is for CHANNELS channels = maximum over all bands!!
-        for i in range(ncmp):
-            HF[i]['x']  =  round(BAND[tran].VELOCITY[i]/WIDTH) # offset in channels (from centre of the spectrum)
-            HF[i]['y']  =  BAND[tran].WEIGHT[i]
-            print("       offset  %5.2f channels, weight %5.3f" % (HF[i]['x'], HF[i]['y']))
-        HF[0:ncmp]['y']  /= sum(HF[0:ncmp]['y'])
-        cl.enqueue_copy(queue, HF_buf, HF)
 
-    if (WITH_CRT):
-        TMP[:] = CRT_EMI[:, tran] * H_K * ((C_LIGHT/MOL.F[tran])**2.0)*C_LIGHT/(1.0e5*WIDTH*8.0*pi)
-        cl.enqueue_copy(queue, CRT_EMI_buf, TMP)
-        cl.enqueue_copy(queue, CRT_TAU_buf, asarray(CRT_TAU[:,tran].copy(), float32))
-
-    if (WITH_CRT):
-        kernel_spe  = program.Spectra        
-        #                                 0     1     2     3           4                  5
-        kernel_spe.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
-        # 6         7         8           9           10          11    12    13    14    15                
-        np.float32, np.int32, np.float32, np.float32, np.float32, None, None, None, None, cl.cltypes.float3])
-    else:
-        if (OCTREE):
+    
+    for iview in range(len(INI['mapview'])):    
+        
+        # dimensions, direction, centre -- now all in INI['mapview']
+        print('*** MAPVIEW ', INI['mapview'][iview])
+        theta, phi,  NRA, NDE,  xc, yc, zc   =   INI['mapview'][iview] 
+        NRA, NDE   = int(NRA), int(NDE)                               # 2021-07-14 - map dimensions
+        DE          =  0.0    
+        GLOBAL      =  IRound(NRA, LOCAL)    
+        STEP        =  INI['grid'] / INI['angle']
+        emissivity  =  (PLANCK/(4.0*pi))*freq*Aul*int2temp    
+        direction   =  cl.cltypes.make_float2()
+        direction['x'], direction['y'] = theta, phi                   # 2021-07-14 - map direction
+        centre       =  cl.cltypes.make_float3()
+        centre['x'],  centre['y'], centre['z'] =  0.5*NX, 0.5*NY, 0.5*NZ   
+        if (isfinite(xc*yc*zc)):                                      # 2021-07-14 - map centre given by user
+            centre['x'], centre['y'], centre['z']  =   xc, yc, zc
+        print("MAP CENTRE:  %8.3f %8.3f %8.3f" % (centre['x'], centre['y'], centre['z']))
+     
+        if (HFS): # note -- GAU is for CHANNELS channels = maximum over all bands!!
+            for i in range(ncmp):
+                HF[i]['x']  =  round(BAND[tran].VELOCITY[i]/WIDTH) # offset in channels (from centre of the spectrum)
+                HF[i]['y']  =  BAND[tran].WEIGHT[i]
+                print("       offset  %5.2f channels, weight %5.3f" % (HF[i]['x'], HF[i]['y']))
+            HF[0:ncmp]['y']  /= sum(HF[0:ncmp]['y'])
+            cl.enqueue_copy(queue, HF_buf, HF)
+    
+        if (WITH_CRT):
+            TMP[:] = CRT_EMI[:, tran] * H_K * ((C_LIGHT/MOL.F[tran])**2.0)*C_LIGHT/(1.0e5*WIDTH*8.0*pi)
+            cl.enqueue_copy(queue, CRT_EMI_buf, TMP)
+            cl.enqueue_copy(queue, CRT_TAU_buf, asarray(CRT_TAU[:,tran].copy(), float32))
+    
+        if (WITH_CRT):
             kernel_spe  = program.Spectra        
             #                                 0     1     2     3           4                  5
             kernel_spe.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
-            # 6         7         8           9           10          11    12  
-            np.float32, np.int32, np.float32, np.float32, np.float32, None, None,
-            # 13   14     15    16   17        18                 
-            None,  None, None, None, np.int32, cl.cltypes.float3])
+            # 6         7         8           9           10          11    12    13    14    15                
+            np.float32, np.int32, np.float32, np.float32, np.float32, None, None, None, None, cl.cltypes.float3])
         else:
-            kernel_spe  = program.Spectra        
-            #                                 0     1     2     3           4                  5
-            kernel_spe.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
-            # 6         7         8           9           10          11    12    14        15                
-            np.float32, np.int32, np.float32, np.float32, np.float32, None, None, np.int32, cl.cltypes.float3])
-        
-    if (HFS):
-        # Same kernel used with both OCTREE==0 and OCTREE==4, argument list differs
-        if (OCTREE==0):
-            kernel_spe_hf  = program.SpectraHF
-            #                                    0     1     2     3           4                  5      
-            #                                    CLOUD GAU   LIM   GN          D                  NI     
-            kernel_spe_hf.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
-            #  6        7         8           9           10          11      12     
-            #  DE       NRA       STEP        BG          emis        NTRUE   SUM_TAU
-            np.float32, np.int32, np.float32, np.float32, np.float32, None,   None,
-            # 13      14        15     16       17                 
-            # NCHN    NCOMP     HF     PROFILE  MAP_CENTRE
-            np.int32, np.int32, None,  None,    cl.cltypes.float3 ])
-        elif (OCTREE==4):
-            kernel_spe_hf  = program.SpectraHF
-            #                                    0     1     2     3           4                  5      
-            #                                    CLOUD GAU   LIM   GN          D                  NI     
-            kernel_spe_hf.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
-            #  6        7         8           9           10          11      12     
-            #  DE       NRA       STEP        BG          emis        NTRUE   SUM_TAU
-            np.float32, np.int32, np.float32, np.float32, np.float32, None,   None,
-            # 13      14        15      16   
-            # LCELLS  OFF       PAR     RHO  
-            None,     None,     None,   None,
-            # 17      18        19     20       21
-            # NCHN    NCOMP     HF     PROFILE  MAP_CENTRE
-            np.int32, np.int32, None,  None,    cl.cltypes.float3 ])
-        else:
-            print("SpectraHF has not been defined for OCTREE=%d" % OCTREE), sys.exit()
-        
-    wrk         =  (tmp_1 * Aul * (NI_ARRAY[:,l]*gg-NI_ARRAY[:,u])) / (freq*freq)
-    # wrk was clipped to 1e-25 ... and this produced spikes in spectra ??... not the reason....
-    if (0):
-        wrk     =  np.clip(wrk, -1.0e-12, 1.0e10)    
-        wrk[nonzero(abs(wrk)<1.0e-30)] = 1.0e-30
-    else:
-        wrk     =  clip(wrk, 1.0e-25, 1e10)          #  KILL ALL MASERS  $$$
-        
-    WRK[:,0]    =  NI_ARRAY[:, u]    # ni
-    WRK[:,1]    =  wrk               # nb_nb
-    wrk         =  []
-    cl.enqueue_copy(queue, NI_buf, WRK)
-
-    if (INI['FITS']==0):
-        fp          =  open('%s_%s_%02d-%02d.spe' % (INI['prefix'], MOL.NAME, u, l), 'wb')
-        asarray([NRA, NDE, nchn], int32).tofile(fp)
-        asarray([-0.5*(nchn-1.0)*WIDTH, WIDTH], float32).tofile(fp)
-        fptau       =  open('%s_%s_%02d-%02d.tau' % (INI['prefix'], MOL.NAME, u, l), 'wb')
-    else:
-        # pix  =   INI['grid']
-        fp    =  MakeEmptyFitsDim(0.0, 0.0, INI['grid']*ARCSEC_TO_RADIAN, NRA, NDE, WIDTH, nchn)
-        fptau =  MakeEmptyFitsDim(0.0, 0.0, INI['grid']*ARCSEC_TO_RADIAN, NRA, NDE, WIDTH, nchn)
-        
-    NTRUE       =  zeros((NRA, nchn), float32)
-    ANGLE       =  INI['angle']
-    ave_tau     =  0.0
-    tau         =  zeros(NRA, float32)
-    follow      =  -1
-    for de in range(NDE):
-        DE      =  de-0.5*(NDE-1.0)
-        ## DE      =  +de
-        if (HFS): # since CHANNELS has been changed, all transitions written using this kernel ???
+            if (OCTREE):
+                kernel_spe  = program.Spectra        
+                #                                 0     1     2     3           4                  5
+                kernel_spe.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
+                # 6         7         8           9           10          11    12  
+                np.float32, np.int32, np.float32, np.float32, np.float32, None, None,
+                # 13   14     15    16   17        18                 
+                None,  None, None, None, np.int32, cl.cltypes.float3])
+            else:
+                kernel_spe  = program.Spectra        
+                #                                 0     1     2     3           4                  5
+                kernel_spe.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
+                # 6         7         8           9           10          11    12    14        15                
+                np.float32, np.int32, np.float32, np.float32, np.float32, None, None, np.int32, cl.cltypes.float3])
+            
+        if (HFS):
+            # Same kernel used with both OCTREE==0 and OCTREE==4, argument list differs
             if (OCTREE==0):
-                print("HFS:  OCTREE==0   GLOBAL %d  LOCAL %d" % (GLOBAL, LOCAL))
-                kernel_spe_hf(queue, [GLOBAL,], [LOCAL,],
-                # 0        1        2         3     4          5       6   7    8     9   10         
-                CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity,
-                # 11        12       13    14    15      16           17     
-                NTRUE_buf, STAU_buf, nchn, ncmp, HF_buf, PROFILE_buf, centre)
+                kernel_spe_hf  = program.SpectraHF
+                #                                    0     1     2     3           4                  5      
+                #                                    CLOUD GAU   LIM   GN          D                  NI     
+                kernel_spe_hf.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
+                #  6        7         8           9           10          11      12     
+                #  DE       NRA       STEP        BG          emis        NTRUE   SUM_TAU
+                np.float32, np.int32, np.float32, np.float32, np.float32, None,   None,
+                # 13      14        15     16       17                 
+                # NCHN    NCOMP     HF     PROFILE  MAP_CENTRE
+                np.int32, np.int32, None,  None,    cl.cltypes.float3 ])
             elif (OCTREE==4):
-                kernel_spe_hf(queue, [GLOBAL,], [LOCAL,],
-                # 0        1        2         3     4          5       6   7    8     9
-                CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, 
-                # 10        11         12        13          14       15       16      
-                emissivity, NTRUE_buf, STAU_buf, LCELLS_buf, OFF_buf, PAR_buf, RHO_buf,
-                #  17  18    19      20           21     
-                nchn,  ncmp, HF_buf, PROFILE_buf, centre)
+                kernel_spe_hf  = program.SpectraHF
+                #                                    0     1     2     3           4                  5      
+                #                                    CLOUD GAU   LIM   GN          D                  NI     
+                kernel_spe_hf.set_scalar_arg_dtypes([None, None, None, np.float32, cl.cltypes.float2, None,
+                #  6        7         8           9           10          11      12     
+                #  DE       NRA       STEP        BG          emis        NTRUE   SUM_TAU
+                np.float32, np.int32, np.float32, np.float32, np.float32, None,   None,
+                # 13      14        15      16   
+                # LCELLS  OFF       PAR     RHO  
+                None,     None,     None,   None,
+                # 17      18        19     20       21
+                # NCHN    NCOMP     HF     PROFILE  MAP_CENTRE
+                np.int32, np.int32, None,  None,    cl.cltypes.float3 ])
             else:
-                print("kernel_spe_hfs exists only for OCTREE==0 and OCTREE==4"), sys.exit()
+                print("SpectraHF has not been defined for OCTREE=%d" % OCTREE), sys.exit()
+            
+        wrk         =  (tmp_1 * Aul * (NI_ARRAY[:,l]*gg-NI_ARRAY[:,u])) / (freq*freq)
+        # wrk was clipped to 1e-25 ... and this produced spikes in spectra ??... not the reason....
+        if (0):
+            wrk     =  np.clip(wrk, -1.0e-12, 1.0e10)    
+            wrk[nonzero(abs(wrk)<1.0e-30)] = 1.0e-30
         else:
-            # print("---------- kernel_spe ----------")
-            if (WITH_CRT):
-                kernel_spe(queue, [GLOBAL,], [LOCAL,],
-                # 0        1        2         3     4          5       6   7    8     9   10          11         12       
-                CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, NTRUE_buf, STAU_buf,
-                # 13         14           15     
-                CRT_TAU_buf, CRT_EMI_buf, centre)
-            else:
-                if (OCTREE):
-                    follow = -1
-                    #   (x,y) = (ra, de)
-                    # if (de==80):   follow=202
-                    # if (de==78):   follow=167
-                    # if (de==56):   follow=205     #    837288
-                    # if (de==155):  follow=36
-                    # if (de==65):   follow=192
-                    # if (de==170):  follow=24
-                    # if (de==90):   follow=170
-                    kernel_spe(queue, [GLOBAL,], [LOCAL,],
-                    # 0        1        2         3     4          5       6   7    8     9   10         
-                    CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, 
-                    # 11       12        13          14       15       16       17      18     
-                    NTRUE_buf, STAU_buf, LCELLS_buf, OFF_buf, PAR_buf, RHO_buf, follow, centre)
-                else:
-                    kernel_spe(queue, [GLOBAL,], [LOCAL,],
-                    # 0        1        2         3     4          5       6   7    8     9   10          11         12        13  14
-                    CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, NTRUE_buf, STAU_buf, -1, centre)
-                    
-                    
-        # save spectrum
-        cl.enqueue_copy(queue, NTRUE, NTRUE_buf)
-        
-        WWW  = sum(NTRUE, axis=1)
-        ira  = argmax(WWW)
-        # if (WWW[ira]>300): print("de=%3d  max(W)=%7.2f for ra=%d" % (de, WWW[ira], ira))
-                    
+            wrk     =  clip(wrk, 1.0e-25, 1e10)          #  KILL ALL MASERS  $$$
+            
+        WRK[:,0]    =  NI_ARRAY[:, u]    # ni
+        WRK[:,1]    =  wrk               # nb_nb
+        wrk         =  []
+        cl.enqueue_copy(queue, NI_buf, WRK)
+    
         if (INI['FITS']==0):
-            for ra in range(NRA):
-                asarray([(ra-0.5*(NRA-1.0))*ANGLE, (de-0.5*(NDE-1.0))*ANGLE], float32).tofile(fp) # offsets
-                NTRUE[ra,:].tofile(fp)       # spectrum
-            # save optical depth
-            cl.enqueue_copy(queue, NTRUE, STAU_buf)
-            for ra in range(NRA):
-                tau[ra]  =  np.max(NTRUE[ra,:])
-            ave_tau +=  sum(tau)   # sum of the peak tau values of the individual spectra
-            tau.tofile(fptau)      # file containing peak tau for each spectrum
+            fp          =  open('%s_%s_%02d-%02d.%03d.spe' % (INI['prefix'], MOL.NAME, u, l, iview), 'wb')
+            asarray([NRA, NDE, nchn], int32).tofile(fp)
+            asarray([-0.5*(nchn-1.0)*WIDTH, WIDTH], float32).tofile(fp)
+            fptau       =  open('%s_%s_%02d-%02d.%03d.tau' % (INI['prefix'], MOL.NAME, u, l, iview), 'wb')
         else:
-            for ra in range(NRA):
-                fp[0].data[:, de, ra] = NTRUE[ra,:]
-            # save optical depth
-            cl.enqueue_copy(queue, NTRUE, STAU_buf)
-            for ra in range(NRA):
-                fptau[0].data[:, de, ra]  = NTRUE[ra,:]
-    # --- for de
-    if (INI['FITS']==0):
-        fp.close()
-        fptau.close()
-    else:
-        fp.writeto('%s_%s_%02d-%02d.fits'        % (INI['prefix'], MOL.NAME, u, l), overwrite=True)
-        fptau.writeto('%s_%s_%02d-%02d_tau.fits' % (INI['prefix'], MOL.NAME, u, l), overwrite=True)
-        del fp, fptau
-    print("  SPECTRUM %3d  = %2d -> %2d,  <tau_peak> = %.3e" % (tran, u, l, ave_tau/(NRA*NDE)))
-    
-    
+            # pix  =   INI['grid']
+            fp    =  MakeEmptyFitsDim(0.0, 0.0, INI['grid']*ARCSEC_TO_RADIAN, NRA, NDE, WIDTH, nchn)
+            fptau =  MakeEmptyFitsDim(0.0, 0.0, INI['grid']*ARCSEC_TO_RADIAN, NRA, NDE, WIDTH, nchn)
+            
+        NTRUE       =  zeros((NRA, nchn), float32)
+        ANGLE       =  INI['angle']
+        ave_tau     =  0.0
+        tau         =  zeros(NRA, float32)
+        follow      =  -1
+        for de in range(NDE):
+            DE      =  de-0.5*(NDE-1.0)
+            ## DE      =  +de
+            if (HFS): # since CHANNELS has been changed, all transitions written using this kernel ???
+                if (OCTREE==0):
+                    print("HFS:  OCTREE==0   GLOBAL %d  LOCAL %d" % (GLOBAL, LOCAL))
+                    kernel_spe_hf(queue, [GLOBAL,], [LOCAL,],
+                    # 0        1        2         3     4          5       6   7    8     9   10         
+                    CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity,
+                    # 11        12       13    14    15      16           17     
+                    NTRUE_buf, STAU_buf, nchn, ncmp, HF_buf, PROFILE_buf, centre)
+                elif (OCTREE==4):
+                    kernel_spe_hf(queue, [GLOBAL,], [LOCAL,],
+                    # 0        1        2         3     4          5       6   7    8     9
+                    CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, 
+                    # 10        11         12        13          14       15       16      
+                    emissivity, NTRUE_buf, STAU_buf, LCELLS_buf, OFF_buf, PAR_buf, RHO_buf,
+                    #  17  18    19      20           21     
+                    nchn,  ncmp, HF_buf, PROFILE_buf, centre)
+                else:
+                    print("kernel_spe_hfs exists only for OCTREE==0 and OCTREE==4"), sys.exit()
+            else:
+                # print("---------- kernel_spe ----------")
+                if (WITH_CRT):
+                    kernel_spe(queue, [GLOBAL,], [LOCAL,],
+                    # 0        1        2         3     4          5       6   7    8     9   10          11         12       
+                    CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, NTRUE_buf, STAU_buf,
+                    # 13         14           15     
+                    CRT_TAU_buf, CRT_EMI_buf, centre)
+                else:
+                    if (OCTREE):
+                        follow = -1
+                        #   (x,y) = (ra, de)
+                        # if (de==80):   follow=202
+                        # if (de==78):   follow=167
+                        # if (de==56):   follow=205     #    837288
+                        # if (de==155):  follow=36
+                        # if (de==65):   follow=192
+                        # if (de==170):  follow=24
+                        # if (de==90):   follow=170
+                        kernel_spe(queue, [GLOBAL,], [LOCAL,],
+                        # 0        1        2         3     4          5       6   7    8     9   10         
+                        CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, 
+                        # 11       12        13          14       15       16       17      18     
+                        NTRUE_buf, STAU_buf, LCELLS_buf, OFF_buf, PAR_buf, RHO_buf, follow, centre)
+                    else:
+                        kernel_spe(queue, [GLOBAL,], [LOCAL,],
+                        # 0        1        2         3     4          5       6   7    8     9   10          11         12        13  14
+                        CLOUD_buf, GAU_buf, LIM_buf, GNORM, direction, NI_buf, DE, NRA, STEP, BG, emissivity, NTRUE_buf, STAU_buf, -1, centre)
+                        
+                        
+            # save spectrum
+            cl.enqueue_copy(queue, NTRUE, NTRUE_buf)
+            
+            WWW  = sum(NTRUE, axis=1)
+            ira  = argmax(WWW)
+            # if (WWW[ira]>300): print("de=%3d  max(W)=%7.2f for ra=%d" % (de, WWW[ira], ira))
+                        
+            if (INI['FITS']==0):
+                for ra in range(NRA):
+                    asarray([(ra-0.5*(NRA-1.0))*ANGLE, (de-0.5*(NDE-1.0))*ANGLE], float32).tofile(fp) # offsets
+                    NTRUE[ra,:].tofile(fp)       # spectrum
+                # save optical depth
+                cl.enqueue_copy(queue, NTRUE, STAU_buf)
+                for ra in range(NRA):
+                    tau[ra]  =  np.max(NTRUE[ra,:])
+                ave_tau +=  sum(tau)   # sum of the peak tau values of the individual spectra
+                tau.tofile(fptau)      # file containing peak tau for each spectrum
+            else:
+                for ra in range(NRA):
+                    fp[0].data[:, de, ra] = NTRUE[ra,:]
+                # save optical depth
+                cl.enqueue_copy(queue, NTRUE, STAU_buf)
+                for ra in range(NRA):
+                    fptau[0].data[:, de, ra]  = NTRUE[ra,:]
+        # --- for de
+        if (INI['FITS']==0):
+            fp.close()
+            fptau.close()
+        else:
+            fp.writeto('%s_%s_%02d-%02d.%03d.fits'        % (INI['prefix'], MOL.NAME, u, l, iview), overwrite=True)
+            fptau.writeto('%s_%s_%02d-%02d_tau.%03d.fits' % (INI['prefix'], MOL.NAME, u, l, iview), overwrite=True)
+            del fp, fptau
+        print("  SPECTRUM %3d  = %2d -> %2d,  <tau_peak> = %.3e" % (tran, u, l, ave_tau/(NRA*NDE)))
+
+        
 
     
     
@@ -2080,9 +2087,9 @@ for i in range(len(ul)//2):    # loop over transitions
     fp.close()
     if (OCTREE):
         m = nonzero(RHO>0.0)
-        print("  TEX      %3d  = %2d -> %2d,  [%.3f,%.3f]  %.3f K" % (tr, u, l, min(tex[m]), max(tex[m]), mean(tex[m])))
+        print("  TEX      %3d  = %2d -> %2d,  [%.3f,%.3f]  %.3f K" % (tr, u, l, np.min(tex[m]), np.max(tex[m]), mean(tex[m])))
     else:
-        print("  TEX      %3d  = %2d -> %2d,  [%.3f,%.3f]  %.3f K" % (tr, u, l, min(tex), max(tex), mean(tex)))
+        print("  TEX      %3d  = %2d -> %2d,  [%.3f,%.3f]  %.3f K" % (tr, u, l, np.min(tex), np.max(tex), mean(tex)))
 
     if (0):
         clf()

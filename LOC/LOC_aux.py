@@ -247,12 +247,13 @@ def ReadIni(filename):
     'Tex'             : [],                  #  save excitation temperatures for listed transitions
     'spectra'         : [],                  #  save spectra for listed transitions
     'direction'       : [0.0, 0.0],          #  (theta, phi), the direction towards the observer
+    'points'          : [10,10],             #  number pixels in the output maps
     'cooling'         : 0,                   #  save cooling rates 
+    'mapview'         : [],                  #  theta, phi, nx, ny,  (x,y,z) map centre
     'GPU'             : 0 ,                  #  use GPU instead of CPU
     'platforms'       : [0,1,2,3,4],         #  OpenCL platforms to try
     'idevice'         : 0,                   #  selected device within the platform (for given device type)
     'sdevice'         : '',                  #  string used to select the OpenCL device
-    'points'          : [10,10],             #  number pixels in the output maps
     'load'            : '',                  #  file to load saved level populations
     'save'            : '' ,                 #  file to save calculated level populations
     'iterations'      : 1,                   #  number of iterations (field simulation + level population updates)
@@ -295,7 +296,6 @@ def ReadIni(filename):
     'maxbuf'          :  40,                 #  maximum allocation of rays per root-grid ray
     'WITH_HALF'       :  0,                  #  whether CLOUD is stored in half precision (vx, vy, vz, sigma)
     'KILL_EMISSION'   :  999999,             #  write spectra ignoring emission from cells >= KILL_EMISSION, 1D models only!!
-    'map_centre'      : [NaN, NaN, NaN],     #  (x,y,z) placed at the map centre
     'minmaplevel'     : -1,                  #  only hierarky levels level>minmaplevel used in map calculation
     'MAP_INTERPOLATION': -1,                 #  spatial interpolation in map making
     'FITS'            :  0                   #  if >0, save spectra and tau as FITS images
@@ -306,12 +306,17 @@ def ReadIni(filename):
         if (len(s)<1): continue
         if ((line[0:1]=='#')|(s[0]=='#')): continue
 
-        if (len(s)>3): # three float arguments
+        if ((s[0].find('mapview')>=0)&(len(s)>=5)): # at least  theta, phi, nx, ny  -- optionally (xc, yc, zc)
+            print("mapview, len(s)=%d" % (len(s)), s)
+            tmp =  [ float(s[1])*pi/180.0, float(s[2])*pi/180.0,  int(s[3]), int(s[4]) ]  #   theta, phi, NX, NY map parameters
             try:
-                a, b, c = float(s[1]), float(s[2]), float(s[3])
-                if (s[0].find('mapcent')>=0):   INI.update({'map_centre':  [a, b, c]})
+                mc = [ float(s[5]), float(s[6]), float(s[7]) ]          #   map centre (xc, yc, zc)
             except:
-                pass        
+                mc = [ NaN, NaN, NaN ]  # these will be replaced by the default, the cloud centre
+                pass
+            #                      theta   phi       NX      NY        xc     yc     zc    
+            INI['mapview'].append([tmp[0], tmp[1],   tmp[2], tmp[3],   mc[0], mc[1], mc[2]])
+            
         if (len(s)>2): # two float arguments
             try:
                 a, b = float(s[1]), float(s[2])
@@ -395,6 +400,7 @@ def ReadIni(filename):
                 if (s[0].find('local')>=0):        INI.update({'LOCAL':       x})
                 if (s[0].find("ALI")==0):          INI.update({'WITH_ALI':    x})
                 if (s[0].find("ali")==0):          INI.update({'WITH_ALI':    x})
+                if (s[0].find("FITS")==0):         INI.update({'FITS':        x})
                 if (s[0].find("tausave")>=0):      INI.update({'savetau':     x})
                 if (s[0].find("plweight")>=0):     INI.update({'plweight':    x})
                 if (s[0].find("oneshot")>=0):      INI.update({'oneshot':     x})
@@ -404,7 +410,6 @@ def ReadIni(filename):
                 if (s[0].find("killemi")>=0):      INI.update({'KILL_EMISSION': x})  # kill all emission from cells>x, 1D models only!!
                 if (s[0].find('minmaplevel')>=0):  INI.update({'minmaplevel'  : x})
                 if (s[0].find("mapint")>=0):       INI.update({'MAP_INTERPOLATION':   x})
-                if (s[0].find("FITS")>=0):         INI.update({'FITS':        x})                
                 if (s[0].find("platform")>=0):  
                     INI.update({'platforms':   [x,]})
                     if (len(s)>2): # user also specifies the device within the platform
@@ -421,7 +426,20 @@ def ReadIni(filename):
         if (s[0].find('pickle')>=0):           INI.update({'pickle':        1})
         if (s[0].find('methodx')>=0):          INI.update({'method_x':      1})
         
-    #print(INI)
+    # one can use "direction" and "points", map centred on the cloud centre
+    # if mapview is given, direction and points will be ignored
+    if (len(INI['mapview'])<1):
+        #                  theta               phi                 nx               ny                xc   yc   zc 
+        INI['mapview'].append(
+        [INI['direction'][0],INI['direction'][1],INI['points'][0],INI['points'][1], NaN, NaN, NaN])
+    # some allocations depend on map size => update INI['points'] with the maximum values
+    max_nra, max_nde = 0, 0
+    for i in range(len(INI['mapview'])):
+        max_nra = max(max_nra, INI['mapview'][i][2])
+        max_nra = max(max_nra, INI['mapview'][i][2])
+    INI['points'] = [ max_nra, max_nde]
+    # INI['direction'] is no longer needed
+    INI['direction'] = []
     return INI
 
 
@@ -513,8 +531,8 @@ def ReadCloudOT(INI, MOL):
             if (INI['ksigma']!=1.0):   tmp[m] *= INI['ksigma']
             if (INI['thermaldv']>0):
                 tmp[m]  = (np.sqrt(tmp**2.0+2.0e-10*BOLTZMANN*TKIN[(OFF[level]):(OFF[level]+cells)]/(AMU*MOL.WEIGHT)))[m]
-            INI['min_sigma'] = min([ INI['min_sigma'],  min(tmp[m]) ])
-            INI['max_sigma'] = max([ INI['max_sigma'],  max(tmp[m]) ])
+            INI['min_sigma'] = min([ INI['min_sigma'],  np.min(tmp[m]) ])
+            INI['max_sigma'] = max([ INI['max_sigma'],  np.max(tmp[m]) ])
         if (WITH_HALF==0):
             CLOUD[(OFF[level]):(OFF[level]+cells)]['w'] = tmp
         else:
@@ -572,7 +590,19 @@ def ReadCloud3D(INI, MOL):
     cells      = nx*ny*nz
     #    0  1  2      3   4   5   6
     #    n, T, sigma, vx, vy, vz, x
-    C       =  fromfile(fp, np.float32).reshape(nz*ny*nx,7)
+    try:
+        C       =  fromfile(fp, np.float32).reshape(nz*ny*nx,7)
+    except:
+        # perhaps cloud is in octree format but just with one hierarchy level ...
+        fp.close()
+        print("Trying to read plain cartesian cloud from octree file....")
+        fp         = open(INI['cloud'], 'rb')
+        nx, ny, nz, otl, cells = fromfile(fp, np.int32, 5)
+        if (otl!=1):
+            print("Trying to read cartesian grid cloud but file has %d levels of hierarchy!" % otl)
+            sys.exit(0)
+        C = transpose(fromfile(fp, np.float32).reshape(7, 1+cells)[:, 1:].reshape(7, cells))        
+    ###
     C[:,0]  =  clip(C[:,0]*INI['kdensity'],     1.0e-4, 1e15)    # density
     C[:,1]  =  clip(C[:,1]*INI['ktemperature'], 2.0,    2900.0)  # Tkin
     C[:,2]  =  clip(C[:,2]*INI['ksigma'],       1e-10,  1e3)     # sigma, nonthermal
@@ -583,8 +613,8 @@ def ReadCloud3D(INI, MOL):
     C[:,5] *=  INI['kvelocity']
     C[:,6] *=  INI['kabundance']
     #
-    INI['min_sigma'] = min(C[:,2])
-    INI['max_sigma'] = max(C[:,2])
+    INI['min_sigma'] = np.min(C[:,2])
+    INI['max_sigma'] = np.max(C[:,2])
     #
     RHO           =  C[:,0]   # density
     TKIN          =  C[:,1]   # Tkin
@@ -659,14 +689,14 @@ def ReadCloud1D(INI, MOL):
             CLOUD[icell]['x'] = 0.5*(CLOUD[icell-1]['x']+CLOUD[icell]['x'])
     print("================================================================")
     print("CELLS           %d" % CELLS)
-    print("DENSITY         %10.3e to %10.3e, average_vol %10.3e" % (min(RHO), max(RHO), sum(VOLUME*RHO)/sum(VOLUME)))
-    print("TKIN            %10.3e to %10.3e, average_vol %10.3e" % (min(TKIN), max(TKIN), sum(VOLUME*TKIN)/sum(VOLUME)))
-    print("THERMAL SIGMA   %10.3e to %10.3e" % (sqrt(2.0e-10*BOLTZMANN*min(TKIN) / (AMU*molwei)),
+    print("DENSITY         %10.3e to %10.3e, average_vol %10.3e" % (np.min(RHO),  np.max(RHO),  sum(VOLUME*RHO)/sum(VOLUME)))
+    print("TKIN            %10.3e to %10.3e, average_vol %10.3e" % (np.min(TKIN), np.max(TKIN), sum(VOLUME*TKIN)/sum(VOLUME)))
+    print("THERMAL SIGMA   %10.3e to %10.3e" % (sqrt(2.0e-10*BOLTZMANN*np.min(TKIN) / (AMU*molwei)),
     sqrt(2.0e-10*BOLTZMANN*max(TKIN) / (AMU*molwei))))
     sigma = CLOUD[:]['w']
-    print("TOTAL SIGMA     %10.3e to %10.3e, average_vol %10.3e" % (min(sigma), max(sigma), sum(VOLUME*sigma)/sum(VOLUME)))
-    print("ABUNDANCE       %10.3e to %10.3e" % (min(ABU), max(ABU)))
-    print("VRAD            %10.3e to %10.3e" % (min(CLOUD[:]['x']), max(CLOUD[:]['x'])))
+    print("TOTAL SIGMA     %10.3e to %10.3e, average_vol %10.3e" % (np.min(sigma), np.max(sigma), sum(VOLUME*sigma)/sum(VOLUME)))
+    print("ABUNDANCE       %10.3e to %10.3e" % (np.min(ABU), np.max(ABU)))
+    print("VRAD            %10.3e to %10.3e" % (np.min(CLOUD[:]['x']), np.max(CLOUD[:]['x'])))
     print("================================================================")
     
     if (INI['angle']>0.0):                # cloud size defines by ini file
@@ -1073,8 +1103,8 @@ class BandO:
         self.VELOCITY = concatenate((self.VELOCITY, [velocity,]))
         self.WEIGHT   = concatenate((self.WEIGHT,   [weight,]))
         self.N += 1
-        self.VMAX  =  max(self.VELOCITY)
-        self.VMIN  =  min(self.VELOCITY)
+        self.VMAX  =  np.max(self.VELOCITY)
+        self.VMIN  =  np.min(self.VELOCITY)
         
     def Channels(self):
         # return the number of channels needed for this band
@@ -1354,10 +1384,11 @@ def MakeEmptyFitsDim(lon, lat, pix, m, n, dv=0.0, nchn=0, sys_req='fk5'):
         F[0].data = zeros((nchn, n, m), float32)
         F[0].header['NAXIS' ] =  3
         F[0].header['NAXIS3'] =  nchn
-        F[0].header['CRPIX3'] =  0.5*nchn
+        F[0].header['CRPIX3'] =  0.5*(nchn+1.0)
         F[0].header['CRVAL3'] =  0.0
         F[0].header['CDELT3'] =  dv
         F[0].header['CTYPE3'] = 'velocity'
     else:
         F[0].data = zeros((n, m), float32)
     return F
+

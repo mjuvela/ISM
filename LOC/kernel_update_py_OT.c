@@ -677,7 +677,7 @@ __kernel void UpdateHF( // @h   non-octree version !!!!!!!!
    
    GAUSTORE float *pro ;             // pointer to GAU vector
    
-#  if (LOC_LOWMEM>0)
+#  if (LOC_LOWMEM>0)  // kernel has only distinction LOC_LOWMEM<1 or not (host has 0, 1, >1 !!)
    __global float *NTRUE   = &NTRUES[id*MAXCHN] ;
 #  else   // this leads to "insufficient resources" in case of GPU
    __local float  NTRUESSS[LOCAL*MAXCHN] ;
@@ -1134,7 +1134,7 @@ __kernel void UpdateHF4(  // @h
                           __global   float *BUFFER_ALL  //  25 -- buffer to store split rays
                        )  {   
    // Each ***WORK GROUP*** processes one ray. 
-   // Unlike in Update4, profile is here NCHN wide and BUFFER requires sorafe for NCHN instead of CHANNELS channels
+   // Unlike in Update4, profile is here NCHN wide and BUFFER requires storage for NCHN instead of CHANNELS channels
    int id  = get_global_id(0), lid = get_local_id(0), gid = get_group_id(0), ls  = get_local_size(0) ;
    __global float *BUFFER = &BUFFER_ALL[gid*(26+NCHN)*MAX_NBUF] ;  // here gid <= NRAY
    gid += gid0 ;                  // becomes running index over NRAY ....           here gid ~ NRAY
@@ -1782,6 +1782,9 @@ __kernel void UpdateHF4(  // @h
 #   if (WITH_ALI>0) // *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
       for(int i=lid; i<NCHN; i+=ls)  {
          w               =  tmp_tau*profile[i] ; // profile already covers same NCHN channels as NTRUE
+#    if 0
+         if (w<1.0e-6f) continue ;
+#   endif
          factor          =  (fabs(w)>0.01f) ? (1.0f-exp(-w)) : (w*(1.0f-w*(0.5f-0.166666667f*w))) ;
          // factor          =  clamp(factor,  1.0e-30f, 1.0f) ;  // KILL MASERS $$$
          escape          =  tmp_emit*factor ;    // emitted photons that escape current cell
@@ -2148,7 +2151,7 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
    
    float sum_delta_true, all_escaped, nu ;
    int row, shift, INDEX, c1, c2 ;
-   // Each work item processes one ray, rays are two cells apart (ONESHOT==0) to avoid synchronisation
+   // Each work item processes one ray, rays are two cells apart (ONESHOT==0) to avoid need for synchronisation
    // Rays start on the leading edge. If ray exits through a side, a new one is created 
    // on the opposite side and the ray ends when the downstream border is reached.
    int  id = get_global_id(0) ;
@@ -6014,7 +6017,7 @@ __kernel void UpdateOT40(  // @u
                            __global   float *BUFFER_ALL //  20 -- buffer to store split rays
                         )  {   
    // Each ***WORK ITEM*** processes one ray -- no barriers. 
-   // The rays are two cells apart to avoid synchronisation problems. 
+   // The rays are two cells apart to avoid synchronisation problems (?). 
    // Rays start on the leading edge. If ray exits through a side (wrt axis closest to
    // direction of propagation), a new one is created on the opposite side and the ray ends when the
    // downstream edge is reached.
