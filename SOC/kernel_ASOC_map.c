@@ -384,8 +384,8 @@ float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind,
               __global float *DENS, __constant int *OFF, __global int*PAR) {
    // Calculate step to next cell, update level and ind for the next cell
    // Returns the step length in GL units (units of the root grid)
-// #if (NX>DIMLIM)
-// 2020-07-07 ... the double version was not here before, now still commented out with NX>9999
+   // #if (NX>DIMLIM)
+   // 2020-07-07 ... the double version was not here before, now still commented out with NX>9999
 # if (NX>9999)
    // use of DPEPS << PEPS reduces cases where step jumps between non-neighbour cells
    //   == jump over a single intervening cell ... but this still had no effect on scatter tests !!
@@ -405,7 +405,7 @@ float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind,
    dx    =  ldexp(dx, -(*level)) ;
    Index(POS, level, ind, DENS, OFF, PAR) ;         // update (level, ind)   
    return (float)dx ;                 // step length [GL]
-#else
+# else
    float dx, dy, dz ;
    dx = ((((*DIR).x)>0.0f) 
          ? ((1.0f+PEPS-fmod((*POS).x,1.0f))/((*DIR).x)) 
@@ -422,7 +422,7 @@ float GetStep(float3 *POS, const float3 *DIR, int *level, int *ind,
    dx    =  ldexp(dx, -(*level)) ;
    Index(POS, level, ind, DENS, OFF, PAR) ; // update (level, ind)
    return dx ;
-#endif
+# endif
 # if (DEBUG>1)
    if (get_local_id(0)==2) {
       if ((dx<1.0e-4)||(dx>1.733f)) {
@@ -508,7 +508,7 @@ __kernel void Mapping(
                       __global   OTYPE   *OPT,    // 15 ABS + SCA, taking into account abundances
                       __global   float   *COLDEN  // 16 column density image
 #if (ROI_MAP>0)
-                     ,constant   int     *ROI     // 17 [x0, x1,y0, y1, z0, z1] limits of ROI
+                      ,constant   int     *ROI     // 17 [x0, x1,y0, y1, z0, z1] limits of ROI
 #endif
                      )
 {
@@ -516,13 +516,15 @@ __kernel void Mapping(
    if (id>=(NPIX.x*NPIX.y)) return ;
    float DTAU, TAU=0.0f, PHOTONS=0.0f, colden = 0.0f ;   
    float3 POS, TMP ;
-   float  sx, sy, sz ;
+   float  sx, sy, sz, dens, emit ;
    int    ind, level, oind, olevel ;
 #if (ROI_MAP>0)
    int roi = 0 ;
 #endif
    int    i = id % NPIX.x ;   // longitude runs faster
    int    j = id / NPIX.x ;
+   
+// #define BUGID 18063
    
    if (INTOBS.x>-1e10f) {  // perspective image from position inside the model
       float phi   = TWOPI*i/(float)(NPIX.x) ;  // NPIX.x = longitude points
@@ -550,67 +552,288 @@ __kernel void Mapping(
       POS.x = CENTRE.x + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.x + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.x ;
       POS.y = CENTRE.y + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.y + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.y ;
       POS.z = CENTRE.z + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.z + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.z ;   
-      // find position on the front surface (if exists)
-      POS -=  (NX+NY+NZ)*DIR ;   // move behind, step to front surface is positive
-      // find last crossing -- DIR pointing towards observer
-      if (DIR.x>=0.0f)    sx = (NX      - POS.x) / (DIR.x+1.0e-10f) - EPS ;
-      else                sx = (0.0f    - POS.x) /  DIR.x - EPS ;
-      if (DIR.y>=0.0f)    sy = (NY      - POS.y) / (DIR.y+1.0e-10f) - EPS ; 
-      else                sy = (0.0f    - POS.y) /  DIR.y - EPS ;
-      if (DIR.z>=0.0f)    sz = (NZ      - POS.z) / (DIR.z+1.0e-10f) - EPS ;
-      else                sz = (0.0f    - POS.z) /  DIR.z - EPS ;
-      // select largest value that still leaves POS inside the cloud (cloud may be missed)
-      TMP = POS + sx*DIR ;
-      if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sx = -1e10f ;
-      TMP = POS + sy*DIR ;
-      if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sy = -1e10f ;
-      TMP = POS + sz*DIR ;
-      if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sz = -1e10f ;
-      //
-      sx    =  max(sx, max(sy, sz)) ;
-      POS   =  POS + sx*DIR ;
-      TMP   = -DIR ; // DIR towards observer, TMP away from the observer
+      
+      // if (id==BUGID) printf("A:  %12.5f %12.5f %12.5f   %12.5f %12.5f %12.5f\n", POS.x, POS.y, POS.z, DIR.x, DIR.y, DIR.z) ;
+      
+      // Step towards the observer, somewhere in front of the cloud
+      POS +=  (NX+NY+NZ)*DIR ;
+      
+      
+      // if (id==BUGID) printf("B:  %12.5f %12.5f %12.5f  --- in front\n", POS.x, POS.y, POS.z) ;
+      // if (id==BUGID) printf("***    (0 - POS.x)/(-DIR.x) = (0-%10.3e)/(%10.3e) = %10.3e = sx \n", POS.x, DIR.x, (0.0f-POS.x)/(-DIR.x)) ;
+      
+      // go then in the direction -DIR (away from the observer) till we are inside the cloud
+#if (NX<200)
+      if (DIR.x>=0.0f)    sx = (NX      - POS.x) /  (-DIR.x)  +  EPS ;
+      else                sx = (0.0f    - POS.x) /  (-DIR.x)  +  EPS ;
+      if (DIR.y>=0.0f)    sy = (NY      - POS.y) /  (-DIR.y)  +  EPS ; 
+      else                sy = (0.0f    - POS.y) /  (-DIR.y)  +  EPS ;
+      if (DIR.z>=0.0f)    sz = (NZ      - POS.z) /  (-DIR.z)  +  EPS ;
+      else                sz = (0.0f    - POS.z) /  (-DIR.z)  +  EPS ;
+      // select smallest value that leaves POS inside the cloud (...cloud may be missed)
+      TMP   = POS - sx*DIR ;   // -DIR is away from the observer
+      // if (id==BUGID) printf("*** sx %12.5f  ==>   %12.5f %12.5f %12.5f\n", sx, TMP.x, TMP.y, TMP.z) ;
+      if ((TMP.x<0.0f)||(TMP.x>NX)||(TMP.y<0.0f)||(TMP.y>NY)||(TMP.z<0.0f)||(TMP.z>NZ)) sx = 1e10f ;
+      TMP   = POS - sy*DIR ;
+      // if (id==BUGID) printf("*** sy %12.5f  ==>   %12.5f %12.5f %12.5f\n", sy, TMP.x, TMP.y, TMP.z) ;
+      if ((TMP.x<0.0f)||(TMP.x>NX)||(TMP.y<0.0f)||(TMP.y>NY)||(TMP.z<0.0f)||(TMP.z>NZ)) sy = 1e10f ;
+      TMP   = POS - sz*DIR ;
+      // if (id==BUGID) printf("*** sz %12.5f  ==>   %12.5f %12.5f %12.5f\n", sz, TMP.x, TMP.y, TMP.z) ;
+      if ((TMP.x<0.0f)||(TMP.x>NX)||(TMP.y<0.0f)||(TMP.y>NY)||(TMP.z<0.0f)||(TMP.z>NZ)) sz = 1e10f ;
+      sx    =  min(sx, min(sy, sz)) ;
+      POS   =  POS - sx*DIR ;
+#else
+      // In very rare cases, step to surface left a coordinate exactly on the cloud x, y, or z border.
+      // Below, the change from "(TMP.x<=0.0f)" to "(TMP.x<0.0f)" already (almost) fixed that. 
+      // We added 3*EPS to the step... still a few cases where that was not enough.
+      // --- root grid ~1e3 and a float with 7 digits => minimum resolved step ~ 1e-3 ---
+      // Now adding EPS to all coordinates as a separate step.
+      if (DIR.x>=0.0f)    sx = (NX      - POS.x) /  (-DIR.x)  ;
+      else                sx = (0.0f    - POS.x) /  (-DIR.x)  ;
+      if (DIR.y>=0.0f)    sy = (NY      - POS.y) /  (-DIR.y)  ;
+      else                sy = (0.0f    - POS.y) /  (-DIR.y)  ;
+      if (DIR.z>=0.0f)    sz = (NZ      - POS.z) /  (-DIR.z)  ;
+      else                sz = (0.0f    - POS.z) /  (-DIR.z)  ;
+      // select smallest value that leaves POS inside the cloud (...cloud may be missed)
+      TMP   = POS - sx*DIR ;   // -DIR is away from the observer
+      TMP.x += (DIR.x>0.0f) ? (-EPS) : (+EPS) ;
+      TMP.y += (DIR.y>0.0f) ? (-EPS) : (+EPS) ;
+      TMP.z += (DIR.z>0.0f) ? (-EPS) : (+EPS) ;
+      // if (id==BUGID) printf("*** sx %12.5f  ==>   %12.5f %12.5f %12.5f\n", sx, TMP.x, TMP.y, TMP.z) ;
+      if ((TMP.x<0.0f)||(TMP.x>NX)||(TMP.y<0.0f)||(TMP.y>NY)||(TMP.z<0.0f)||(TMP.z>NZ)) sx = 1e10f ;
+      TMP   = POS - sy*DIR ;
+      TMP.x += (DIR.x>0.0f) ? (-EPS) : (+EPS) ;
+      TMP.y += (DIR.y>0.0f) ? (-EPS) : (+EPS) ;
+      TMP.z += (DIR.z>0.0f) ? (-EPS) : (+EPS) ;
+      // if (id==BUGID) printf("*** sy %12.5f  ==>   %12.5f %12.5f %12.5f\n", sy, TMP.x, TMP.y, TMP.z) ;
+      if ((TMP.x<0.0f)||(TMP.x>NX)||(TMP.y<0.0f)||(TMP.y>NY)||(TMP.z<0.0f)||(TMP.z>NZ)) sy = 1e10f ;
+      TMP   = POS - sz*DIR ;
+      TMP.x += (DIR.x>0.0f) ? (-EPS) : (+EPS) ;
+      TMP.y += (DIR.y>0.0f) ? (-EPS) : (+EPS) ;
+      TMP.z += (DIR.z>0.0f) ? (-EPS) : (+EPS) ;
+      // if (id==BUGID) printf("*** sz %12.5f  ==>   %12.5f %12.5f %12.5f\n", sz, TMP.x, TMP.y, TMP.z) ;
+      if ((TMP.x<0.0f)||(TMP.x>NX)||(TMP.y<0.0f)||(TMP.y>NY)||(TMP.z<0.0f)||(TMP.z>NZ)) sz = 1e10f ;
+      sx    =  min(sx, min(sy, sz)) ;
+      POS   =  POS - sx*DIR ;
+      POS.x += (DIR.x>0.0f) ? (-EPS) : (+EPS) ;
+      POS.y += (DIR.y>0.0f) ? (-EPS) : (+EPS) ;
+      POS.z += (DIR.z>0.0f) ? (-EPS) : (+EPS) ;      
+#endif
+      
+      // if (id==BUGID) printf("*** STEPS ---  %12.5f %12.5f %12.5f\n", sx, sy, sz) ;
+      
+#if 0
+      POS   =  POS  - EPS*DIR ;
+#endif
+      
+      // if (id==BUGID) printf("C:  %12.5f %12.5f %12.5f  --- front surface\n", POS.x, POS.y, POS.z) ;
+      
+      TMP   = -DIR ;              // DIR towards observer, TMP away from the observer = our stepping
+      if (fabs(TMP.x)<1.0e-5f)      TMP.x  = 1.0e-5f ;
+      if (fabs(TMP.y)<1.0e-5f)      TMP.y  = 1.0e-5f ;
+      if (fabs(TMP.z)<1.0e-5f)      TMP.z  = 1.0e-5f ;
    }
+   
+   
+   // float3  POS0 = POS ;
+   
    
    // Index
    IndexG(&POS, &level, &ind, DENS, OFF) ;
    // printf("POS %8.4f %8.4f %8.4f  ind %d\n", POS.x, POS.y, POS.z, ind) ;
+   
    
 #if (DEBUG>0)
    CheckPos(&POS, &DIR, &level, &ind, DENS, OFF, PAR, 1) ;
 #endif
    
    
-   while (ind>=0) {
-      oind    = OFF[level]+ind ;    // original cell, before step out of it
-      olevel  = level ;
-      sx      = GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ;
-#if (WITH_ABU>0)
-      DTAU    = sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
-#else
-      DTAU    = sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
+#if (MAP_INTERPOLATION>0)
+   // Prepare to interpolate quantities in directions perpendicular to the ray direction
+   int  slevel, sind, level0, ind0 ;
+   float a, b, Adens, Bdens, Aemit, Bemit, K ;
+# if (MAP_INTERPOLATION==2)
+   float Cemit, Cdens, c, wa, wb, wc, wd ;
+# endif
+   float3 ADIR, BDIR, MPOS, POS0 ;
+   if (fabs(TMP.x)>fabs(TMP.y)) {
+      if (fabs(TMP.z)>fabs(TMP.x)) {
+         ADIR.x=0.0005f ; ADIR.y=1.0f ; ADIR.z=-TMP.y/TMP.z ;
+      } else {
+         ADIR.x=-TMP.z/TMP.x ; ADIR.y=0.0005f ; ADIR.z=1.0f ;
+      }
+   } else {
+      if (fabs(TMP.z)>fabs(TMP.y)) {
+         ADIR.x=0.0005f ; ADIR.y=1.0f ; ADIR.z=-TMP.y/TMP.z ;
+      } else {
+         ADIR.x=1.0f ; ADIR.y=-TMP.x/TMP.y ; ADIR.z=0.0005f ;
+      }
+   }
+   ADIR   = normalize(ADIR) ;
+   BDIR.x = TMP.y*ADIR.z-TMP.z*ADIR.y ;
+   BDIR.y = TMP.z*ADIR.x-TMP.x*ADIR.z ;
+   BDIR.z = TMP.x*ADIR.y-TMP.y*ADIR.x ;
+   BDIR   = normalize(BDIR) ;        
+   // if (id==123) printf("%8.4f %8.4f %8.4f    %8.4f %8.4f %8.4f    %8.4f %8.4f %8.4f \n", TMP.x, TMP.y, TMP.z,  ADIR.x, ADIR.y, ADIR.z,  BDIR.x, BDIR.y, BDIR.z) ;
 #endif
-
+   
+   
+   
+   
+   while (ind>=0) {
+      
+      oind    = OFF[level]+ind ;           // original cell, before step out of it
+      olevel  = level ;
+      
+#if (MAP_INTERPOLATION>0)
+      // store the initial position and coordinates at the start of the step
+      POS0 = POS ;  ind0 = ind ;   level0 = level ;
+      K       =  ldexp(1.0f, -level0) ;    // local to global length,   K <= 1.0
+#endif
+      
+      //  TMP = step AWAY from the observer
+      sx      = GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ;  // sx == root grid coordinates !!
+      
+      dens    = DENS[oind] ;
+      emit    = EMIT[oind] ;
+      
+      
+      
+#if (MAP_INTERPOLATION==2)
+# if 1
+      // we also restrict the length of the step to half of the cell length
+      a  = 0.22f*K ;                     // maximum allowed step length in root grid coordinates
+      if (sx>a) {
+         sx = a ;                        // sx is in root grid coordinates
+         POS = POS0 + 0.22f*TMP ;    ind = ind0 ;    level = level0 ;
+         Index(&POS, &level, &ind, DENS, OFF, PAR) ; // update (level, ind)
+      }
+# endif      
+      // find the neighbour in the ADIR direction
+      slevel =  level0 ;                 // original level
+      sind   =  ind0 ;                   // original index
+      MPOS   =  POS0+(0.5f*sx/K)*TMP ;   // midway through the step
+      a      =  GetStep(&MPOS, &ADIR, &slevel, &sind, DENS, OFF, PAR) ;
+      a     /=  K  ;
+      if ((a<=0.52f)&&(sind>=0)) {
+         Adens = DENS[OFF[slevel]+sind] ;      Aemit = EMIT[OFF[slevel]+sind] ;
+      } else {  // try the other direction
+         slevel = level0 ; sind = ind0 ;    ADIR *= -1.0f ;   MPOS = POS0+(0.5f*sx/K)*TMP ;     
+         a      = GetStep(&MPOS, &ADIR, &slevel, &sind, DENS, OFF, PAR) ;
+         a     /= K ;
+         if ((a<=0.52f)&&(sind>=0)) {
+            Adens = DENS[OFF[slevel]+sind] ;   Aemit = EMIT[OFF[slevel]+sind] ;
+         } else {
+            a = 0.5f ;  Adens = 0.0f ; Aemit = 0.0f ;
+         }
+      }      // now ADIR is the direction towards the neighbour, distance a
+      // find neighbour in the BDIR direction
+      slevel  =  level0 ; 
+      sind    =  ind0 ;             
+      MPOS    =  POS0+(0.5f*sx/K)*TMP ;  
+      b       =  GetStep(&MPOS, &BDIR, &slevel, &sind, DENS, OFF, PAR) ;
+      b      /=  K  ;
+      if ((b<=0.52f)&&(sind>=0)) {
+         Bdens = DENS[OFF[slevel]+sind] ;      Bemit = EMIT[OFF[slevel]+sind] ;
+      } else {
+         slevel = level0 ; sind = ind0 ;    BDIR *= -1.0f ;   MPOS = POS0+(0.5f*sx/K)*TMP ;  
+         b      = GetStep(&MPOS, &BDIR, &slevel, &sind, DENS, OFF, PAR) ;
+         if ((b<=0.52f)&&(sind>=0)) {
+            Bdens = DENS[OFF[slevel]+sind] ;   Bemit = EMIT[OFF[slevel]+sind] ;
+         } else {
+            b = 0.5f ;   Bdens = 0.0f ; Bemit = 0.0f ;
+         }
+      }     // now BDIR is the direction towards the neighbour, distance b
+      a  = clamp(a, 0.0f, 0.51f) ;  //   this would smooth in horizontal direction
+      b  = clamp(b, 0.0f, 0.51f) ;  //   
+      // if (id%13==0) printf("  %8.4f  %8.4f     %10.3e %10.3e     %10.3e %10.3e\n", a, b, Adens, Bdens, Aemit, Bemit) ;
+      // triangle including cell centre
+      dens  =   (0.5f-a)*Adens + (0.5f-b)*Bdens + (a+b)*dens ;
+      emit  =   (0.5f-a)*Aemit + (0.5f-b)*Bemit + (a+b)*emit ;
+#endif
+      
+      
+#if (MAP_INTERPOLATION==1)
+      // interpolate density and emission in the direction perpendicular to the LOS
+      //     - go to  POS-0.5*sx*TMP
+      //     - measure distance to cell centre dc
+      //     - go step  0.5 along ADIR, read value there  =>  ((1-dc)*centre+dc*off)/dc
+      //     - go step  0.5 along BDIR, read value there  =>  ((1-dc)*centre+dc*off)/dc
+      // how far is it to next cell in the direction ADIR
+      slevel =  level0 ;                  // original level
+      sind   =  ind0 ;                    // original index
+      MPOS   =  POS0+(0.5f*sx/K)*TMP ;    // midway through the step, local coordinates
+      a      =  GetStep(&MPOS, &ADIR, &slevel, &sind, DENS, OFF, PAR) ;
+      a     /=  K ;                       // a is now in local coordinates
+      // if (id==123) printf("\n %8.4f %8.4f %8.4f    %8.4f %8.4f %8.4f    %8.4f\n", MPOS.x, MPOS.y, MPOS.z, ADIR.x, ADIR.y, ADIR.z, a) ;
+      if ((a<=0.502f)&&(sind>=0)) {        // distance less than 0.5 in local coordinates
+         Adens = DENS[OFF[slevel]+sind] ;      Aemit = EMIT[OFF[slevel]+sind] ;
+      } else {  // try the other direction
+         // if (id==123) printf("FAILURE1  ... a=%8.4f ADENS=%10.3e   moved %2d %6d -> %2d %6d\n", a, Adens, level0, ind0, slevel, sind) ;
+         slevel =  level0 ;    sind = ind0 ;    ADIR *= -1.0f ;   MPOS = POS0+(0.5f*sx/K)*TMP ;
+         a      =  GetStep(&MPOS, &ADIR, &slevel, &sind, DENS, OFF, PAR) ;
+         a     /=  K ;
+         // if (id==123) printf(" %8.4f %8.4f %8.4f    %8.4f %8.4f %8.4f    %8.4f\n", MPOS.x, MPOS.y, MPOS.z, ADIR.x, ADIR.y, ADIR.z, a) ;
+         if ((a<=0.502f)&&(sind>=0)) {
+            Adens = DENS[OFF[slevel]+sind] ;   Aemit = EMIT[OFF[slevel]+sind] ;
+         } else {
+            // if (id==123) printf("FAILURE2  ... a=%8.4f ADENS=%10.3e   moved %2d %6d -> %2d %6d\n", a, Adens, level0, ind0, slevel, sind) ;
+            a = 0.5f ;   Adens = 0.0f ;   Aemit = 0.0f ;
+         }
+      }
+      // the orthogonal second direction --- K == local-to-global conversion
+      slevel  =  level0 ;    sind = ind0 ;                      MPOS = POS0+(0.5f*sx/K)*TMP ;  
+      b       =  GetStep(&MPOS, &BDIR, &slevel, &sind, DENS, OFF, PAR) ;
+      b      /=  K ;
+      if ((b<=0.502f)&&(sind>=0)) {
+         Bdens = DENS[OFF[slevel]+sind] ;                     Bemit = EMIT[OFF[slevel]+sind] ;
+      } else {
+         slevel = level0 ; sind = ind0 ;    BDIR *= -1.0f ;   MPOS = POS0+(0.5f*sx/K)*TMP ;  
+         b     = GetStep(&MPOS, &BDIR, &slevel, &sind, DENS, OFF, PAR) ;
+         b    /= K ;
+         if ((b<=0.502f)&&(sind>=0)) {
+            Bdens = DENS[OFF[slevel]+sind] ;                  Bemit = EMIT[OFF[slevel]+sind] ;
+         } else {
+            b = 0.5f ;   Bdens = 0.0f ;     Bemit = 0.0f ;
+         }
+      }
+      // if (id%13==0) printf(" %8.4f %8.4f    %10.3e %10.3e    %10.3e %10.3e\n", a, b, Adens, Bdens, Aemit, Bemit) ;
+      // b = 0.5f ;  // vertical interpolation => eliminated by b=0.5
+      // dens ~ (0,0),   A~(1,0),    B~(0,1),   (x,y) = (0.5-a, 0.5-b)
+      a    = 0.5f-a ;         b = 0.5f-b ;      //  a=x, b=y
+      dens = (1.0f-a-b)*dens + a*Adens + b*Bdens ;
+      emit = (1.0f-a-b)*emit + a*Aemit + b*Bemit ;
+#endif
+      
+      
+#if (WITH_ABU>0)
+      DTAU    = sx*dens * (GOPT(2*oind)+GOPT(2*oind+1)) ;
+#else
+      DTAU    = sx*dens * (SCA+ABS) ;  // sx in global units
+#endif
+      
       
 #if (ROI_MAP>0)
       if (InRoi(olevel, oind-OFF[olevel], ROI, PAR, OFF)) { // if oind was inside ROI, add its emission
 #endif        
+         
 #if (LEVEL_THRESHOLD>0) // -------------------------------------------------------------------------------
          // exclude emission from levels < LEVEL_THRESHOLD (== ignore low resolution regions)
          if (olevel>=LEVEL_THRESHOLD) {
             if (DTAU<1.0e-3f) {
-               PHOTONS += exp(-TAU) *  (1.0f-0.5f*DTAU)        * sx * EMIT[oind]*DENS[oind] ;
+               PHOTONS += exp(-TAU) *  (1.0f-0.5f*DTAU)        * sx * emit*dens ;
             } else {
-               PHOTONS += exp(-TAU) * ((1.0f-exp(-DTAU))/DTAU) * sx * EMIT[oind]*DENS[oind] ;
+               PHOTONS += exp(-TAU) * ((1.0f-exp(-DTAU))/DTAU) * sx * emit*dens ;
             }
          }
 #else // -------------------------------------------------------------------------------------------------
          // count emission from all levels of the hierarchy
+         // we step AWAY from the observer so S(1-exp(-dtau)) multiplied by exp(-tau)
          // olevel = olevel ;
          if (DTAU<1.0e-3f) {
-            PHOTONS += exp(-TAU) *  (1.0f-0.5f*DTAU)        * sx * EMIT[oind]*DENS[oind] ;
+            PHOTONS += exp(-TAU) *  (1.0f-0.5f*DTAU)        * sx * emit*dens ;
          } else {
-            PHOTONS += exp(-TAU) * ((1.0f-exp(-DTAU))/DTAU) * sx * EMIT[oind]*DENS[oind] ;
+            PHOTONS += exp(-TAU) * ((1.0f-exp(-DTAU))/DTAU) * sx * emit*dens ;
          }
 #endif // ------------------------------------------------------------------------------------------------
 #if (ROI_MAP>0)
@@ -618,7 +841,7 @@ __kernel void Mapping(
 #endif
       
       TAU    += DTAU ;
-      if (SAVE_TAU<=0.0f)  colden += sx*DENS[oind] ;
+      if (SAVE_TAU<=0.0f) colden += sx*dens ;
       // ind  = IndexG(POS, &level, &ind, DENS, OFF) ; --- should not be necessary!
    }  // while ind>=0
    
@@ -627,6 +850,13 @@ __kernel void Mapping(
    // printf("colden %10.3e x %10.3e\n", colden, LENGTH) ;
    if (SAVE_TAU>0.0f)  COLDEN[id] = TAU ;                 // saving optical depth instead of column density
    if (SAVE_TAU<=0.0f) COLDEN[id] = colden * LENGTH ;
+   
+   // if (id==BUGID) {
+   //if (MAP[id]==0.0f) {
+   // printf(" id %8d   MAP %12.4e  TAU %12.4e  COLDEN %12.4e\n", id, MAP[id], TAU, colden) ;
+   // }
+   // }
+   
 }
 
 
@@ -696,7 +926,7 @@ __kernel void HealpixMapping(
 #else
       DTAU    = dx*DENS[oind]*(SCA+ABS) ;  // dx in global units
 #endif
-
+      
       
 #if (ROI_MAP>0) 
       if (InRoi(olevel, oind-OFF[olevel], ROI, PAR, OFF)) {
@@ -913,7 +1143,7 @@ __kernel void PolMapping(
 //      S(r, delta) = sqrt[  (1/N) * sum( (psi(r)-psi(r+delta))^2 ) ]
 //      sum over [0.5*delta, 1.5*delta] annulus
 //      this is from the final map, nothing to do with LOS integration == post-processing of (Q,U)
-
+   
 
 __kernel void PolMapping(
                          const      float    MAP_DX,     //  0 - pixel size in grid units
@@ -949,11 +1179,10 @@ __kernel void PolMapping(
    int    j = id / NPIX.x ;
    
    // normal external map
-   //    RA increases left !!!,  DE increases UP
    //  2019-04-12 RA increased **right** !!
-   POS.x = CENTRE.x - (i-0.5f*(NPIX.x-1))*MAP_DX*RA.x + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.x ;
-   POS.y = CENTRE.y - (i-0.5f*(NPIX.x-1))*MAP_DX*RA.y + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.y ;
-   POS.z = CENTRE.z - (i-0.5f*(NPIX.x-1))*MAP_DX*RA.z + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.z ;   
+   POS.x = CENTRE.x + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.x + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.x ;
+   POS.y = CENTRE.y + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.y + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.y ;
+   POS.z = CENTRE.z + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.z + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.z ;   
    // find position on the front surface (if exists)
    POS -=  (NX+NY+NZ)*DIR ;   // move behind, step to front surface is positive
    // find last crossing -- DIR pointing towards observer
@@ -1055,14 +1284,10 @@ __kernel void PolMapping(
    MAP[1*NPIX.x*NPIX.y+id] =  acos(sqrt(sRG/sR)) ;   //  rI = <gamma> = acos(sqrt(<cos^2 gamma>))
    MAP[3*NPIX.x*NPIX.y+id] =  acos(sqrt(sJG/sJ)) ;   //  jI, the same with j-weighting
    
-   
    // Calculate polarisation angle Chi
    //   Chi defined in IAU convention, East of North
    float RChi =  0.5*atan2(RU, RQ) ;  // density-weighted  CHi
    float JChi =  0.5*atan2(JU, JQ) ;  // emission-weighted Chi -- IAU convention
-   
-   
-   
    
    // another loop through the cloud to calculate sum(w*(Chi-<Chi>)^2)
    POS = POS0 ;  
@@ -1162,7 +1387,7 @@ __kernel void PolMapping(
 //   a pixel in the plane through the model centre
 //   each LOS extends up to MAXLOS grid units, re-entering on the opposite side
 //   if needed
-
+   
 
 __kernel void PolMapping(
                          const      float    MAP_DX,     //  0 - pixel size in grid units
@@ -1341,6 +1566,116 @@ __kernel void PSTau(
    pscolden[id] = colden * LENGTH ;                 // saving optical depth instead of column density
    pstau[id]    = TAU ;
 }
+
+
+
+
+
+
+
+
+
+#if (POLSTAT==3)
+
+// POLSTAT==3,  polarisation reduction must not be encoded into B
+//  returns in MAP:  {  <B>, <B_LOS>, <B_POS>, 0.0 }
+
+
+__kernel void PolMapping(
+                         const      float    MAP_DX,     //  0 - pixel size in grid units
+                         const      int2     NPIX,   //  1 - map dimensions
+                         __global   float   *MAP,    //  2 - rT, rI, jT, jI
+                         __global   float   *EMIT,   //  3 - emitted
+                         const      float3   DIR,    //  4 - direction of observer
+                         const      float3   RA,     //  5
+                         const      float3   DE,     //  6
+                         constant   int     *LCELLS, //  7 - number of cells on each level
+                         constant   int     *OFF,    //  8 - index of first cell on each level
+                         __global   int     *PAR,    //  9 - index of parent cell
+                         __global   float   *DENS,   // 10 - density and hierarchy
+                         const      float    ABS,    // 11
+                         const      float    SCA,    // 12
+                         const      float3   CENTRE, // 13
+                         const      float3   INTOBS, // 14 position of internal observer
+                         __global   float   *Bx,     // 15 magnetic field vectors
+                         __global   float   *By,     // 16 magnetic field vectors
+                         __global   float   *Bz,     // 17 magnetic field vectors
+                         __global   OTYPE   *OPT     // 18 OPT == ABS + SCA for variable abundances
+                        )
+{
+   const int id   = get_global_id(0) ;  // one work item per map pixel
+   if (id>=(NPIX.x*NPIX.y)) return ;
+   float3 POS, TMP, BN ;
+   float  DTAU, TAU=0.0f, SUM_BPOS=0.0f, SUM_BLOS=0.0f, SUM_B=0.0f, WEIGHT=0.0, rho ;
+   float  sx, sy, sz ;
+   int    ind, level, oind, olevel ;
+   int    i = id % NPIX.x ;   // longitude runs faster
+   int    j = id / NPIX.x ;
+   // normal external map
+   POS.x = CENTRE.x + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.x + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.x ;
+   POS.y = CENTRE.y + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.y + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.y ;
+   POS.z = CENTRE.z + (i-0.5f*(NPIX.x-1))*MAP_DX*RA.z + (j-0.5f*(NPIX.y-1))*MAP_DX*DE.z ;   
+   // find position on the front surface (if exists)
+   POS -=  (NX+NY+NZ)*DIR ;   // move behind, step to front surface is positive
+   // find last crossing -- DIR pointing towards observer
+   if (DIR.x>=0.0f)    sx = (NX      - POS.x) / (DIR.x+1.0e-10f) - EPS ;
+   else                sx = (0.0f    - POS.x) /  DIR.x - EPS ;
+   if (DIR.y>=0.0f)    sy = (NY      - POS.y) / (DIR.y+1.0e-10f) - EPS ; 
+   else                sy = (0.0f    - POS.y) /  DIR.y - EPS ;
+   if (DIR.z>=0.0f)    sz = (NZ      - POS.z) / (DIR.z+1.0e-10f) - EPS ;
+   else                sz = (0.0f    - POS.z) /  DIR.z - EPS ;
+   // select largest value that still leaves POS inside the cloud (cloud may be missed)
+   TMP = POS + sx*DIR ;
+   if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sx = -1e10f ;
+   TMP = POS + sy*DIR ;
+   if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sy = -1e10f ;
+   TMP = POS + sz*DIR ;
+   if ((TMP.x<=0.0f)||(TMP.x>=NX)||(TMP.y<=0.0f)||(TMP.y>=NY)||(TMP.z<=0.0f)||(TMP.z>=NZ)) sz = -1e10f ;
+   //
+   sx    =  max(sx, max(sy, sz)) ;
+   POS   =  POS + sx*DIR ;
+   TMP   = -DIR ; // DIR towards observer, TMP away from the observer
+   
+   // Index
+   float3 POS0 = POS ;
+   IndexG(&POS, &level, &ind, DENS, OFF) ;
+   
+   float d ;
+   
+   while (ind>=0) {
+      oind       =  OFF[level]+ind ;    // original cell, before step out of it
+      olevel     =  level ;
+      sx         =  GetStep(&POS, &TMP, &level, &ind, DENS, OFF, PAR) ;
+# if (WITH_ABU>0)
+      DTAU       =  sx*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+# else
+      DTAU       =  sx*DENS[oind]*(SCA+ABS) ;  // sx in global units
+# endif
+      BN.x = Bx[oind] ;  BN.y = By[oind] ;  BN.z = Bz[oind] ;
+
+      rho        = DENS[oind] ;
+# if (LEVEL_THRESHOLD>0) // -------------------------------------------------------------------------
+      if (olevel<LEVEL_THRESHOLD) rho = 0.0f ;  // ignore low resolution regions
+# endif // ------------------------------------------------------------------------------------------
+      
+      WEIGHT    +=  sx*rho ;             // density weighting for the average POS B-field strength
+      SUM_B     +=  sx*rho * length(BN) ;
+      SUM_BLOS  +=  sx*rho * fabs(dot(BN, TMP)) ;
+      SUM_BPOS  +=  sx*rho * sqrt( pow(dot(BN, -RA), 2.0f) + pow(dot(BN, DE), 2.0f)  ) ;
+      TAU       +=  DTAU ;
+   } // while ind>0
+   
+   MAP[0*NPIX.x*NPIX.y+id] =  SUM_B    / WEIGHT ;   //  <B>
+   MAP[1*NPIX.x*NPIX.y+id] =  SUM_BLOS / WEIGHT ;   //  <B_LOS>
+   MAP[2*NPIX.x*NPIX.y+id] =  SUM_BPOS / WEIGHT ;   //  <B_POS>
+   MAP[3*NPIX.x*NPIX.y+id] =  TAU ;                 //  TAU
+   
+   // if (id%999==0) printf(" %6.3f  %6.3f  %6.3f   %.3e\n", SUM_B/WEIGHT, SUM_BLOS/WEIGHT, SUM_BPOS/WEIGHT, TAU) ;
+}
+
+
+#endif // POLSTAT==3
+
 
 
 

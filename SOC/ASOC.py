@@ -1,4 +1,4 @@
-#!/bin/python3
+#!/usr/bin/env python
 
 import os, sys
 
@@ -190,7 +190,7 @@ print("     %.3e - %.3e Hz" % (USER.REMIT_F[0], USER.REMIT_F[1]))
 # We can have REMIT_NFREQ<NFREQ only if cell emission is not included in the calculation
 if ((REMIT_NFREQ<NFREQ) & ((USER.ITERATIONS>0) & (USER.CLPAC>0))):
     print("NFREQ=%d, REMIT_NFREQ=%d -- cannot be if ITERATIONS=%d, CLPAC=%d>0" %
-    (NFREQ, REMIT_NFREQ, USER.ITERATIONS, CLPAC))
+    (NFREQ, REMIT_NFREQ, USER.ITERATIONS, USER.CLPAC))
 
 beta_interpoler = None
 if (USER.WITH_ALI): # estimate effective escape probability beta(T, tau)
@@ -272,7 +272,7 @@ if (len(USER.file_hpbg)>2):
     # We use healpix maps for the background sky intensity... 
     #   currently *fixed* at NSIDE=64 which gives ~55 arcmin pixels, 49152 pixels on the sky
     #   1000 frequencies ~ 188 MB => just read all in
-    print("*** Using healpix background sky, user scaling %.3e ***" % USER.scale_background)
+    print("*** Healpix background %s, user scaling %.3e ***" % (USER.file_hpbg, USER.scale_background))
     HPBG = fromfile(USER.file_hpbg, float32).reshape(NFREQ, 49152) * USER.scale_background
     
     
@@ -303,7 +303,8 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D p00=%.4ff -D SAVE_TAU=%.4ef -D MINLOS=%.3ef -D MAXLOS=%.3ef \
 -D FFS=%d -D NODIR=%d -D USE_EMWEIGHT=%d -D SAVE_INTENSITY=%d -D NOABSORBED=%d -D INTERPOLATE=%d \
--D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d" % \
+-D ADHOC=%.5ef %s -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d -D OPT_IS_HALF=%d -D POL_RHO_WEIGHT=%d \
+-D MAP_INTERPOLATION=%d" % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD, FACTOR,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), WITH_ABU, USER.ROI_MAP, MAX_SPLIT, SELEM,
    USER.ROI_STEP, USER.ROI_NSIDE, USER.WITH_ROI_LOAD, USER.WITH_ROI_SAVE,
@@ -312,7 +313,8 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d -D 
    int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1],
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, USER.p0, USER.savetau_freq, USER.MINLOS, USER.MAXLOS,
    USER.FFS, NODIR, USER.USE_EMWEIGHT, USER.SAVE_INTENSITY,  USER.NOABSORBED, USER.INTERPOLATE, 
-   ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT )
+   ADHOC, USER.kernel_defs, USER.HPBG_WEIGHTED, WITH_MSF, NDUST, USER.OPT_IS_HALF, USER.POL_RHO_WEIGHT,
+   USER.MAP_INTERPOLATION)
 # print(ARGS)
 VARGS = ""
 # VARGS += " -cl-nv-cstd=CL1.1 -cl-nv-arch sm_20 -cl-single-precision-constant -cl-mad-enable"
@@ -916,10 +918,10 @@ INTENSITY = []
 if (USER.SAVE_INTENSITY>0):
     assert(USER.WITH_REFERENCE<1) # save intensity only if the kernel has the total field
 if (USER.SAVE_INTENSITY==1):      # save scalar intensity
-    INTENSITY = np.memmap('ISRF.DAT',dtype='float32',mode="w+",shape=(CELLS, USER.NFREQ),offset=8)
+    INTENSITY = np.memmap(USER.SAVE_INTENSITY_FILE, dtype='float32',mode="w+",shape=(CELLS, USER.NFREQ),offset=8)
     INTENSITY[:,:] = 0.0
 if (USER.SAVE_INTENSITY==2):      # save vector --- header is { CELLS, NFREQ, 4 }
-    INTENSITY = np.memmap('ISRF.DAT',dtype='float32',mode="w+",shape=(CELLS,USER.NFREQ,4),offset=12)
+    INTENSITY = np.memmap(USER.SAVE_INTENSITY_FILE, dtype='float32',mode="w+",shape=(CELLS,USER.NFREQ,4),offset=12)
     INTENSITY[:,:,:] = 0.0        # [CELLS, NFREQ, 4]
 
 TMP      = zeros(CELLS, float32)
@@ -937,6 +939,7 @@ if (len(USER.file_constant_load)>0):
     # Absorbed energy per cell for the constant sources (all except the dust emissions)
     # CLOAD => CONSTANT SOURCES NOT SIMULATED
     # WE HAVE SEPARATE LOOP FOR CELL EMISSION.... WHICH ALSO INCLUDES THE OPTIONAL T SOLUTION !!
+    print("=== CLOAD => %s" % USER.file_constant_load,)
     CTABS = fromfile(USER.file_constant_load, float32, CELLS)
     if (USER.SAVE_INTENSITY>0):
         print("*** WARNING: USER.file_constant_load + USER.SAVE_INTENSITY ???")
@@ -948,7 +951,7 @@ else:
     #    do DFPAC here, separate of CLPAC, to avoid complications with ALI
     skip  =  USER.EMWEIGHT_SKIP-1
     for II in range(4):  # PSPAC, BGPAC, DFPAC, ROI-background
-        print("CONSTANT SOURCES II=%d" % II)
+        print("=== CONSTANT SOURCES II=%d" % II)
         if (USER.ITERATIONS<1): continue
         
         if (II==0):   # point sources
@@ -1105,7 +1108,6 @@ else:
                 if (USER.HPBG_WEIGHTED):  # using weighted emission from the Healpix background
                     tmp    =  asarray(HPBG[IFREQ,:], float64)
                     if (max(tmp)<1.0e-40): continue # empty sky
-                    # print("min(HPBG)=%12.4e, max(HPBG)=%12.4e" % (min(tmp), max(tmp)))
                     # convert into probablity
                     tmp   /=  mean(tmp)
                     tmp    =  clip(tmp, 1.0e-3, 1.0e4) # clip very low and high probabilities
@@ -1120,7 +1122,8 @@ else:
                 else:
                     # no relative weighting between Healpix pixels
                     cl.enqueue_copy(commands[ID], HPBG_buf[ID], (WBG/FREQ)*HPBG[IFREQ,:])
-                
+                # print("    ---  min(HPBG)=%12.4e, max(HPBG)=%12.4e" % (min(HPBG[IFREQ,:]), max(HPBG[IFREQ,:])))
+                    
             
             # The weight for on-the-fly trapezoid integration
             FF = FREQ 
@@ -1404,14 +1407,15 @@ else:
                         # += because we have PS, BG, diffuse emission separately
                         INTENSITY[a:b, IFREQ] +=  coeff * TMP[a:b] / DENS[a:b]
             if (USER.SAVE_INTENSITY==2):
+                print()
                 for icomp in range(4):
                     BUFS = [INT_buf[ID], INTX_buf[ID], INTY_buf[ID], INTZ_buf[ID]]
                     cl.enqueue_copy(commands[ID], TMP, BUFS[icomp])
                     for level in range(LEVELS):
                         coeff =  KDEV * (PLANCK*FREQ/ABS) * (8.0**level)
                         a, b  =  OFF[level], OFF[level]+LCELLS[level]
-                        if (1):
-                            print("  <INTENSITY[k=%d]> = %11.3e  *= %10.3e" % (icomp, mean(TMP[a:b]), coeff ))
+                        if (0):
+                            print("  <INTENSITY[icomp=%d]> = %11.3e  *= %10.3e" % (icomp, mean(TMP[a:b]), coeff ))
                         INTENSITY[a:b, IFREQ, icomp] += coeff * TMP[a:b]  / DENS[a:b]
                         # this will be final for INTENSITY[:,:,0] 
                         #   (except for added cell emission below!)
@@ -1421,8 +1425,13 @@ else:
             sys.stdout.write('   %7.2f\n' % (time.time()-T000))
             #sys.stdout.write(' push %7.2f pre %7.2f\n' % (Tpush, Tpre))
             sys.stdout.flush()
+            
+            if (0): 
+                print("PAUSING 10...")
+                time.sleep(5)
+                print("PAUSING 5...")
+                time.sleep(5)
                 
-            if (0): sys.exit()    # debugging...
             
         # FOR FREQUENCY ======
         
@@ -1451,7 +1460,7 @@ else:
     
         
 if (len(CTABS)<1e8):
-    print("FINAL CTABS  = %.3e" % mean(CTABS))
+    print("=== FINAL CTABS  = %.3e" % mean(CTABS))
         
         
 # Next simulate the emission from the dust within the model volume, possibly over many iterations
@@ -1580,7 +1589,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 cl.enqueue_copy(commands[ID], SCA_buf[ID], SCA)
 
                 
-                if (WITH_ROI_SAVE): # clear ROI_SAVE_buf for the next frequency
+                if (USER.WITH_ROI_SAVE): # clear ROI_SAVE_buf for the next frequency
                     cl.enqueue_copy(commmands[0], ROI_SAVE_buf, zeros(ROI_SAVE_NPIX, float32))
                                     
                     
@@ -1610,6 +1619,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 Tpush += time.time()-t0
                 ###
                 if ((IFREQ<REMIT_I1)|(IFREQ>REMIT_I2)): # this frequency not in EMITTED !!
+                    sys.stdout.write('\n')
                     continue  # cannot simulate emission that is not in EMITTED
                 ###
                 if (USER.WITH_REFERENCE):
@@ -1860,8 +1870,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     # EMIT re-used for absorptions --- at this point 
                     # EMIT  ==  sum of TABS components ==  OLD + DELTA + CONSTANT  absorptions
                 else:
-                    # Here EMIT becomes the sum of all absorptions due to constant sources plus the medium                
-                    print("  TABS  = %12.4e  ... ADD CTABS % 12.4e" % (mean(EMIT), mean(CTABS)))                
+                    # Here EMIT becomes the sum of all absorptions due to constant sources plus the medium
+                    print("===  TABS  = %12.4e  ... ADD CTABS % 12.4e" % (mean(EMIT), mean(CTABS)))                
                     EMIT[:]  +=  CTABS   # add absorbed energy due to constant radiation sources
 
             else:
@@ -1995,8 +2005,8 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                     kk      = (scale/ADHOC)*(8.0**level)
                     manager = mp.Manager()
                     PROC    = []
-                    n       = (LCELLS[level]+NCPUS)/NCPUS + 1   # cells per single thread
-                    MPTNEW  = mp.Array('f', int(LCELLS[level])) # T for cells of a single level
+                    n       = (LCELLS[level]+NCPUS)//NCPUS + 1   # cells per single thread
+                    MPTNEW  = mp.Array('f', int(LCELLS[level]))  # T for cells of a single level
                     for i in range(NCPUS):
                         if (USER.WITH_ALI):
                             p   = mp.Process(target=MP_temp, 
@@ -2024,7 +2034,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 print('    T < 3K   : %d' % (len(nonzero(TNEW[mok]<3.0)[0])))
                 print('    T >1599K : %d' % (len(nonzero(TNEW[mok]>1599.0)[0])))
                 TNEW[mok] = clip(TNEW[mok], 3.0, 1600.0)
-                if (len(TNEW)<1e7):
+                if (len(TNEW)<2e7):
                     print('    TNEW: %.3e %.3e %.3e  ' % tuple(np.percentile(TNEW[mok], (0, 50, 100))))
             
                     
@@ -2586,18 +2596,20 @@ if (USER.SAVE_INTENSITY in [1,2]):
         # in the file IX, IY, IZ should already be normalised with the total intensity
         for k in [1,2,3]:
             INTENSITY[:,:,k] /= (INTENSITY[:,:,0]+1.0e-33)
-        for ifreq in range(NFREQ):
-            print("ifreq %3d   %10.3e   %10.3e %10.3e %10.4e" % (ifreq,  mean(INTENSITY[:,ifreq,0]),
-            mean(INTENSITY[:,ifreq,1]),mean(INTENSITY[:,ifreq,2]),mean(INTENSITY[:,ifreq,3])))
+        if (0):
+            for ifreq in range(NFREQ):
+                print("ifreq %3d   %10.3e   %10.3e %10.3e %10.4e" % (ifreq,  mean(INTENSITY[:,ifreq,0]),
+                mean(INTENSITY[:,ifreq,1]),mean(INTENSITY[:,ifreq,2]),mean(INTENSITY[:,ifreq,3])))
     else:
-        for ifreq in range(NFREQ):
-            print("ifreq %3d   %10.3e" % (ifreq,  mean(INTENSITY[:,ifreq])))
+        if (0):
+            for ifreq in range(NFREQ):
+                print("ifreq %3d   %10.3e" % (ifreq,  mean(INTENSITY[:,ifreq])))
             
     del INTENSITY  # INTENSITY to mmap file
     
     if (1):
         # add the missing header to the intensity file
-        fp = open('ISRF.DAT', 'r+')
+        fp = open(USER.SAVE_INTENSITY_FILE, 'r+')
         if (USER.SAVE_INTENSITY==1):
             asarray([CELLS, NFREQ   ], int32).tofile(fp)
         elif (USER.SAVE_INTENSITY==2):
@@ -2664,11 +2676,11 @@ if (not(USER.NOABSORBED)):
     if (USER.SAVE_INTENSITY==3):
         # Save intensity based on the ABSORBED array
         #  I  =  n_phot * (h*nu)/(4*pi)  and   n_phot_absorbed ~ n_phot * kappa
-        #  I  =  (h*nu)/(4*pi) *  n_phot_absorbed_per_cm3 / kappa_per_cm
+        #  I  =           (h*nu)/(4*pi) *  n_phot_absorbed_per_cm3 / kappa_per_cm
         # 2019-03-23 -- to be consistent with SAVE_INTENSITY=1,2 options, 
         #               we now save I *** multiplied by 4*pi ***
         print("Save intensities")
-        fp = open("ISRF.DAT", "wb") ;
+        fp = open(USER.SAVE_INTENSITY_FILE, "wb") ;
         if (NDUST>1): 
             print("*** ERROR: SAVE_INTENSITY=3 does not work for multiple dusts (fix it!)")
             sys.exit()
@@ -2798,8 +2810,7 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
     print("*** MAPS FOR IFREQ=[%d,%d]" % (REMIT_I1, REMIT_I2))
     for IFREQ in range(REMIT_I1, REMIT_I2+1):  # loop over frequencies [REMIT_I1, REMIT_I2]
         # with LIB_MAPS, the loop is always over all NFREQ frequencies but only frequencies in FSELECT processed
-        FREQ = FFREQ[IFREQ] 
-        
+        FREQ = FFREQ[IFREQ]         
         if (USER.LIB_MAPS):  # Simulation for the library method, FSELECT contains the reference frequencies
             if (np.min(abs((FREQ-USER.FSELECT)/FREQ))>0.001):
                 iiii = argmin(abs((FREQ-USER.FSELECT)))
@@ -3237,7 +3248,7 @@ if (MAP_FAST):
         sys.stdout.write(" %d" % IFREQ)
         freq        = FFREQ[IFREQ]
         EMITX.shape = (CELLS, NF)
-        # Mappingx ... only when abundances are constant !!
+        # Mapping ... only when abundances are constant !!
         for ioff in range(NF):        # update parameters for the current set of NF frequencies
             if ((IFREQ+ioff)<=I2):
                 freq           =  FFREQ[IFREQ+ioff] 
@@ -3383,6 +3394,7 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
     POLSTAT==1   -->  statistics  rT, rI, jT, jI  
                       r=rho weighted, j=emission weighted, T=tangling, I=inclination
     POLSTAT==2   -->  I,Q,U,N but non-orthographic, with cube replication and arbitrary LOS length
+    POLSTAT==3   -->  calculate { <B>, <B_LOS>, <B_POS>, TAU }, averages density weighted
     """
     print("=== WRITE POLARISATION MAPS ===") 
     if (USER.LIB_MAPS):
@@ -3398,46 +3410,48 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
     BB = []
     for ii in range(3):  
         print(USER.BFILES[ii])
-        BB.append( read_otfile(USER.BFILES[ii]) )
-    if (len(USER.file_polred)>0):
-        # Polarisation reduction factor R is encoded to the length of the B vectors
-        R = None  # the polarisation reduction factor
-        if (USER.file_polred=='adhoc'):
-            # As an example, we use ad hoc R calculated based on local dust temperature
-            R   = read_otfile(USER.file_temperature) # returns a single vector
-            # Encode polarisation reduction factor to the norm of B
-            #   x =  (T/11.0-1)/1.0,  R =  exp(x) / (exp(x) + exp(-x))
-            R   =  (R-13.3)/2.0 + 1.0e-4
-            R   =   exp(R) / ( exp(R)+exp(-R) )
-        elif (USER.file_polred.find('rhofun')>=0):
-            # Use semilogx(x, 0.5*(1.0+tanh( (log10(1e4)-log10(x))/0.5 )))
-            # encoding in filename rhofun_1e4_0.5 -- step and logarithmic width of the rise
-            s       =   USER.file_polred.split('_')
-            th, sw  =   float(s[1]), float(s[2]) # threshold and logarithmic step width
-            R       =   read_otfile(USER.file_cloud)
-            if (USER.KDENSITY!=1.0): R *= USER.KDENSITY
-            
-            aa      =   R[0:-1:10].copy()
-            R       =   clip(R, 0.1, 1e10)
-            R       =   0.5*(1.0+tanh((log10(th)-log10(R))/sw))
-            if (0):
-                clf()
-                semilogx(aa, R[0:-1:10], 'x')
-                show()
-                sys.exit()
-            
-            
-        else:     # argument is a file to file with R values
-            if (0):
-                R   =  read_otfile(USER.file_polred)
-            else:  # run_RAT.py writes R to a plain file == [ cells, { R } ]
-                R   = fromfile(USER.file_polred, float32)[1:]
-        # encode 0<R<1 to the length of the polarisation vector
-        R      =  R  /  sqrt(BB[0]**2 + BB[1]**2 + BB[2]**2)
-        BB[0] *=  R
-        BB[1] *=  R 
-        BB[2] *=  R
-        del R
+        BB.append( read_otfile(USER.BFILES[ii]) )  # BB is full vector, including parent cells
+    if (USER.POLSTAT!=3):  # POLSTAT==3 uses the full B vector
+        if (len(USER.file_polred)>0):
+            # Polarisation reduction factor R is encoded to the length of the B vectors
+            R = None  # the polarisation reduction factor
+            if (USER.file_polred=='adhoc'):
+                # As an example, we use ad hoc R calculated based on local dust temperature
+                R   = read_otfile(USER.file_temperature) # returns a single vector
+                # Encode polarisation reduction factor to the norm of B
+                #   x =  (T/11.0-1)/1.0,  R =  exp(x) / (exp(x) + exp(-x))
+                R   =  (R-13.3)/2.0 + 1.0e-4
+                R   =   exp(R) / ( exp(R)+exp(-R) )
+            elif (USER.file_polred.find('rhofun')>=0):
+                # Use semilogx(x, 0.5*(1.0+tanh( (log10(1e4)-log10(x))/0.5 )))
+                # encoding in filename rhofun_1e4_0.5 -- step and logarithmic width of the rise
+                s       =   USER.file_polred.split('_')
+                th, sw  =   float(s[1]), float(s[2]) # threshold and logarithmic step width
+                R       =   read_otfile(USER.file_cloud)
+                if (USER.KDENSITY!=1.0): R *= USER.KDENSITY
+                
+                aa      =   R[0:-1:10].copy()
+                R       =   clip(R, 0.1, 1e10)
+                R       =   0.5*(1.0+tanh((log10(th)-log10(R))/sw))
+                if (0):
+                    clf()
+                    semilogx(aa, R[0:-1:10], 'x')
+                    show()
+                    sys.exit()
+                
+            else:     # argument is a file to file with R values
+                # Note: for simplicity, R is always R[CELLS] - if one needs maps at different
+                # frequencies and R = R(freq), the maps are done one frequency per ASOC.py run
+                if (0):
+                    R   =  read_otfile(USER.file_polred)
+                else:  # run_RAT.py writes R to a plain file == [ cells, { R } ]
+                    R   =  clip(fromfile(USER.file_polred, float32)[1:], 1.0e-6, 0.999999)
+            # encode 0<R<1 to the length of the polarisation vector
+            R      =  R  /  sqrt(BB[0]**2 + BB[1]**2 + BB[2]**2 + 1.0e-10)
+            BB[0] *=  R
+            BB[1] *=  R 
+            BB[2] *=  R
+            del R
     # push B  to device
     Bx_buf = cl.Buffer(context[0], mf.READ_ONLY, BB[0].nbytes)
     By_buf = cl.Buffer(context[0], mf.READ_ONLY, BB[1].nbytes)
@@ -3474,10 +3488,14 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
             
     KK  = (1.0e23/FACTOR) * PLANCK / (4.0*np.pi)  #  1e3 = 1e23/1e20 = removing scaling, convert to Jy/sr
     KK *= USER.GL*PARSEC    
-    for IFREQ in range(REMIT_I1, REMIT_I2+1):    #  loop over frequencies
+    for IFREQ in range(REMIT_I1, REMIT_I2+1):     #  loop over frequencies - for which emission exists
         FREQ = FFREQ[IFREQ]
-        if ((FREQ<USER.MAP_FREQ[0])|(FREQ>USER.MAP_FREQ[1])): 
-            continue  # we are writing only frequencies limited by USER.MAP_FREQ
+        if (len(USER.SINGLE_MAP_FREQ)>0):         # this overrides "wavelength" keyword and its limits in MAP_FREQ
+            if (min(abs(FREQ-USER.SINGLE_MAP_FREQ))>0.01*FREQ):
+                continue
+        else:
+            if ((FREQ<USER.MAP_FREQ[0])|(FREQ>USER.MAP_FREQ[1])): 
+                continue  # we are writing only frequencies limited by USER.MAP_FREQ
         print("POLMAP, IFREQ =  %d" % IFREQ)
         ABS[0], SCA[0]  = AFABS[0][IFREQ], AFSCA[0][IFREQ]        
         if (WITH_ABU>0): # ABS, SCA, G are vectors
@@ -3510,7 +3528,7 @@ if ((USER.POLMAP>0)&(USER.NPIX['y']>0)):  # NORMAL POLARISATION MAPS
                 USER.MAP_DX, USER.NPIX, MAP_buf, EMIT_buf[0], ODIR[idir], RA[idir], DE[idir],
                 LCELLS_buf[0], OFF_buf[0], PAR_buf[0], DENS_buf[0], ABS[0], SCA[0],
                 USER.MAPCENTRE, USER.INTOBS, Bx_buf, By_buf, Bz_buf, OPT_buf[0])
-            # MAP is either a single Healpix map or a flat map of (I, Q, U, N)
+            # MAP is either a single Healpix map or a flat map of (I, Q, U, N)... or some statistics
             cl.enqueue_copy(commands[0], MAP, MAP_buf)
             # write this frequency to file -- I, Q, U, N
             asarray(MAP, float32).tofile(fpmap[idir])

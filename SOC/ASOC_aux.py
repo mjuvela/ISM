@@ -40,14 +40,16 @@ H_CC    =  7.372496678e-48
 
 SEED0   =  0.8150982470475214
 SEED1   =  0.1393378751427912
-MAXPS   =  10000   # maximum number of point sources
+MAXPS   =  3000   # maximum number of point sources
 
 DEGREE_TO_RADIAN =  0.0174532925199432958
 RADIAN_TO_DEGREE =  57.2957795130823208768
 
 
 MAX_SPLIT = 2560   # for MWM
-# MAX_SPLIT = 5120    #  2020-12-05
+MAX_SPLIT = 3560   # 2021-03-06 -- needed for IMF256 snap 176 ... and not enough !!
+MAX_SPLIT = 3800   # 2021-03-06 -- needed for IMF256 snap 176, even IRDC, close to Tux GPU memory limit
+# MAX_SPLIT = 5120   # 2020-12-05 .... again 2021-03-06
 
 def Planck(f, T):      # Planck function
     return 2.0*H_CC*f*f*f / (exp(H_K*f/T)-1.0) 
@@ -144,6 +146,7 @@ class User:
         self.NOMAP        = 0        # if >0, do not write any maps
         self.NOABSORBED   = 0        # if >0, calculate Ein on the fly (non-stochastic grains only) 
         self.SAVE_INTENSITY = 0      # 1 = save intensity (for DustEM), 2 = save [I, Ix, Iy, Iz], 3 = based on ABSORBED
+        self.SAVE_INTENSITY_FILE = 'ISRF.DAT'
         self.USE_EMWEIGHT = 0        # if >0, weight package generation with emission
         self.EMWEIGHT_SKIP = 3       # re-evaluate for every skip:th frequency
         self.EMWEIGHT_LIM = [0.0,1e10,0.0] # min/max number of packages per cell, threshold to ignore
@@ -151,7 +154,7 @@ class User:
         self.MAXLOS       = 1e10     # maximum length of the LOS [GL]
         self.MINLOS       = -1.0
         self.Y_SHEAR      =  0.0     # for shearing box simulation, implies periodicity in xy plane
-        self.INTERPOLATE  =  0       # if map-making uses interpolation...
+        self.INTERPOLATE  =  0       # if *healpix* map-making uses interpolation...
         self.SEED         = pi/4.0   # seed value for random number generators
         self.MAP_FREQ     = [1.0e6, 1e18] # frequency limits for the maps to be saved [Hz]
         self.SINGLE_MAP_FREQ = []    # individual frequencies for which only to write the maps
@@ -203,7 +206,8 @@ class User:
         self.FSELECT       = []      # selected frequencies (simulation using library)
         self.LIB_ABS       = False   # only calculate absorptions at FSELECT frequencies
         self.LIB_MAPS      = False   # only calculate maps from library-solved emission
-        
+
+        self.MAP_INTERPOLATION = 0   # if normal mapmaking (not healpix) uses interpolation
         # read inifile
         for line in open(filename).readlines():    
             # assert((DIFFUSE==1)&(WITHDUST==1)&(DISTANCE<1.0))
@@ -244,7 +248,6 @@ class User:
             if (key.find('dustem')==0):
                 self.NOABSORBED     =  1
                 self.SAVE_INTENSITY =  1
-            if (key.find('polstat')==0):     self.POLSTAT  = 1
             if (key.find('solveondev')==0):  self.SOLVE_ON_DEVICE  = 1
             if (key.find('xemonhost')==0):   self.XEM_ON_HOST  = 1
             if (key.find('polrhoweight')==0):   self.POL_RHO_WEIGHT  = 1
@@ -258,7 +261,7 @@ class User:
                 self.savetau_freq = 0.0   # <0 => no colden, ==0 => colden, >0 => save optical depth
                 if (len(s)>2):
                     self.savetau_freq = um2f(float(s[2]))
-
+                    
             if (key.find('pssavetau')==0):
                 self.file_pssavetau  = s[1]
                 self.pssavetau_freq  = um2f(float(s[2]))
@@ -275,7 +278,10 @@ class User:
             if (key.find('scatter')==0):     self.file_scattering   = a
             if (key.find('emit')==0):        self.file_emitted      = a
             if (key.find('emit')==0):        self.file_emitted      = a
-            if (key.find('split')==0):        self.DO_SPLIT         = int(a)
+            if (key.find('split')==0):       self.DO_SPLIT          = int(a)
+            if (key.find('mapint')==0):      self.MAP_INTERPOLATION = int(a)
+            if (key.find('polstat')==0):     self.POLSTAT           = int(a)
+            
             if (key.find('platform')==0):    
                 self.PLATFORM   = int(a)
                 if (len(s)>2):
@@ -317,14 +323,13 @@ class User:
             if (key.find('polred')==0):      self.file_polred       = a
             if (key.find('cload')==0):       self.file_constant_load = a
             if (key.find('csave')==0):       self.file_constant_save = a
-            if (key.find('local')==0):       self.LOCAL           =  int(a)
             if (key.find('iterations')==0):  self.ITERATIONS      =  int(a)
             if (key.find('threshold')==0):   self.LEVEL_THRESHOLD =  int(a)
             if (key.find('gridlen')==0):     self.GL              =  float(a)
             if (key.find('p0')==0):          self.p0              =  float(a)
             if (key.find('distance')==0):    self.DISTANCE        =  float(a)
-            if (key.find('bgpac')==0):       self.BGPAC           =  int(a)
-            if (key.find('pspac')==0):       self.PSPAC           =  int(a)
+            if (key.find('bgpac')==0):       self.BGPAC           =  int(float(a))
+            if (key.find('pspac')==0):       self.PSPAC           =  int(float(a))
             if (key.find('psmetho')==0):     self.PS_METHOD       =  int(a)
             if (key.find('cellpac')==0):     self.CLPAC           =  int(round(float(a)))
             if (key.find('roipac')==0):      self.ROIPAC          =  int(round(float(a)))
@@ -336,11 +341,12 @@ class User:
             if (key.find('local')==0):       self.LOCAL           =  int(a)
             if (key.find('forcedfirst')==0): self.FFS             =  int(a)
             if (key.find('ffs')==0):         self.FFS             =  int(a)
-            if (key.find('bgmethod')==0):    self.BG_METHOD          =  int(a)
+            if (key.find('bgmethod')==0):    self.BG_METHOD       =  int(a)
             if (key.find('ali')==0):         self.WITH_ALI        =  int(a)
             if (key.find('reference')==0):   self.WITH_REFERENCE  =  int(a)
             if (key.find('saveint')==0):     
                 self.SAVE_INTENSITY  =  int(a)
+                if (len(s)>2): self.SAVE_INTENSITY_FILE = s[2]
                 # should still be ok to write maps even if we had the addition intensity vector comp.
                 # if (self.SAVE_INTENSITY==2): self.NOMAP = 1
             if (key.find('levels')==0):      self.LEVELS          =  int(a)    # hierarchy levels !!
@@ -402,8 +408,6 @@ class User:
                     self.MINLOS = float(s[4])
                     self.MAXLOS = float(s[5])
                     print("MINLOS %.3f, MAXLOS %.3f" % (self.MINLOS, self.MAXLOS))
-                    # self.POLMAP  = 2
-                    # self.POLSTAT = 2
             if (key.find('perspec')==0):
                 self.INTOBS = cl.cltypes.make_float3(float(a), float(b), float(c))
             if (key.find('stepwei')==0):
@@ -432,7 +436,7 @@ class User:
                     if (len(s)>5):
                         if (s[5]!='#'):
                             self.PS_SCALING[self.NO_PS] = float(s[5])
-                            print(" PS [%d] -- SCALING %.1f" % (self.NO_PS, float(s[5])))
+                            # print(" PS [%d] -- SCALING %.1f" % (self.NO_PS, float(s[5])))
                     self.NO_PS += 1
                 else:
                     print("Reached maximum number of point sources = %d", MAXPS)
@@ -1019,6 +1023,7 @@ def read_source_luminosities(USER):
     Return:
         LPS   =  source luminosities LPS[source, USER.NFREQ] or [] if no point sources
     """
+    print("read_source_luminosities: %d point sources" % USER.NO_PS)
     if (USER.NO_PS<1): return []  # no point sources
     LPS = zeros((USER.NO_PS, USER.NFREQ), float32)
     for i in range(USER.NO_PS):
@@ -1079,12 +1084,13 @@ def set_observer_directions(USER, new_order=True):
         if (fabs(ODIR[i][2])<1.0e-5): ODIR[i][2]=1.0e-5
            
     if (0):
-        print("==========================================================================================")
-        print("LON   %.0f,    LAT  %.0f" % (USER.OBS_THETA[i]*RADIAN_TO_DEGREE, USER.OBS_PHI[i]*RADIAN_TO_DEGREE))
-        print("ODIR  %8.4f %8.4f %8.4f" % (ODIR[0][0], ODIR[0][1], ODIR[0][2]))
-        print("RA    %8.4f %8.4f %8.4f" % (RA[0][0], RA[0][1], RA[0][2]))
-        print("DE    %8.4f %8.4f %8.4f" % (DE[0][0], DE[0][1], DE[0][2]))
-        print("==========================================================================================")
+        for i in range(NDIR):
+            print("==========================================================================================")
+            print("LON   %.0f,    LAT  %.0f" % (USER.OBS_THETA[i]*RADIAN_TO_DEGREE, USER.OBS_PHI[i]*RADIAN_TO_DEGREE))
+            print("ODIR  %8.4f %8.4f %8.4f" % (ODIR[i][0], ODIR[i][1], ODIR[i][2]))
+            print("RA    %8.4f %8.4f %8.4f" % (RA[i][0], RA[i][1], RA[i][2]))
+            print("DE    %8.4f %8.4f %8.4f" % (DE[i][0], DE[i][1], DE[i][2]))
+            print("==========================================================================================")
     return NDIR, ODIR, RA, DE
 
 
@@ -1443,7 +1449,7 @@ def AnalyseExternalPointSources(NX, NY, NZ, PSPOS, NO_PS, PS_METHOD):
             XPS_AREA[3*i] = cos_theta
             print("Point source %d, side %d, cos_theta = %.3f" % (i, XPS_SIDE[3*i], XPS_AREA[3*i]))
             
-    if (1):
+    if (0):
         for i in range(NO_PS):
             print('Point source: %d, XPS_NSIDE %d'% (i, XPS_NSIDE[i]))
             print("   SIDE %d,  AREA %8.5f" % (XPS_SIDE[3*i+0], XPS_AREA[3*i+0]))

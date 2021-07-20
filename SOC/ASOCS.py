@@ -1,4 +1,4 @@
-#!/bin/python
+#!/usr/bin/env python
 
 import os, sys
 
@@ -129,7 +129,7 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d \
 -D AXY=%.5ff -D AXZ=%.5ff -D AYZ=%.5ff -D LEVELS=%d -D LENGTH=%.5ef -I%s \
 -D POLSTAT=%d -D SW_A=%.3ef -D SW_B=%.3ef -D STEP_WEIGHT=%d -D DIR_WEIGHT=%d -D DW_A=%.3ef \
 -D LEVEL_THRESHOLD=%d -D POLRED=%d -D WITH_COLDEN=%d -D MINLOS=%.3ef -D MAXLOS=%.3ef \
--D FFS=%d -D METHOD=%d -D USE_EMWEIGHT=%d -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d \
+-D FFS=%d -D BG_METHOD=%d -D USE_EMWEIGHT=%d -D HPBG_WEIGHTED=%d -D WITH_MSF=%d -D NDUST=%d \
 -D OPT_IS_HALF=%d -D WITH_ROI_LOAD=%d -D ROI_NSIDE=%d" % \
 (  NX, NY, NZ, USER.DSC_BINS, USER.WITH_ALI, USER.PS_METHOD,
    CELLS, int(USER.AREA), max([1,int(USER.NO_PS)]), USER.kernel_defs, WITH_ABU, FACTOR, 
@@ -137,9 +137,11 @@ ARGS = "-D NX=%d -D NY=%d -D NZ=%d -D BINS=%d -D WITH_ALI=%d -D PS_METHOD=%d \
    USER.POLSTAT, int(USER.STEP_WEIGHT[0]), USER.STEP_WEIGHT[1], int(USER.STEP_WEIGHT[2]), 
    int(USER.DIR_WEIGHT[0]), USER.DIR_WEIGHT[1],
    USER.LEVEL_THRESHOLD, len(USER.file_polred)>0, len(USER.file_savetau)>1, USER.MINLOS, USER.MAXLOS,
-   USER.FFS, USER.METHOD, USER.USE_EMWEIGHT, USER.HPBG_WEIGHTED, WITH_MSF, NDUST,
+   USER.FFS, USER.BG_METHOD, USER.USE_EMWEIGHT, USER.HPBG_WEIGHTED, WITH_MSF, NDUST,
    USER.OPT_IS_HALF, USER.WITH_ROI_LOAD, USER.ROI_NSIDE)
-NVARGS  = " -cl-fast-relaxed-math"
+   
+### NVARGS  = " -cl-fast-relaxed-math"  ---- THIS WILL NOT WORK WITH NVIDIA, SMALL FLOAT ROUNDED TO ZERO !!!!
+NVARGS  = ''
 ARGS   += NVARGS
 print(ARGS)
 
@@ -299,6 +301,8 @@ kernel_CL       = program[ID].SimRAM_CL
 kernel_HP       = program[ID].SimRAM_HP
 kernel_zero_out = program[ID].zero_out
 
+kernel_PS       = program[ID].SimRAM_PS     # 2021-04-22
+
 
 kernel_PB.set_scalar_arg_dtypes(
 #   0      1          2         3           4           5           
@@ -319,6 +323,25 @@ None,     None,   None,        None,       None,
 # 28          29       
 # ROI_DIM     ROI_LOAD 
 None,         None
+])
+    
+
+kernel_PS.set_scalar_arg_dtypes(
+#   0      1          2         3           4         
+# PACKETS    BATCH     SEED        ABS         SCA    
+[ np.int32,  np.int32, np.float32, None,       None,
+# 5         6            7    
+# BG        PSPOS        PS   
+np.float32, None,        None,
+# 8       9     10    11     12     13  
+# LCELLS  OFF   PAR   DENS   DSC    CSC 
+None,     None, None, None,  None,  None,  
+# 14         15      16                    17           18                      19    20    21   
+# NDIR       ODIR,   NPIX                  MAP_DX       CENTRE                  ORA   ODE   OUT  
+  np.int32,  None,   clarray.cltypes.int2, np.float32,  clarray.cltypes.float3, None, None, None,
+# 22      23      24           25          26      
+# ABU     OPT     XPS_NSIDE    XPS_SIDE    XPS_AREA
+None,     None,   None,        None,       None   
 ])
     
 
@@ -392,12 +415,13 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
         if ((PSPAC<1)|(USER.NO_PS<1)): 
             continue   # point sources not simulated
         BATCH    =  int(max([1, PSPAC / GLOBAL]))  # each work item does this many per source
+        print("=== PS   BATCH = PSPAC/GLOBAL * NO_PS = %.2e/%.2e * %.2e = %.2e" % (PSPAC, GLOBAL, USER.NO_PS, BATCH*USER.NO_PS))
         PSPAC    =  GLOBAL * BATCH                 # actual number of packages per source
         WPS      =  1.0 / (PLANCK*PSPAC*((USER.GL*PARSEC)**2.0))
         BATCH   *=  USER.NO_PS   # because each work item loops over ALL point sources
-        PSPAC   *=  USER.NO_PS   # total number of packages (including all sources)
+        PSPAC   *=  USER.NO_PS   # total number of packages (including all sources!)
         PACKETS  =  PSPAC
-        print("=== PS  GLOBAL %d x BATCH %d = %d" % (GLOBAL, BATCH, PSPAC))
+        print("=== PS  FINAL PSPAC %.2e, BATCH %.2e" % (PSPAC, BATCH))
     elif (II==1): # background -- GLOBAL == surface area, BATCH>=1
         if (BGPAC<1): continue
         if (size(HPBG)<1): # truly isotropic background
@@ -600,13 +624,22 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
         commands[ID].finish()
         t0 = time.time()            
         if (II==0):      # 0=PSPAC
-            kernel_PB(commands[ID], [GLOBAL,], [LOCAL,], np.int32(II), 
-            PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], 
-            BG, PSPOS_buf[ID], PS_buf[ID], 
-            LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
-            NDIR, ODIR_buf[ID], USER.NPIX, USER.MAP_DX, USER.MAPCENTRE, 
-            RA_buf[ID], DE_buf[ID], OUT_buf[ID], ABU_buf[ID], OPT_buf[ID], 
-            XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID], ROI_DIM_buf, ROI_LOAD_buf)            
+            if (0):
+                kernel_PB(commands[ID], [GLOBAL,], [LOCAL,], np.int32(II), 
+                PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], 
+                BG, PSPOS_buf[ID], PS_buf[ID], 
+                LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
+                NDIR, ODIR_buf[ID], USER.NPIX, USER.MAP_DX, USER.MAPCENTRE, 
+                RA_buf[ID], DE_buf[ID], OUT_buf[ID], ABU_buf[ID], OPT_buf[ID], 
+                XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID], ROI_DIM_buf, ROI_LOAD_buf)
+            else:  #  2021-04-22 -- separate kernel for point source photons
+                kernel_PS(commands[ID], [GLOBAL,], [LOCAL,], 
+                PACKETS, BATCH, seed, ABS_buf[ID], SCA_buf[ID], 
+                BG, PSPOS_buf[ID], PS_buf[ID], 
+                LCELLS_buf[ID], OFF_buf[ID], PAR_buf[ID], DENS_buf[ID], DSC_buf[ID], CSC_buf[ID], 
+                NDIR, ODIR_buf[ID], USER.NPIX, USER.MAP_DX, USER.MAPCENTRE, 
+                RA_buf[ID], DE_buf[ID], OUT_buf[ID], ABU_buf[ID], OPT_buf[ID], 
+                XPS_NSIDE_buf[ID], XPS_SIDE_buf[ID], XPS_AREA_buf[ID])
         elif (II==1):    # 1=BGPAC
             # we do not come here unless BGPAC>1 --- either isotropic or healpix background
             if (size(HPBG)>0):         # using a healpix map for the background

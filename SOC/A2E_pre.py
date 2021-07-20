@@ -144,6 +144,8 @@ asarray( [NFREQ,    ], int32   ).tofile(fp)
 asarray(  FREQ,        float32 ).tofile(fp)
 asarray( [DUST.GRAIN_DENSITY,] , float32).tofile(fp)
 asarray( [NSIZE,],     int32   ).tofile(fp)
+# 2021-04-26 -- add DUST.SIZE_A to the solver file @@
+asarray( DUST.SIZE_A, float32  ).tofile(fp)
 # Dustlib CRT_SFRAC is the fraction multiplied with GRAIN_DENSITY
 asarray(  DUST.CRT_SFRAC/DUST.GRAIN_DENSITY, float32 ).tofile(fp)  # this SFRAC is one with sum(SFRAC)==1, not GRAIN_DENSITY
 asarray( [NE,       ], int32   ).tofile(fp)

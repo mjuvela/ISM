@@ -155,7 +155,7 @@ for ibatch in range(int(CELLS/GLOBAL+1)):
     a   =  ibatch*GLOBAL
     b   =  min([a+GLOBAL, CELLS])  # interval is [a,b[
     # no need to use mmap file for absorptions - values are read in order
-    print("      Solving  eqdust [%6d, %6d[ out of %6d" % (a, b, CELLS))
+    # print("      Solving  eqdust [%6d, %6d[ out of %6d" % (a, b, CELLS))
     # print("    READING FP_ABSORBED: ", FP_ABSORBED)
     tmp[0:((b-a)*NFREQ)] =  np.fromfile(FP_ABSORBED, np.float32, (b-a)*NFREQ)
     cl.enqueue_copy(commands, ABS_buf, tmp)

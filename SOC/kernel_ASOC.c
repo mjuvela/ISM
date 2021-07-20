@@ -72,7 +72,8 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
 #if 1
-   MWC64X_SeedStreams(&rng, (unsigned long)(7*id+fmod(SEED*7*id,0.99f)*4294967296L), samplesPerStream);
+   // keep the same base offset for all work items, skipping is automatically id*samplesPerStream
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);
 #else
    MWC64X_SeedStreams(&rng, (unsigned long)(1294967296L), samplesPerStream);
 #endif
@@ -858,7 +859,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,  //  0 - number of packets
    // For each NITER, host will also give a new seed [0,1] that is multiplied by 2^32 = 4.3e9
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*(1+id),1.0f)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);
    
    int ind   = -1 ;
    int ind0=-1, level0 ;
@@ -1261,7 +1262,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
    // For each NITER, host will also give a new seed [0,1] that is multiplied by 2^32 = 4.3e9
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*(id+1),1.0f)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);
    
 # if (USE_EMWEIGHT==2)
    // Host provides EMINDEX[] = cell indices, one per emitted ray.
@@ -1737,7 +1738,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
    // For each NITER, host will also give a new seed [0,1] that is multiplied by 2^32 = 4.3e9
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*(id+1),1.0f)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);
    
    
    int IND = id-GLOBAL, ind ;   // index to EMINDEX
@@ -2165,7 +2166,7 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
    // For each NITER, host will also give a new seed [0,1] that is multiplied by 2^32 = 4.3e9
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
-   MWC64X_SeedStreams(&rng, (unsigned long)(7*id+fmod(SEED*7*id,0.99f)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);
    
    int ind =-1 ;
    int ind0=-1, level0 ;
@@ -2548,7 +2549,7 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
                      // printf("*** ADD -- FIRST SLOT NBUF=%d\n", NBUF) ;
                      if (NBUF>(MAX_SPLIT-10)) {
                         printf("!!!!!!!!!!!!!!!!!!!! NBUF IS FULL, NBUF=%d, steps %d !!!!!!!!!!!!!!!!!!!!", NBUF, steps) ;
-                        NBUF = 0 ;  ind = -1 ; break ;
+                        NBUF = 0 ;  ind = -1 ; break ;  // the whole ray is terminated? *must* be very rare
                      }
                      
                      // single level0 ray split, adding at least three rays on the next level
@@ -2684,7 +2685,8 @@ __kernel void SimBgSplit(const      int      PACKETS,     //  0 - number of pack
                      free_path   = -log(Rand(&rng)) ;
                      steps       =  0 ;   // 2020-11-14
                      
-                  } // level > level0
+                  } // level > level0 --- split the ray
+
                   
                   
                   // Or, if we stepped into a less refined cell
@@ -2898,7 +2900,7 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
    // For each NITER, host will also give a new seed [0,1] that is multiplied by 2^32 = 4.3e9
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
-   MWC64X_SeedStreams(&rng, (unsigned long)(7*id+fmod(SEED*7*id,0.99f)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI, 1.0f)*4294967296L), samplesPerStream);
    
    int ind =-1 ;
    int ind0=-1, level0 ;
@@ -3236,11 +3238,11 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
                
                
 # if (DO_THE_SPLITS>0) // #####################################################################################################################################################################
-               if (level>level0) {   // @s refinement --> split the ray
+               if ((level>level0)&&((NBUF+4)<(MAX_SPLIT-1))) {   // @s refinement --> split the ray
                   NBUF0   = NBUF ;   // where we start adding rays for the current split, NBUF0 = will be the current main ray
                   // printf("*** ADD -- FIRST SLOT NBUF=%d\n", NBUF) ;
                   if (NBUF>(MAX_SPLIT-10)) {
-                     printf("!!!!!!!!!!!!!!!!!!!! NBUF IS FULL, NBUF=%d, steps %d !!!!!!!!!!!!!!!!!!!!", NBUF, steps) ;
+                     printf("!!!!!!!!!!!!!!!!!!!!  NBUF=%d <= %d, steps %d !!!!!!!!!!!!!!!!!!!!", NBUF, MAX_SPLIT, steps) ;
                      NBUF = 0 ;  ind = -1 ; break ;
                   }
                   
@@ -3258,7 +3260,7 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
                   B1      =  &(BUF[NBUF*10]) ;
                   B2      =  &(BUF[NBUF*10+10]) ;
                   B3      =  &(BUF[NBUF*10+20]) ;
-                  NBUF   +=  3 ;
+                  NBUF   +=  3 ;                        // +++
                   // add common data for all three new rays  (all except POS and ind)
                   // note --- assigned RL=level will be final only if level==level0+1
                   B1[0 ]  =  level ;    B1[5 ]  =  DIR.x ;    B1[6] = DIR.y ;     B1[7] = DIR.z ;
@@ -3322,14 +3324,16 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
                   // However, if level>level0+1, we need to replicate those three rays!
                   
 #  if 1  // @@        add rays for levels [level0+2, level]
-                  B1 = &(BUF[10*NBUF0]) ;               // pointer to first four rays
+                  B1 = &(BUF[10*NBUF0]) ;                  // pointer to first four rays
                   for(int j=level0+2; j<=level; j++) {
-                     no  =  3*pown(4.0f, j-level0-2) ;  // this many new rays on level j per original 4 rays
-                     for(int i=0; i<no; i++) {          // copy first four rays "no" times
-                        B2  =  &(BUF[10*NBUF]) ;
-                        for(int k=0; k<40; k++) B2[k]      = B1[k] ; // duplicate four rays
-                        for(int k=0; k<4; k++)  B2[10*k+9] = j ;     // original RL=level0, first three added RL=level0+1, now RL>=level0+2
-                        NBUF += 4 ;
+                     no  =  3*pown(4.0f, j-level0-2) ;     // this many new rays on level j per original 4 rays
+                     if ((NBUF+4*no)<MAX_SPLIT) {          // only if there is space for the split rays
+                        for(int i=0; i<no; i++) {          // copy first four rays "no" times
+                           B2  =  &(BUF[10*NBUF]) ;
+                           for(int k=0; k<40; k++) B2[k]      = B1[k] ; // duplicate four rays
+                           for(int k=0; k<4; k++)  B2[10*k+9] = j ;     // original RL=level0, first three added RL=level0+1, now RL>=level0+2
+                           NBUF += 4 ;                                  // +++
+                        }
                      }
                   }
 #  else                     
@@ -3344,7 +3348,7 @@ __kernel void SimHpSplit(const      int      PACKETS,     //  0 - number of pack
                   for(int j=0; j<no; j++) {                     // loop over groups of three
                      B2    =  &(BUF[10*NBUF]) ;                 // adding rays...
                      for(int i=0; i<30; i++) B2[i] = B1[i] ;    // three rays = 36 elements
-                     NBUF +=  3 ;
+                     NBUF +=  3 ;                               // +++
                   }            
                   // Now we have the rays in the buffer, all have coordinates and indices for the current level 'level'
                   // The original root ray (RL=0) is at NBUF=NBUF0 but for the rest we reassign RL

@@ -26,7 +26,7 @@ __kernel void zero_out(const int       NDIR,
 //   SimRAM_HP  =  healpix background
 //   SimRAM_PB  =  points sources and isotropic background
 //   SimRAM_CL  =  emission from the medium
-
+//   SimRAM_PS  =  2021-04-22 separate routine for point-source simulations
 
 
 
@@ -68,7 +68,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
    // MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*id,1.0f)*4294967296L), samplesPerStream);
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+PI)),1.0)*4294967296L), samplesPerStream);   
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);   
    int ind   = -1 ;
    int ind0=-1, level0, idust=0 ;
    float Rout =  0.5f*sqrt(1.0f*NX*NX+NY*NY+NZ*NZ) ;
@@ -133,7 +133,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
       if (fabs(DIR.y)<DEPS) DIR.y = DEPS ;
       if (fabs(DIR.z)<DEPS) DIR.z = DEPS ; 
       DIR         =  normalize(DIR) ;
-
+      
       // if (id==0) printf("%8.4f %8.4f %8.4f\n", DIR.x, DIR.y, DIR.z) ;
       
       // Package directed towards the cloud, onto a surface of a sphere with radius Rout
@@ -143,7 +143,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
       POS.y  =  dx*sin(ds) ;   
       POS.z  =  sqrt(1.001f-dx*dx) ;
       
-
+      
       // This would be a random position on unit sphere if the healpix pixel were towards +Z
       // However, the healpix pixel is now in the direction (theta,phi)
       
@@ -159,7 +159,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
       //    M_PI exists "If double precision is supported by the device"....
       //   but how can one cast M_PI to float and it suddenly works.. or one can print its value???
       
-
+      
 #if 0
       // M_PI problem 
       // pyopencl.Device 'Intel(R) Gen9 HD Graphics NEO' on 'Intel(R) OpenCL HD Graphics'
@@ -206,7 +206,7 @@ __kernel void SimRAM_HP(const      int      PACKETS,   //  0 - number of packets
       // Position should now be on the sphere, on the same side of the cloud as the Healpix pixel
       // -> try to step onto the actual cloud surface -- part of rays will be rejected (miss the cloud)
       Surface(&POS, &DIR) ;   // input POS should be outside the cloud, on the upstream side
-            
+      
       IndexG(&POS, &level, &ind, DENS, OFF) ;      
       
       if (ind<0) continue ; // we are inside the loop: for II in BATCH 
@@ -489,8 +489,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
                         __global   float   *ROI_LOAD   // 29 external file of incoming ROI photons
                        ) 
 {
-   // This routine is simulating the radiation field in order to determine the absorbed energy in each cell:
-   // Isotropic background and point sources
+   // This routine is simulating isotropic background and point sources
    const int id     = get_global_id(0) ;
    const int GLOBAL = get_global_size(0) ;
    
@@ -507,7 +506,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
    // MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*id,1.0f)*4294967296L), samplesPerStream);
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+PI)),1.0)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);
    
    int ind   = -1 ;
    int ind0=-1, level0, idust=0 ;
@@ -616,7 +615,7 @@ __kernel void SimRAM_PB(const      int      SOURCE,    //  0 - PSPAC/BGPAC/CLPAC
       //    GLOBAL*BATCH is the total number of photon packages over all sources
       //    each work item simulates BATCH packages for each source
       //    II%NO_PS used to loop over all point sources
-      if (SOURCE==0) {
+      if (SOURCE==0) {  // point sources 
          phi       =  TWOPI*Rand(&rng) ;
          cos_theta =  0.999997f-1.999995f*Rand(&rng) ;
          sin_theta =  sqrt(1.0f-cos_theta*cos_theta) ;
@@ -1128,7 +1127,7 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
    // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
    ulong samplesPerStream = 274877906944L ;  // 2^38
    // MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7*id,1.0f)*4294967296L), samplesPerStream);
-   MWC64X_SeedStreams(&rng, (unsigned long)(fmod((double)(SEED*(id+PI)),1.0)*4294967296L), samplesPerStream);
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);
 #endif
    
    int ICELL = id-GLOBAL ;
@@ -1430,10 +1429,456 @@ __kernel void SimRAM_CL(const      int      SOURCE,  //  0 - PSPAC/BGPAC/CLPAC =
    } // for III
    
    
+} // SimRAM_CL
+
+
+
+
+
+
+
+
+
+
+
+__kernel void SimRAM_PS(const      int      PACKETS,   //  0 - number of packets
+                        const      int      BATCH,     //  1 - for SOURCE==2, packages per cell
+                        const      float    SEED,      //  2 
+                        __global   float   *ABS,       //  3 
+                        __global   float   *SCA,       //  4 
+                        const      float    BG,        //  5 - background intensity
+                        __global   float3  *PSPOS,     //  6 - positions of point sources
+                        __global   float   *PS,        //  7 - point source luminosities
+                        constant   int     *LCELLS,    //  8 - number of cells on each level
+                        constant   int     *OFF,       //  9 - index of first cell on each level
+                        __global   int     *PAR,       // 10 - index of parent cell        [CELLS]
+                        __global   float   *DENS,      // 11 - density and hierarchy       [CELLS]
+                        constant   float   *DSC,       // 12 - BINS entries
+                        constant   float   *CSC,       // 13 - cumulative scattering function
+                        const      int      NDIR,      // 14 - number of scattering maps = directions
+                        __global   float3  *ODIRS,     // 15 - observer directions
+                        const      int2     NPIX,      // 16 - map has NPIX.x * NPIX.y pixels
+                        const      float    MAP_DX,    // 17 - map pixel size in root grid units
+                        const      float3   CENTRE,    // 18 - map centre 
+                        __global   float3  *ORA,       // 19 - unit vector for RA coordinate axis
+                        __global   float3  *ODE,       // 20 - unit vector for DE coordinate axis
+                        __global   float   *OUT,       // 21 -- scattering arrays, NDIR*NPIX*NPIX
+                        __global   float   *ABU,       // 22
+                        __global   OTYPE   *OPT,       // 23
+                        __global   float   *XPS_NSIDE, // 24
+                        __global   float   *XPS_SIDE,  // 25
+                        __global   float   *XPS_AREA   // 26
+                       ) 
+{
+   // This routine is simulating isotropic background and point sources
+   const int id     = get_global_id(0) ;
+   const int GLOBAL = get_global_size(0) ;
+   
+   int    oind=0, level=0, scatterings, steps, SIDE, i, j ;
+   float  ds, free_path, tau, dtau, delta, tauA, dx, phi, theta, cos_theta, sin_theta ;
+   float3 DIR=0.0f, POS, POS0, ODIR ; 
+   float  PHOTONS, X0, Y0, Z0, DX, DY, DZ, v1, v2, W ;   
+   mwc64x_state_t rng;
+   // Assume that 2^38 = 2.7e11 random numbers per worker is sufficient
+   // For each NITER, host will also give a new seed [0,1] that is multiplied by 2^32 = 4.3e9
+   // The generator has a period of 2^63=9e18, which is 33e6 times 2^38... 33e6 >> workers
+   ulong samplesPerStream = 274877906944L ;  // 2^38
+   MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED*7.0f*PI,1.0f)*4294967296L), samplesPerStream);   
+   int ind   = -1 ;
+   int ind0=-1, level0, idust=0 ;
+   
+   
+   // BATCH = PSPAC/GLOBAL*NO_PS ==> each 
+   for(int III=0; III<BATCH; III++) { // BATCH is multiple of the number of point sources
+      // BATCH =   PSPAC/GLOBAL * NO_PS
+      phi       =  TWOPI*Rand(&rng) ;
+      cos_theta =  0.999997f-1.999995f*Rand(&rng) ;
+      sin_theta =  sqrt(1.0f-cos_theta*cos_theta) ;
+      DIR.x     =  sin_theta*cos(phi) ;   
+      DIR.y     =  sin_theta*sin(phi) ;
+      DIR.z     =  cos_theta ;
+#if 1
+      level0    =  III % NO_PS ;              // index of the point sources
+#else
+      level0    =  (III+id) % NO_PS ;         // index of the point sources - round robin ... is slower !!
+#endif
+      PHOTONS   =  PS[level0] ;               // WPS ~ 1/PSPAC, PSPAC ~ GLOBAL*PATCH
+      POS.x     =  PSPOS[level0].x ;   POS.y = PSPOS[level0].y ;   POS.z = PSPOS[level0].z ;
+      IndexG(&POS, &level, &ind, DENS, OFF) ;
+      
+      
+      if ((ind<0)||(ind>=CELLS)) {   // if pointsource is outside the model volume
+#if (PS_METHOD==0)
+         // Basic (inefficient) isotropic emission
+         Surface(&POS, &DIR) ;
+         IndexG(&POS, &level, &ind, DENS, OFF) ;            
+#endif
+#if (PS_METHOD==1)
+         // if (id==0) printf("PS_METHOD==1\n") ;
+         // pointsource outside the volume, send all packages to 2pi solid angle
+         // => only sqrt(2) decrease in the noise, many packages will miss the cloud altogether
+         POS.x     =  PSPOS[level0].x ;   POS.y = PSPOS[level0].y ;   POS.z = PSPOS[level0].z ;
+         if (POS.z>NZ) {  // source is in the direction of +Z
+            if (DIR.z>0.0f) DIR.z = -DIR.z ;            
+         } else {
+            if (POS.z<0.0f) {
+               if (DIR.z<0.0f) DIR.z = -DIR.z ;            
+            } else {
+               if (POS.x>NX) {
+                  if (DIR.x>0.0f) DIR.x = -DIR.x ;            
+               } else {
+                  if (POS.x<0.0f) {
+                     if (DIR.x<0.0f) DIR.x = -DIR.x ;            
+                  } else {
+                     if (POS.y>NY) {
+                        if (DIR.y>0.0f) DIR.y = -DIR.y ;            
+                     } else {
+                        if (POS.y<0.0f) {
+                           if (DIR.y<0.0f) DIR.y = -DIR.y ;            
+                        }
+                     }
+                  }
+               }
+            }
+         }              
+         Surface(&POS, &DIR) ;
+         PHOTONS *= 0.5f ;  // photons emitted to half-space
+         IndexG(&POS, &level, &ind, DENS, OFF) ;            
+#endif
+#if (PS_METHOD==2)
+         // METHOD B
+         //   This is ok method.... but gives equal number of rays for surface elements far from the 
+         //   source as for the surface elements close to the source... a concern if the point source
+         //   is very close to the surface (and should mostly illuminate a small number of surface elements)
+         // - select random X, Y, or Z direction
+         // - select random cell on the surface ....
+         // - calculate the direction towards that cell element
+         // In normal case a surface element would be hit a number of times that is
+         //        (GL^2*cos(theta)) * PACKETS / (4*pi*r^2)
+         //       theta = angle for LOS vs. surface normal
+         //       r     = distance from point source to the surface
+         // New scheme:  a surface element is hit this many times:
+         //        (1/3)*(1/(XY))*PACKETS
+         //       where "XY" stands for the surface area of that side of the cloud
+         // ==> 
+         //    PHOTONS  *=   3*cos(theta)*XY / (4*pi*r^2),  [r] = GL
+         // What if only one or two sides are visible from the point source
+         //    above (1/3) -> (1/visible_sides)
+         //     => host prepares for each point source "visible_nside", "visible_side[6]"
+         // This version generates only packages that will hit the cloud.
+         // TODO: select surface element more systematically to reduce Monte Carlo noise
+         //       and to choose sides according to their projected area rather than 
+         //       selecting any visible side
+         POS.x    =  PSPOS[level0].x ;   POS.y = PSPOS[level0].y ;   POS.z = PSPOS[level0].z ;
+         // select random side, XY, YZ, or XZ
+# if 1      // equal probability for all visible sides (irrespective of their projected visible area)
+         ind      =  floor(Rand(&rng)*XPS_NSIDE[level0]*0.999999f) ;  // side is the one in XPS_SIDE[ind], ind=0,1,2
+         PHOTONS /=  XPS_AREA[3*level0+ind] ;  // while ind = 0,1,2
+#  if 0
+         if (isfinite(PHOTONS)) { 
+            ;
+         } else {
+            // sometimes ind=1 although only one side was illuminated ... 
+            printf("ind %d, area %.3e, PHOTONS %.3e\n", ind, XPS_AREA[3*level0+ind], PHOTONS) ; 
+            PHOTONS = 0.0f ;
+         }
+#  endif     
+         ind      =  XPS_SIDE[3*level0+ind] ;  // side 0-5,  +X,-X,+Y,-Y,+Z,-Z ~ 0-5
+# else
+         // weight selection according to the projected area == XPS_AREA[]
+         // *** XPS_AREA are not yet actually calculated, see host ***
+         v1       =  Rand(&rng) ;
+         for(ind=0; v1>0.0f; ind++) v1 -= XPS_AREA[3*level0+ind] ; // [0,3[
+         PHOTONS *=  ??? ;
+         ind      =  XPS_SIDE[3*level0+ind] ;                      // [0,6[, +X,-X,+Y,-Y,+Z,-Z ~ 0-5
+# endif
+         // printf("SIDE %d\n", ind) ;
+         // select random point on the surface
+         float a=Rand(&rng), b = Rand(&rng) ;
+         if (ind==0) { // +X side
+            POS.x = NX-PEPS;   POS.y = a*NY ; POS.z = b*NZ ;  b = NY*NZ ;
+         }
+         if (ind==1) { // -X side
+            POS.x = PEPS;      POS.y = a*NY ; POS.z = b*NZ ;  b = NY*NZ ;
+         }
+         if (ind==2) { // +Y side
+            POS.y = NY-PEPS;   POS.x = a*NX ; POS.z = b*NZ ;  b = NX*NZ ;
+         }
+         if (ind==3) { // -Y side
+            POS.y = PEPS;      POS.x = a*NX ; POS.z = b*NZ ;  b = NX*NZ ;
+         }
+         if (ind==4) { // +Z side
+            POS.z = NZ-PEPS;   POS.x = a*NX ; POS.y = b*NY ;  b = NX*NY ;
+         }
+         if (ind==5) { // -Z side
+            POS.z = PEPS;      POS.x = a*NX ; POS.y = b*NY ;  b = NX*NY ;
+         }
+         // distance and cos(theta)
+         v1  = distance(POS, PSPOS[level0]) ;   // distance from source to surface [GL]
+         DIR = POS-PSPOS[level0] ;
+         DIR = normalize(DIR) ;
+         // cos(theta)
+         v2  = (ind<2) ? (fabs(DIR.x)) :   ((ind<4) ? (fabs(DIR.y)) : (fabs(DIR.z))) ;
+         // re-weight photon numbers
+         PHOTONS  *=   v2*b / (4.0f*PI*v1*v1) ; // division by XPS_AREA done above when ind was still [0,3[
+         IndexG(&POS, &level, &ind, DENS, OFF) ;            
+#endif
+#if (PS_METHOD==4)
+         // We require that the point source is in Z above the cloud
+         // and the source (X,Y) coordinates correspond to the centre of the cloud XY plane.
+         // In this case we can calculate the cone in which the cloud is seen
+         // and packages are only sent within this cone.
+         // The solid angle is defined by the distance to the surface and by radius
+         // sqrt[   (0.5*NX)^2  + (0.5*NY)^2  ]
+         v1         =  PSPOS[level0].z - NZ ;          // height above the cloud surface
+         cos_theta  =  v1 / sqrt(v1*v1 + 0.25f*NX*NX + 0.25f*NY*NY) ;
+         PHOTONS   *=  0.5f*(1.0f-cos_theta) ;         // because packages go to a smaller solid angle
+         // Generate random direction within the cone (some rays will be rejected)
+         cos_theta  =  1.0f-Rand(&rng)*(1.0f-cos_theta) ;   // now a uniform cos_theta within the cone
+         v1         =  TWOPI*Rand(&rng) ;
+         DIR.x      =  sqrt(1.0f-cos_theta*cos_theta)*cos(v1) ;
+         DIR.y      =  sqrt(1.0f-cos_theta*cos_theta)*sin(v1) ;
+         DIR.z      =  -cos_theta ;
+         Surface(&POS, &DIR) ;            
+         IndexG(&POS, &level, &ind, DENS, OFF) ;            
+#endif
+#if (PS_METHOD==5)
+         // Generilisation of PS_METHOD==4
+         // Host has calculated the main illuminated side, values 0-5 of 
+         //   XPS_SIDE[3*level0] correspond to illuminated sides +X, -X, +Y, -Y, +Z, -Z.
+         //   XPS_AREA[3*level0] is the cosine of the cone opening angle.
+         //   Note that level0 is here still the index of the point source.
+         cos_theta  =  XPS_AREA[3*level0] ;
+         PHOTONS   *=  0.5f*(1.0f-cos_theta) ;
+         cos_theta  =  1.0f-Rand(&rng)*(1.0f-cos_theta) ;   // uniform cos_theta within the cone
+         v1         =  TWOPI*Rand(&rng) ;                   // random phi angle
+         oind       =  XPS_SIDE[3*level0] ;                 // the illuminated side
+         if (oind<2) {        // +X or -X illuminated
+            DIR.y      =   sqrt(1.0f-cos_theta*cos_theta)*cos(v1) ;
+            DIR.z      =   sqrt(1.0f-cos_theta*cos_theta)*sin(v1) ;
+            if (oind==0)   DIR.x  =  -cos_theta ; // +X illuminated, package in -X direction
+            else           DIR.x  =  +cos_theta ;
+         } else {
+            if (oind<4) {     // +X or -X illuminated
+               DIR.x      =   sqrt(1.0f-cos_theta*cos_theta)*cos(v1) ;
+               DIR.z      =   sqrt(1.0f-cos_theta*cos_theta)*sin(v1) ;
+               if (oind==2)   DIR.y = -cos_theta ;
+               else           DIR.y = +cos_theta ;
+            } else {          // +X or -X illuminated
+               DIR.x      =   sqrt(1.0f-cos_theta*cos_theta)*cos(v1) ;
+               DIR.y      =   sqrt(1.0f-cos_theta*cos_theta)*sin(v1) ;
+               if (oind==4)   DIR.z  =  -cos_theta ;
+               else           DIR.z  =  +cos_theta ;
+            }
+         }
+         Surface(&POS, &DIR) ;            
+         IndexG(&POS, &level, &ind, DENS, OFF) ;
+#endif                        
+      }  // external point source
+      
+      
+      if (fabs(DIR.x)<DEPS) DIR.x = DEPS ;
+      if (fabs(DIR.y)<DEPS) DIR.y = DEPS ;
+      if (fabs(DIR.z)<DEPS) DIR.z = DEPS ; 
+      DIR         =  normalize(DIR) ;
+      
+      
+#if (FFS>0)
+      // Forced first scattering
+      POS0       =  POS ;     // do not touch the parameters of the real ray {POS, ind, level}
+      ind0       =  ind ;
+      level0     =  level ;   // this point level0 was the number of the point source !!!
+      tau        =  0.0f ;
+      while(ind0>=0) {
+         oind    =  OFF[level0]+ind0 ;
+         ds      =  GetStep(&POS0, &DIR, &level0, &ind0, DENS, OFF, PAR) ; // POS, level, ind updated !!
+# if (WITH_ABU>0)
+         tau    +=  ds*DENS[oind]*GOPT(2*oind+1) ;
+# else
+         tau    +=  ds*DENS[oind]*(*SCA) ;
+# endif
+      }
+      if (tau<1.0e-22f) ind = -1 ;      // nothing along the LOS
+      W          =  1.0f-exp(-tau) ;
+      free_path  = -log(1.0-W*Rand(&rng)) ;
+      PHOTONS   *=  W ;
+#else
+      // no forced first scattering
+      free_path  = -log(Rand(&rng)) ;
+#endif
+      
+      
+      // if (ind>=0)   printf("%8.4f %8.4f %8.4f  %8.4f %8.4f %8.4f\n", POS.x, POS.y, POS.z, DIR.x, DIR.y, DIR.z) ;
+      
+      
+      // Ray defined by POS, DIR, ind, level
+      scatterings =  0 ;
+      steps = 0 ;
+      
+      while(ind>=0) {  // loop until this ray is really finished
+         
+         tau = 0.0f ;         
+         while(ind>=0) {    // loop until scattering
+            ind0      =  ind ;               // indices at the beginning of the step
+            level0    =  level ;
+            POS0      =  POS ;               // because GetStep does coordinate transformations...
+            oind      =  OFF[level0]+ind0 ;  // global index at the beginning of the step
+            ds        =  GetStep(&POS, &DIR, &level, &ind, DENS, OFF, PAR) ; // POS, level, ind updated !!
+#if (WITH_ABU>0)
+            dtau      =  ds*DENS[oind]*GOPT(2*oind+1) ;
+#else
+            dtau      =  ds*DENS[oind]*(*SCA) ;
+#endif
+            if (free_path<(tau+dtau)) {  // tau = optical depth since last scattering
+               ind = ind0 ;              // !!!
+               break ;                   // scatter before ds
+            }
+            tau      +=  dtau ;
+         }
+         if (ind<0) break ;  // ray is out of the cloud
+         
+         
+         
+         
+         // we do scatter - after partial step from old position POS0, staying in the same cell
+         scatterings++ ;
+         dtau               =  free_path-tau ;
+#if (WITH_ABU>0)
+         dx                 =  dtau/(GOPT(2*oind+1)*DENS[oind]) ;
+#else
+         dx                 =  dtau/((*SCA)*DENS[oind]) ;    // actual step forward in GLOBAL coordinates
+#endif
+         dx                 =  ldexp(dx, level) ;         // in LOCAL coordinates
+         POS0               =  POS0 + dx*DIR ;            // POS0 becomes the position of the scattering
+         // remove absorptions since last scattering
+#if (WITH_ABU>0)  // OPT contains per-cell values
+         PHOTONS           *=  exp(-free_path*GOPT(2*oind)/GOPT(2*oind+1)) ;
+#else
+         PHOTONS           *=  exp(-free_path*(*ABS)/(*SCA)) ;
+#endif
+         
+         // Do peel-off  -- starting at the location of the scattering = POS0
+         if (NDIR<0) {   // healpix output
+            // *** HEALPIX ***
+            POS       =  POS0 ;
+            ind       =  ind0 ;    // coordinates of the scattering location
+            level     =  level0 ;
+            RootPos(&POS, level, ind, OFF, PAR) ;  // vector towards the observer
+            ODIR      =  ODIRS[0] - POS ;
+            POS       =  POS0 ;
+            dx        =  length(ODIR) ;    // distance to observer
+            delta     =  1.0f/(dx*dx) ;    // nominator 1/dx^2 will here become 1/(omega*d)^2
+            ODIR      =  normalize(ODIR) ;
+            tau       =  0.0f ;          
+            while((dx>0)&&(ind>=0)) {                  // loop to observer position
+               oind   =  OFF[level]+ind ;   // need to store index of the cell at the step beginning
+               ds     =  min(dx, GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR)) + 1.0e-6 ;
+               dx    -=  ds ;  // in root grid coordinates
+#if (WITH_ABU>0)
+               tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+#else
+               tau   +=  ds*DENS[oind]*((*ABS)+(*SCA)) ;
+#endif
+            }
+            // time to add something to the scattering array
+            cos_theta =  clamp(DIR.x*ODIR.x+DIR.y*ODIR.y+DIR.z*ODIR.z, -0.999f, +0.999f) ;
+#if (WITH_MSF>0)
+            // Using DSC of a randomly selected dust component
+            oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
+            dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+            ds        =  0.99999f*Rand(&rng) ;
+            for(idust=0; idust<NDUST; idust++) {             // ind0 ~ dust index
+               ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ; // RE-USING ind0 and free_path
+               if (ds<=0.0) break ;
+            }   
+#endif
+            delta    *=  PHOTONS* exp(-tau) *  DSC[idust*BINS+clamp((int)(BINS*(1.0f+cos_theta)*0.5f), 0, BINS-1)] ;
+            // figure out the healpix pixel
+            theta     =   acos(-ODIR.z) ;
+            phi       =   atan2(+ODIR.y, +ODIR.x) ;
+            i         =   Angles2PixelRing(-NDIR, phi, theta) ;
+            atomicAdd_g_f(&(OUT[i]), delta) ;
+            // *** HEALPIX ***
+         } else {
+            for(int idir=0; idir<NDIR; idir++) {
+               POS       =  POS0 ;
+               ind       =  ind0 ;    // coordinates of the scattering location
+               level     =  level0 ;
+               tau       =  0.0f ;            
+               ODIR      =  ODIRS[idir] ;         
+               while(ind>=0) {       // loop to surface, towards observer
+                  oind   =  OFF[level]+ind ;   // need to store index of the cell at the step beginning
+                  ds     =  GetStep(&POS, &ODIR, &level, &ind, DENS, OFF, PAR) ;
+#if (WITH_ABU>0)
+                  tau   +=  ds*DENS[oind]*(GOPT(2*oind)+GOPT(2*oind+1)) ;
+#else
+                  tau   +=  ds*DENS[oind]*((*ABS)+(*SCA)) ;
+#endif
+               }
+               // time to add something to the scattering array
+               cos_theta =  clamp(DIR.x*ODIR.x+DIR.y*ODIR.y+DIR.z*ODIR.z, -0.999f, +0.999f) ;
+#if (WITH_MSF>0)
+               // Using DSC of a randomly selected dust component
+               oind      =  OFF[level0]+ind0 ;                   // back to the scattering cell
+               dx        =  GOPT(2*oind+1) ;                     // sum(ABU*SCA) for the current cell
+               ds        =  0.99999f*Rand(&rng) ;
+               for(idust=0; idust<NDUST; idust++) {             // ind0 ~ dust index
+                  ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ; // RE-USING ind0 and free_path
+                  if (ds<=0.0) break ;
+               }   
+#endif
+               delta     =  PHOTONS* exp(-tau) *  DSC[idust*BINS+clamp((int)(BINS*(1.0f+cos_theta)*0.5f), 0, BINS-1)] ;
+               // coordinates  = projections on (ORA, ODE) vectors
+               POS      -=  CENTRE ;
+               i         =  (0.5f*NPIX.x-0.00005f) + dot(POS, ORA[idir]) / MAP_DX ;  // RA = right !!
+               j         =  (0.5f*NPIX.y-0.00005f) + dot(POS, ODE[idir]) / MAP_DX ;
+               if ((i>=0)&&(j>=0)&&(i<NPIX.x)&&(j<NPIX.y)) {   // ind  =  i+j*NPIX.x ;
+                  i     +=  idir*NPIX.x*NPIX.y   +    j*NPIX.x ;
+                  atomicAdd_g_f(&(OUT[i]), delta) ;
+               }
+            } // for idir in NDIR
+         } // healpix or not 
+         
+         // return to original indices, at the location of the scattering
+         POS            =  POS0 ;
+         ind            =  ind0 ;           // cell has not changed !?
+         level          =  level0 ;         // (ind, level) at the beginning of the step = at the end
+         oind           =  OFF[level]+ind ;
+         
+#if (WITH_MSF==0)
+         Scatter(&DIR, CSC, &rng) ;             // new direction, basic case with a single scattering function
+#else
+         dx        =  GOPT(2*oind+1) ;           // sum(ABU*SCA) for the current cell
+         ds        =  0.99999f*Rand(&rng) ;
+         for(idust=0; idust<NDUST; idust++) {             
+            ds -= ABU[idust+NDUST*oind]*SCA[idust] / dx ;
+            if (ds<=0.0) break ;
+         }
+         Scatter(&DIR, &CSC[idust*BINS], &rng) ; // use the scattering function of the ind0:th dust species
+#endif
+         
+         free_path      = -log(Rand(&rng)) ;
+         
+#if (RUSSIAN_ROULETTE==0)
+         if (scatterings==MAX_SCATTERINGS) {
+            ind = -1 ;  continue  ; // go and get next ray
+         }
+#else
+         //  Russian roulette to remove packages
+         if (scatterings==MAX_SCATTERINGS) {
+            if (Rand(&rng)<0.25f) {   // one in four terminated
+               ind = -1 ;  break ;
+            } else {                  // ther rest *= 4/3
+               PHOTONS     *= 1.3333333f ;
+               scatterings  = 0 ;
+            }
+         }
+#endif         
+      } // while (ind>0) <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+      
+   } // for III
    
 }
-
-
 
 
 

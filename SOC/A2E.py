@@ -10,10 +10,22 @@ from   scipy.interpolate import interp1d
 from   matplotlib.pylab import *
 from   SOC_aux import *
 
+
 """
-Usage:   A2E.py  solver-dump  absorbed.data  emitted.data  [ GPU [ nstoch ]]
-        GPU == a.b    ==>       a=0 => CPU, otherwise GPU,   b=3 => platform 3
-        if that platform does not provide, test all platforms
+Usage:   
+            0       1         2          3     4        5       6 
+    A2E.py  solver  absorbed  emitted  [ GPU [ nstoch [ IFREQ [ aalg ]]]]
+Parameters:
+    solver    =  solver file writte by A2E_pre.py
+    absorbed  =  file for absorptions, used as the basis of T and emission calculation
+    emitted   =  file to be written, containing the emission (all cells, frequencies)
+    GPU       =  a.b  =>   a=0 for CPU, otherwise GPU, e.g.  b=3 => platform 3
+                 if that platform does not provide, test all platforms
+    nstoch    =  number of smallest grain sizes handled as stochastically heated
+    IFREQ     =  save output only for single frequency FREQ[IFREQ]
+    aalg      =  file [CELLS] cointaining the minimum aligned grain size
+                 ==> if number of arguments is 6, write polarised emitted intensity
+                 to a second file <emitted>.P
         
 Using solver.data dumped from A2E.cpp or A2E_pre.py, convert absorbed.data to emitted.data.
 
@@ -51,7 +63,7 @@ GPU       =  0.0      #     GPU.PLATFORM
 WITH_X    =  0
         
 if (len(sys.argv)<4):
-    print("\n  A2E_pyCL  dump  absorbed.data emitted.data [GPU [nstoch]]\n")
+    print("\n  A2E.py  solver  absorbed  emitted  [ GPU [ nstoch [ IFREQ [ aalg ]]]]\n\n")
     sys.exit()
 
 if (not(os.path.exists(sys.argv[1]))):
@@ -74,18 +86,27 @@ BATCH  = 8192        #   37.4 seconds,  7006 cells per second
 # BATCH  = 16384     #   35.9 seconds,  7303 cells per second -- diminishing returns
 # BATCH = 32768      #   36.4 seconds,  7210 cells per second
 NSTOCH = 999
+AALG   = None   # filename
+
+IFREQ  = -1    # if >=0, save emission at this single frequency only
 if (len(sys.argv)>4):
     GPU  = float(sys.argv[4])   #   a.b,  encoding CPU/GPU and platform
     if (len(sys.argv)>5):
         NSTOCH = int(sys.argv[5])
-    
+        if (len(sys.argv)>6):         
+            IFREQ = int(sys.argv[6])  #  if IFREQ>=0, save only emission at single frequency
+            if (len(sys.argv)>7):     # we have parameters for calculation of polarised intensity
+                AALG = sys.argv[7]    #  file with ---  {CELLS} aalg[CELLS]
+print("A2E.py with IFREQ=%d" % IFREQ)        
+        
 # Read solver dump file
 FP     =  open(sys.argv[1], 'rb')      # dump
 NFREQ  =  np.fromfile(FP, np.int32, 1)[0]                                # NFREQ
 FREQ   =  np.fromfile(FP, np.float32, NFREQ)                             # FREQ[NFREQ]
 GD     =  np.fromfile(FP, np.float32, 1)[0]                              # GRAIN_DENSITY
 NSIZE  =  np.fromfile(FP, np.int32, 1)[0]                                # NSIZE
-S_FRAC =  clip(np.fromfile(FP, np.float32, NSIZE), 1.0e-32, 1.0e30)      # S_FRAC
+ASIZE  =  np.fromfile(FP, np.float32, NSIZE)                             # ASIZE added to solver files 2021-04-26 
+S_FRAC =  clip(np.fromfile(FP, np.float32, NSIZE), 1.0e-32, 1.0e30)      # S_FRAC == DUST::S_FRAC / GRAIN_DENSITY; sum(S_FRAC)==1
 NE     =  np.fromfile(FP, np.int32, 1)[0]                                # NE
 SK_ABS =  np.fromfile(FP, np.float32, NSIZE*NFREQ).reshape(NSIZE, NFREQ) # SK_ABS[NSIZE, NFREQ]
 K_ABS  =  sum(SK_ABS, axis=0)
@@ -95,6 +116,25 @@ for s in sys.argv: sys.stdout.write("%s " % s)
 sys.stdout.write('\n')
 
 
+
+
+
+if (1):
+    # SAVE EMISSION SIZE BY SIZE TO A SEPARATE EMISSION FILE [NSIZE, CELLS]
+    # -- ASSUMING THAT THERE IS ONLY ONE OUTPUT FREQUENCY
+    FP_BY_SIZE = open('%s.EBS' % sys.argv[1], 'wb')
+    for  i in range(4):
+        print("A2E.py ----- FP_BY_SIZE IS SET !!!!!!!!!!!!!!!!!!!!!!!!!!")
+        time.sleep(1)
+else:
+    FP_BY_SIZE = None
+
+
+    
+
+
+
+
 # since 2018-12-29 also SOC absorbed.data starts with [ cells, nfreq ] only
 fp     =  open(sys.argv[2], 'rb')      # absorbed
 CELLS, NFREQ = np.fromfile(fp, np.int32, 2)
@@ -102,8 +142,16 @@ fp.close()
     
 # Emitted has always 2 int header
 fp    =  open(sys.argv[3], 'wb')      # emitted
-asarray([CELLS, NFREQ], np.int32).tofile(fp)  # 2018-12-29 -- dropped levels from the python files !!
+if (IFREQ>=0): NOFREQ = 1
+else:          NOFREQ = NFREQ
+asarray([CELLS, NOFREQ], np.int32).tofile(fp)  # 2018-12-29 -- dropped levels from the python files !!
 fp.close()
+if (AALG):
+    fp    =  open(sys.argv[3]+'.P', 'wb')         # poalrised emission
+    asarray([CELLS, NOFREQ], np.int32).tofile(fp)
+    fp.close()
+    
+
 
 ABSORBED  = np.memmap(sys.argv[2], dtype='float32', mode='r+',  shape=(CELLS, NFREQ), offset=8)
 """
@@ -126,9 +174,19 @@ but might also on how the enthalpy limits W1-W4 happend to reside in relation to
 """
 if (1):  # Necessary to avoid huge emission in rare cells ???
     ABSORBED[:, NFREQ-1] = np.clip(ABSORBED[:, NFREQ-1], 0.0, 0.2*ABSORBED[:, NFREQ-2])
-EMITTED   = np.memmap(sys.argv[3], dtype='float32', mode='r+',  shape=(CELLS, NFREQ), offset=8)
+if (IFREQ>=0):  #  emission saved for a single frequency only
+    EMITTED   = np.memmap(sys.argv[3], dtype='float32', mode='r+',  shape=(CELLS, 1), offset=8)
+else:
+    EMITTED   = np.memmap(sys.argv[3], dtype='float32', mode='r+',  shape=(CELLS, NFREQ), offset=8)
 EMITTED[:,:] = 0.0
 
+if (AALG!=None): # compute separate array for polarised intensity
+    if (IFREQ>=0):
+        PEMITTED   = np.memmap(sys.argv[3]+'.P', dtype='float32', mode='r+',  shape=(CELLS, 1), offset=8)
+    else:
+        PEMITTED   = np.memmap(sys.argv[3]+'.P', dtype='float32', mode='r+',  shape=(CELLS, NFREQ), offset=8)
+    PEMITTED[:,:] = 0.0
+    
 
 def PlanckSafe(f, T):  # Planck function
     # Add clip to get rid of warnings
@@ -237,9 +295,11 @@ emit = zeros((BATCH, NFREQ), np.float32)
 t0 = time.time()    
 
 
-def process_stochastic(isize):
-    global SK_ABS, K_ABS, S_FRAC, GLOBAL, LOCAL, WITH_X
-    global FP, CELLS, BATCH, ABSORBED, EMKITTED
+def process_stochastic(isize, AALG):
+    # If fpa is given, file contains  a_alg[cells] and we will update to
+    # PEMITTED separately the polarised intensity
+    global SK_ABS, K_ABS, S_FRAC, GLOBAL, LOCAL, WITH_X, IFREQ
+    global FP, CELLS, BATCH, ABSORBED, EMITTED, PEMITTED
     global AF_buf, Iw_buf, L1_buf, L2_buf, Tdown_buf, EA_buf, Ibeg_buf, ABS_buf
     # AF = fraction of absorptions due to the current size
     AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
@@ -264,9 +324,17 @@ def process_stochastic(isize):
     cl.enqueue_copy(queue, Ibeg_buf,  Ibeg)        
     queue.finish()
     # Loop over the cells, BATCH cells per kernel call
-    t00 = time.time()            
+    t00 = time.time()
+    fp_aalg = None
+    if (AALG):  # grain alignment file give, calculate separately polarised intensity
+        fp_aalg = open(AALG, 'rb')
+        cells   = fromfile(fp_aalg, int32, 1)
+        if (cells!=CELLS):
+            print("process_stochastic: CELLS=%d, file %s has cells=%d" % (CELLS, AALG, cells))
+            sys.exit()
     for icell in range(0, CELLS, BATCH):        
         batch = min([BATCH, CELLS-icell])  # actual number of cells
+        emit  = zeros((batch, NFREQ), float32)
         cl.enqueue_copy(queue, ABS_buf,  ABSORBED[icell:(icell+BATCH),:])
         queue.finish()            
         if (WITH_X):
@@ -281,9 +349,36 @@ def process_stochastic(isize):
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)
         queue.finish()            
         cl.enqueue_copy(queue, emit, EMIT_buf)  # batch*NFREQ
-        EMITTED[icell:(icell+batch),:] += emit[0:batch,:]        # contribution of current dust, current size
+        if (IFREQ>=0):
+            EMITTED[icell:(icell+batch), 0] += emit[:, IFREQ]   # emission at single frequency
+        else:
+            EMITTED[icell:(icell+batch), :] += emit[:, :    ]   # contribution of current dust, current size
+        if (AALG): 
+            # fraction of emit[BATCH, NFREQ] added also to PEMITTED
+            aalg  =  fromfile(fp_aalg, float32, batch)
+            # hard cutoff at given size
+            m     =  nonzero(ASIZE[isize]>=aalg)   # cells where this grain size is aligned
+            if (IFREQ>=0):  # single frequency in the output emission file
+                PEMITTED[icell+m[0], 0]    +=  emit[m[0], IFREQ]
+            else:
+                PEMITTED[icell+m[0], :]    +=  emit[m[0],     :]
+            if (1): # add some emission also when aalg is between ASIZE[isize-1] and ASIZE[isize]
+                if (isize<(NSIZE-1)):
+                    m = nonzero((ASIZE[isize]<aalg)&(ASIZE[isize+1]>aalg))
+                    w = (log10(aalg[m])-log10(ASIZE[isize])) / (log10(ASIZE[isize+1])-log10(ASIZE[isize]))
+                    if (IFREQ>=0):  # single frequency in the output emission file
+                        PEMITTED[icell+m[0], 0]    +=  w*emit[m[0], IFREQ]
+                    else:
+                        PEMITTED[icell+m[0], :]    +=  w*emit[m[0],     :]            
+        if (FP_BY_SIZE):
+            if (IFREQ>=0):   emit[:, IFREQ].tofile(FP_BY_SIZE)
+            else:            emit.tofile(FP_BY_SIZE)
+            
+            
     print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
-    
+    if (AALG):
+        fp_aalg.close()
+        
 
     
 """
@@ -341,24 +436,48 @@ for isize in range(NSIZE):
         cl.enqueue_copy(queue, TTT_buf,  TTT)    # NIP elements
         cl.enqueue_copy(queue, KABS_buf, KABS)   # NFREQ elements
         T = zeros(BATCH, np.float32)        
+
+        if (AALG):
+            fp_aalg = open(AALG, 'rb')
+            cells   = fromfile(fp_aalg, int32, 1)
+            if (cells!=CELLS):
+                print("A2E.py --- CELLS=%d, file %s has cells=%d??\n" % (CELLS, AALG, cells))
+                sys.exit()
+                
         for icell in range(0, CELLS, BATCH):     # T_buf is being updated for GLOBAL cells
             b       =  min(icell+BATCH, CELLS)
-            tmp_abs = ABSORBED[icell:b, :]*AF
-            tmp_abs = asarray(tmp_abs, np.float32)
+            batch   =  b-icell
+            tmp_abs =  ABSORBED[icell:b, :]*AF
+            tmp_abs =  asarray(tmp_abs, np.float32)
             cl.enqueue_copy(queue, ABS_buf,  tmp_abs)  # BATCH*NFREQ elements
             kernel_T(queue, [BATCH,], [LOCAL,], icell, kE, oplgkE, Emin,
             FREQ_buf, KABS_buf, TTT_buf, ABS_buf, T_buf, EMIT_buf)
             # Add emission to the final array
-            cl.enqueue_copy(queue, EMIT, EMIT_buf) ;  # emission for <= GLOBAL cells
-            for i in range(icell,b):
-                EMITTED[i, :] += EMIT[i-icell,:] * GD * S_FRAC[isize]        
+            emit    =  zeros((batch, NFREQ), float32)
+            cl.enqueue_copy(queue, emit, EMIT_buf) ;  # emission for <= GLOBAL cells
+            if (IFREQ>=0):
+                EMITTED[icell:(icell+batch), 0]   +=  emit[:, IFREQ] * GD * S_FRAC[isize]
+            else:
+                EMITTED[icell:(icell+batch), :]   +=  emit[:,   :  ] * GD * S_FRAC[isize]        
+            # polarised intensity
+            if (AALG):
+                aalg = fromfile(fp_aalg, float32, batch)  # minimum aligned grain size
+                m    = nonzero(ASIZE[isize]>=aalg)        # grains isize aligned in these cells of current batch
+                if (IFREQ>=0):
+                    PEMITTED[icell+m[0], 0]  +=  emit[m[0], IFREQ] * GD * S_FRAC[isize]
+                else:
+                    PEMITTED[icell+m[0], :]  +=  emit[m[0],   :  ] * GD * S_FRAC[isize]
+        if (AALG):
+            fp_aalg.close()
         continue
     
     
     # The rest is for stochastically heated grains
-    process_stochastic(isize)
+    process_stochastic(isize, AALG)  # AALG given, PEMITTED updated
     continue
-    
+
+
+
 
     # AF = fraction of absorptions due to the current size
     AF    = asarray(SK_ABS[isize,:], float64) / asarray(K_ABS[:], float64)  # => E per grain
@@ -386,10 +505,18 @@ for isize in range(NSIZE):
     cl.enqueue_copy(queue, Ibeg_buf,  Ibeg)        
     queue.finish()
 
+    if (AALG):
+        fp_aalg = open(AALG, 'rb')
+        cells   = fromfile(fp_aalg, int32, 1)
+        if (cells!=CELLS):
+            print("A2E.py --- CELLS=%d, file %s has cells=%d??\n" % (CELLS, AALG, cells))
+            sys.exit()
+    
     # Loop over the cells, BATCH cells per kernel call
     t00 = time.time()            
     for icell in range(0, CELLS, BATCH):        
         batch = min([BATCH, CELLS-icell])  # actual number of cells
+        emit  = zeros((batch, NFREQ), float32)
         cl.enqueue_copy(queue, ABS_buf,  ABSORBED[icell:(icell+BATCH),:])
         queue.finish()            
         if (WITH_X):
@@ -404,10 +531,26 @@ for isize in range(NSIZE):
             Ibeg_buf,  AF_buf,  ABS_buf,  EMIT_buf,  A_buf)
         queue.finish()            
         cl.enqueue_copy(queue, emit, EMIT_buf)  # batch*NFREQ
-        EMITTED[icell:(icell+batch),:] += emit[0:batch,:]        # contribution of current dust, current size
-    
+        
+        if (IFREQ>=0): # only one frequency saved
+            EMITTED[icell:(icell+batch), 0] += emit[:, IFREQ]   # contribution of current dust, current size
+        else:
+            EMITTED[icell:(icell+batch), :] += emit[:, :]        # contribution of current dust, current size
+        if (AALG):
+            aalg  =  fromfile(fp_aalg, float32, batch)
+            m     =  nonzero(ASIZE[isize]>=aalg)
+            if (IFREQ>=0):
+                PEMITTED[icell+m[0], 0]  += emit[m[0], IFREQ]
+            else:
+                PEMITTED[icell+m[0], :]  += emit[m[0],   :  ]
+    if (AALG):
+        fp_aalg.close()
+
+        
     print('   SIZE %2d/%2d  %.3e s/cell/size' % (isize, NSIZE, (time.time()-t00)/CELLS))
-            
+        
+    
+    
 DT = time.time() - t0
 print('  %.3f SECONDS' % DT)
 REF_RATE = 1520.0
@@ -415,3 +558,6 @@ REF_RATE =  100.7
 REF_RATE =  1.0/1.054e-2
 print('  %4d  -- %.3e SECONDS PER CELL  -- %8.3f CELLS PER SECOND -- x %5.2f' % (CELLS, DT/CELLS,  CELLS/DT, (CELLS/DT)/REF_RATE))
 
+
+if (FP_BY_SIZE):
+    FP_BY_SIZE.close()

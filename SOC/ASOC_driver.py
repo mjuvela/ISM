@@ -267,6 +267,7 @@ print("=========================================================================
 print('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 print("================================================================================")
 # sys.exit()
+os.system('cp %s a2e_mabu_backup.ini' % INI)
 os.system('A2E_MABU.py %s %s %s %s' % (INI, fabs, femit, args))
 
 

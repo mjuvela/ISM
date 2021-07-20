@@ -706,7 +706,7 @@ __kernel void EqTemperature(const int       level,
       // printf("wi %8.4f\n", wi) ;
       if ((ind<0)||(ind>=CELLS)) printf("????\n") ;
       TNEW[ind] =  (DENS[ind]>1.0e-7f) ?  clamp(wi*TTT[iE] + (1.0f-wi)*TTT[iE+1], 3.0f, 1600.0f) : (10.0f) ;
-      if ((TNEW[ind]>1.0f)&&(TNEW[ind]<250.0f)) {
+      if ((TNEW[ind]>1.0f)&&(TNEW[ind]<1000.0f)) {
          ;
       } else {
          printf("???    Ein %12.4e  [%12.4e, %12.4e]         T = %.3e,  NE=%d, kE=%.6f\n",
