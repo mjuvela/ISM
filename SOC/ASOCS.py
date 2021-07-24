@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 import os, sys
 
 # HOMEDIR = os.path.expanduser('~/')
@@ -379,14 +378,16 @@ kernel_zero_out.set_scalar_arg_dtypes([np.int32, clarray.cltypes.int2, None])
     
 # Initialise memory mapped file for outcoming photons
 if (NDIR>0):  # normal orthographic maps
-    fp = open('outcoming.socs', 'w')
-    asarray([USER.NPIX['y'], USER.NPIX['x'], USER.NFREQ], np.int32).tofile(fp)
-    asarray(FFREQ, np.float32).tofile(fp)
-    fp.close()
-    OUTCOMING  = \
-    np.memmap('outcoming.socs',dtype='float32',mode="r+",
-    shape=(USER.NFREQ, NDIR, USER.NPIX['y'], USER.NPIX['x']),offset=4*(3+NFREQ))
-    OUTCOMING[:,:,:,:] = 0.0   #  [NFREQ, NDIR, NPIX.y, NPIX.x]
+    if ((USER.FITS>0)&(NDIR==1)): # write FITS instead of plain binary file
+        OUTCOMING = zeros((USER.NFREQ, NDIR, USER.NPIX['y'], USER.NPIX['x']), float32)
+    else:
+        fp = open('outcoming.socs', 'w')
+        asarray([USER.NPIX['y'], USER.NPIX['x'], USER.NFREQ], np.int32).tofile(fp)
+        asarray(FFREQ, np.float32).tofile(fp)
+        fp.close()
+        OUTCOMING  =  np.memmap('outcoming.socs',dtype='float32',mode="r+",
+                      shape=(USER.NFREQ, NDIR, USER.NPIX['y'], USER.NPIX['x']),offset=4*(3+NFREQ))
+        OUTCOMING[:,:,:,:] = 0.0   #  [NFREQ, NDIR, NPIX.y, NPIX.x]
     print("OUTCOMING[NFREQ=%d,NDIR=%d,NPIX.y=%d,NPIX.x=%d]" % (USER.NFREQ, NDIR, USER.NPIX['x'], USER.NPIX['y']))
 else:
     fp = open('outcoming.socs', 'w')
@@ -484,6 +485,11 @@ for II in range(4):  # loop over PSPAC, BGPAC, DFPAC, ROIPAC simulations
     for IFREQ in range(NFREQ):
         
         FREQ  =  FFREQ[IFREQ]
+
+        if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])):         
+            print(" ... skip frequency %12.4e Hz = %8.2f um" % (FREQ, f2um(FREQ)))
+            continue
+        
         # print('IFREQ %d / %d' % (IFREQ, NFREQ))
         kernel_zero_out(commands[ID], [GLOBAL,], [LOCAL,], NDIR, USER.NPIX, OUT_buf[ID])
         
@@ -715,7 +721,10 @@ if (CLPAC>0):
         commands[ID].finish()
         # Parameters for the current frequency
         FREQ  =  FFREQ[IFREQ]
-        if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): continue # FREQ not simulayted!!
+        if ((FREQ<USER.SIM_F[0])|(FREQ>USER.SIM_F[1])): 
+            print(" ... skip frequency %12.4e Hz = %8.2f um" % (FREQ, f2um(FREQ)))
+            continue # FREQ not simulayted!!
+        
         ABS[0], SCA[0]  = AFABS[0][IFREQ], AFSCA[0][IFREQ]        
         print("    FREQ %3d/%3d   %12.4e --  ABS %.3e  SCA %.3e" % (IFREQ+1, NFREQ, FREQ, ABS[0], SCA[0]))
         if (WITH_ABU>0): # ABS, SCA, G are vectors
@@ -840,14 +849,22 @@ for IFREQ in range(NFREQ):
     if (NDIR>0):   # orthographic map
         k =  FFREQ[IFREQ] * 1.0e23 * PLANCK / ( USER.MAP_DX*USER.MAP_DX*SCALE )
         OUTCOMING[IFREQ, :, :, :] *= k
+        print("< OUTCOMING[%3d] > = %10.3e" % (IFREQ, mean(OUTCOMING[IFREQ, :, :, :])))
     else:          # healpix map
         k =  FFREQ[IFREQ] * 1.0e23 * PLANCK  / ( 4.0*pi/(12.0*NDIR*NDIR) )        
         OUTCOMING[IFREQ, :]       *= k  ## /home/mika/bin/ASOCS.py:706: RuntimeWarning: overflow encountered in multiply
-del OUTCOMING
 
-"""
-OUTCOMING overflow ??? also scattered map has hot pixels >1e26 ???
-only for simulations with DIFFUSE 
-I_200_200_100_ex_sca.diffuse were all finite   7.5e-33 ... 1.99e-26
-=> problem likely to appear because of something in kernel_ASOC_sca.c !!
-"""
+if ((NDIR==1)&(USER.FITS>0)):
+    # OUTCOMING is a regular array [nfreq, ndir, y, x], save it as a FITS file
+    # use nominal 1 kpc distance to set the pixel size... unless USER.DISTANCE is set
+    FITS      =  MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], FFREQ)
+    for ifreq in range(USER.NFREQ):
+        FITS[0].data[ifreq,:,:] =  OUTCOMING[ifreq, 0, :, :] # NDIR==1
+    FITS.verify('fix')
+    FITS.writeto('scattering.fits', overwrite=True)
+    del FITS
+    
+del OUTCOMING  # this saves mmap file, if exists
+
+
+

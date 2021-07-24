@@ -1741,7 +1741,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                 else:
                     
                     if (USER.WITH_ROI_SAVE<=0):
-                        print(" **** CALLING kernel_ram_cl() !!!!!!")
+                        # print(" **** CALLING kernel_ram_cl() !!!!!!")
                         # A single call to the kernel
                         kernel_ram_cl(commands[ID], [GLOBAL,], [LOCAL,],
                         # 0           1      2      3     4            5             6  
@@ -1755,7 +1755,7 @@ if (not('SUBITERATIONS' in USER.KEYS)):
                         ABU_buf[ID])
                     else:
                         # *** DFPAC + WITH_ROI_SAVE ***
-                        print("WITH_ROI_SAVE --- kernel_ram_cl")                    
+                        # print("WITH_ROI_SAVE --- kernel_ram_cl")                    
                         # A single call to the kernel
                         kernel_ram_cl(commands[ID], [GLOBAL,], [LOCAL,],
                         # 0           1      2      3     4            5             6  
@@ -2796,13 +2796,19 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         GLOBAL = int((1+floor((USER.NPIX['x']*USER.NPIX['y'])/LOCAL))*LOCAL)
     commands[0].finish()                
     fpmap = []                   # file handles for NDIR maps
+    using_fits = False
     if (USER.NPIX['y']<=0):      # only one Healpix map
         fpmap.append( open("map.healpix", "wb") )
     else:                        # flat maps
-        for idir in range(len(USER.OBS_THETA)):
-            filename =  "map_dir_%02d.bin" % idir
-            fpmap.append( open(filename, "wb") )
-            asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fpmap[idir])        
+        if ((USER.FITS>0)&(NDIR==1)):
+            using_fits = True
+            for idir in range(len(USER.OBS_THETA)):
+                fpmap.append( MakeFits(USER.FITS_RA, USER.FITS_DE, USER.GL/[1000.0, USER.DISTANCE][USER.DISTANCE>0.0], USER.NPIX['x'], USER.NPIX['y'], FFREQ, sys_req='fk5') )                            
+        else:
+            for idir in range(len(USER.OBS_THETA)):
+                filename =  "map_dir_%02d.bin" % idir
+                fpmap.append( open(filename, "wb") )
+                asarray([USER.NPIX['x'], USER.NPIX['y']], int32).tofile(fpmap[idir])            
     KK  = (1.0e23/FACTOR) * PLANCK / (4.0*np.pi) #  1e3 = 1e23/1e20 = remove 1e20 scaling and convert to Jy/sr
     KK *= USER.GL*PARSEC
     first_loop = True
@@ -2888,7 +2894,10 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
                 USER.INTOBS, OPT_buf[0], SAVETAU_buf)
             cl.enqueue_copy(commands[0], MAP, MAP_buf)  # copy result to MAP
             # write the frequency maps to the files (whatever the size of MAP)
-            asarray(MAP,float32).tofile(fpmap[idir])  # directly all the selected frequencies
+            if (using_fits):
+                fpmap[idir][0].data[IFREQ, :, :] = MAP.reshape(USER.NPIX['y'], USER.NPIX['x'])
+            else:
+                asarray(MAP,float32).tofile(fpmap[idir])  # directly all the selected frequencies
             if ((first_loop)&(USER.savetau_freq<=0.0)):
                 # Save column density only after the calculation of the first frequency
                 # print("*** WRITING THE COLUMN DENSITY MAP f=%.3e Hz" % USER.savetau_freq)                
@@ -2910,7 +2919,12 @@ if ((MAP_SLOW)&(USER.NPIX['y']>0)): # make maps one frequency at a time
         first_loop = False
         # end of -- for idir
     # end of -- for IFREQ
-    for idir in range(NDIR):  fpmap[idir].close()
+    if (using_fits):
+        for idir in range(NDIR):
+            filename =  "map_dir_%02d.fits" % idir
+            fpmap[idir].writeto(filename, overwrite=True)
+    else:
+        for idir in range(NDIR):  fpmap[idir].close()
 # end of -- if (USER.FAST_MAP<2) = slow mapping
 
 

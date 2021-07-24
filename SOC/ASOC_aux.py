@@ -200,7 +200,7 @@ class User:
         self.FILE_ROI_SAVE = ''      # filename to save packages that enter ROI
         self.FILE_ROI_LOAD = ''      # filename to load packages that enter from outside
         self.ROIPAC        = 0
-
+        
         self.OUT_NSIDE     = 128     # NSIDE for scattering maps (healpix)
         
         self.FSELECT       = []      # selected frequencies (simulation using library)
@@ -208,6 +208,10 @@ class User:
         self.LIB_MAPS      = False   # only calculate maps from library-solved emission
 
         self.MAP_INTERPOLATION = 0   # if normal mapmaking (not healpix) uses interpolation
+        self.FITS          = 0
+        self.FITS_RA       = 0.0     # optional  FITS centre coordinates in degrees
+        self.FITS_DE       = 0.0
+        
         # read inifile
         for line in open(filename).readlines():    
             # assert((DIFFUSE==1)&(WITHDUST==1)&(DISTANCE<1.0))
@@ -248,12 +252,11 @@ class User:
             if (key.find('dustem')==0):
                 self.NOABSORBED     =  1
                 self.SAVE_INTENSITY =  1
-            if (key.find('solveondev')==0):  self.SOLVE_ON_DEVICE  = 1
-            if (key.find('xemonhost')==0):   self.XEM_ON_HOST  = 1
-            if (key.find('polrhoweight')==0):   self.POL_RHO_WEIGHT  = 1
-            
+            if (key.find('solveondev')==0):     self.SOLVE_ON_DEVICE  = 1
+            if (key.find('xemonhost')==0):      self.XEM_ON_HOST  = 1
+            if (key.find('polrhoweight')==0):   self.POL_RHO_WEIGHT  = 1            
             if (key.lower().find('roimap')==0): self.ROI_MAP = 1
-
+            
             if (key.find('savetau')==0):
                 # save column density map to named file
                 # second parameter = um => save optical depth instead
@@ -265,7 +268,16 @@ class User:
             if (key.find('pssavetau')==0):
                 self.file_pssavetau  = s[1]
                 self.pssavetau_freq  = um2f(float(s[2]))
-                    
+            
+            if ((key.find('FITS')==0)|(key.find('fits')==0)): 
+                self.FITS  =  1
+                if (len(s)>=3):  # set also centre coordinates
+                    self.FITS_RA = float(s[1]) 
+                    self.FITS_DE = float(s[2])
+                
+                
+                
+                
             if (len(s)<2): continue
             # keywords with a single argument
             key, a  =  s[0], s[1]
@@ -1545,4 +1557,48 @@ def WriteSampleIni(filename):
     print("A sample SOC ini file has been written to: %s" % filename)
     print("--------------------------------------------------------------------------------")
 
+    
+    
+
+def MakeFits(lon, lat, pix, m, n, freq, sys_req='fk5'):
+    """
+    Make an empty fits object.
+    Inputs:
+        lon, lat  =  centre coordinates of the field [degrees]
+        pix       =  pixel size [radians]
+        m, n      =  width and height in pixels
+        freq      =  vector of frequencies
+        sys_req   =  coordinate system, 'fk5' or 'galactic'
+    """
+    import astropy.io.fits as pyfits
+    nchn      =  len(freq)
+    A         =  zeros((nchn, n, m), float32)
+    hdu       =  pyfits.PrimaryHDU(A)
+    F         =  pyfits.HDUList([hdu])
+    F[0].header.update(CRVAL1 =  lon)
+    F[0].header.update(CRVAL2 =  lat)
+    F[0].header.update(CDELT1 = -pix*180.0/pi)
+    F[0].header.update(CDELT2 =  pix*180.0/pi)
+    F[0].header.update(CRPIX1 =  0.5*(m+1))
+    F[0].header.update(CRPIX2 =  0.5*(n+1))
+    if (sys_req=='galactic'):
+        F[0].header.update(CTYPE1   = 'GLON-TAN')
+        F[0].header.update(CTYPE2   = 'GLAT-TAN')
+        F[0].header.update(COORDSYS = 'GALACTIC')
+    else:
+        F[0].header.update(CTYPE1   = 'RA---TAN')
+        F[0].header.update(CTYPE2   = 'DEC--TAN')
+        F[0].header.update(COORDSYS = 'EQUATORIAL')
+        F[0].header.update(EQUINOX  = 2000.0)
+    F[0].data = zeros((nchn, n, m), float32)
+    F[0].header['NAXIS' ] =  3
+    F[0].header['NAXIS3'] =  nchn
+    F[0].header['CRPIX3'] =  1
+    F[0].header['CRVAL3'] =  0.0
+    F[0].header['CDELT3'] =  1
+    F[0].header['CTYPE3'] = 'channel'
+    # add frequency values as comments
+    for i in range(nchn):
+        F[0].header.add_comment('F[ %3d ] = %.4e' % (i, freq[i]))
+    return F
     

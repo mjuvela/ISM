@@ -119,7 +119,7 @@ sys.stdout.write('\n')
 
 
 
-if (1):
+if (0):
     # SAVE EMISSION SIZE BY SIZE TO A SEPARATE EMISSION FILE [NSIZE, CELLS]
     # -- ASSUMING THAT THERE IS ONLY ONE OUTPUT FREQUENCY
     FP_BY_SIZE = open('%s.EBS' % sys.argv[1], 'wb')
