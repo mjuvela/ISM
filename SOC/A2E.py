@@ -8,7 +8,7 @@ sys.path.append(INSTALL_DIR)
 import pyopencl as cl
 from   scipy.interpolate import interp1d
 from   matplotlib.pylab import *
-from   SOC_aux import *
+from   ASOC_aux import *
 
 
 """

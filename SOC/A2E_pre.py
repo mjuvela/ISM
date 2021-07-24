@@ -9,7 +9,7 @@ INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(INSTALL_DIR)
   
 
-from   SOC_aux import *
+from   ASOC_aux import *
 from   DustLib import *
 import pyopencl as cl
 import numpy as np
@@ -28,7 +28,7 @@ FREQ   =  asarray(loadtxt(sys.argv[2]), float32)
 NFREQ  =  len(FREQ)
 NSIZE  =  DUST.NSIZE
 ##TDOWN  =  zeros((NSIZE, NFREQ), float32)
-## SCALE = 1.0e20  ---- replaced by FACTOR from SOC_aux.py
+## SCALE = 1.0e20  ---- replaced by FACTOR from ASOC_aux.py
 Ef     =  PLANCK*FREQ
 NE     =  128
 NE     =  256
