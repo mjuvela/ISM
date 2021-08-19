@@ -3,7 +3,11 @@
 
 #define GID   24
 #define SPLIT_UPSTREAM_ONLY 0
-#define SAFE  1
+#define SAFE  0           // SAFE>0 => add some warning messages
+
+// One might think that "NO_ATOMICS 1" is faster (allowed by ONESHOT=0)
+// but in practice it was slower... (?)
+#define NO_ATOMICS 0
 
 
 // single precision, instead of  1.0f-exp(-t)  use
@@ -79,7 +83,10 @@ __kernel void Spectra(
    __global float *NTRUE   = &(NTRUE_ARRAY[  id*CHANNELS]) ;
    __global float *SUM_TAU = &(SUM_TAU_ARRAY[id*CHANNELS]) ;   
    int i ;
-   float RA, maxi ;  // grid units, offset of current ray
+   float RA, maxi ;       // grid units, offset of current ray
+#if (WITH_OCTREE>0)
+   float colden = 0.0f ;  // 2021-08-04, put column density to first channel of the tau array !!
+#endif
    // DE  =   (id-0.5f*(NDEC-1.0f))*STEP ;
    // RA  =   -(id-0.5f*(NRA-1.0f))*STEP ;   // spectra from left to right = towards -RA
    RA  =   id  ;
@@ -526,6 +533,9 @@ __kernel void Spectra(
       
       
       distance  += dx ;                  
+#if (WITH_OCTREE>0)
+      colden    += dx*RHO[INDEX] ;
+#endif      
       
 #if 1      
       tau        =  clamp(tau, 1.0e-30f, 1.0e10f) ;  // $$$  KILL ALL MASERS
@@ -609,6 +619,9 @@ __kernel void Spectra(
 #endif
    
    
+#if (WITH_OCTREE>0)
+   SUM_TAU[0] = colden*GL ;  // column density to first tau channel !
+#endif
    
 #if 0
    if (id==ID) {
@@ -780,10 +793,10 @@ __kernel void UpdateHF( // @h   non-octree version !!!!!!!!
       }   // over channels
       
       
-#  if 0
+#  if (NO_ATOMICS>0)
       // if nb_nb was already checked
       // RES[2*INDEX]   +=  (A_b/VOLUME) * (sum_delta_true/nb_nb) ;
-      RES[2*INDEX]   +=  (A_b/VOLUME) * (sum_delta_true/clamp(nb_nb, 1.0e-20f, 1.0e20f)) ;
+      RES[2*INDEX]   +=  A_b * (sum_delta_true/nb_nb) ;
       // Emission ~ path length dx but also weighted according to direction, 
       //            works because <WEI>==1.0
       RES[2*INDEX+1] +=  all_escaped ;
@@ -863,6 +876,9 @@ __kernel void SpectraHF(  // @h
    __global float *SUM_TAU = &(SUM_TAU_ARRAY[id*MAXCHN]) ;
    int i ;
    float RA ; // grid units, offset of current ray
+#if (WITH_OCTREE>0)
+   float colden = 0.0f ;
+#endif
    // RA  =   -(id-0.5f*(NRA-1.0f))*STEP ;
    // RA  =   -id*STEP ;
    RA  =   id ; 
@@ -1063,13 +1079,20 @@ __kernel void SpectraHF(  // @h
          SUM_TAU[i] += dtau  ;
       } // for ... over NCHN
       
+      
 # if (WITH_OCTREE>0)
-      INDEX =  (OTI>=0) ? (OFF[OTL]+OTI) : (-1) ;      
+      INDEX   =  (OTI>=0) ? (OFF[OTL]+OTI) : (-1) ;
+      colden +=  dx*RHO[INDEX] ;
 # else
       POS.x += dx*DIR.x ;  POS.y += dx*DIR.y ;  POS.z += dx*DIR.z ;      
       INDEX = Index(POS) ;
 # endif
    } // while INDEX
+   
+
+# if (WITH_OCTREE>0)
+   SUM_TAU[0] = colden*GL ;  // column density to first tau channel !!
+#endif
    
    
 # if 0
@@ -1768,9 +1791,13 @@ __kernel void UpdateHF4(  // @h
       }  // loop over channels
       // RES[2*INDEX]    += sij ;            // division by VOLUME done in the solver (kernel)
       // RES[2*INDEX+1]  += all_escaped ;    // divided by VOLUME only oin Solve() !!!
+#   if (NO_ATOMICS>0)
+      RES[2*INDEX  ]  +=  sij ;
+      RES[2*INDEX+1]  +=  all_escaped) ;
+#   else
       AADD(&(RES[2*INDEX]), sij) ;
       AADD(&(RES[2*INDEX+1]), all_escaped) ;
-      
+#   endif
       
 #  else   // not  WITH_CRT ***************************************************************************************
       
@@ -1805,8 +1832,13 @@ __kernel void UpdateHF4(  // @h
          // RES[2*INDEX]   +=  A_b * (sum_delta_true / nb_nb) ;
          // RES[2*INDEX+1] +=  all_escaped ;
          w  =  A_b * (sum_delta_true/nb_nb) ;
+#    if (NO_ATOMICS>0)
+         RES[2*INDEX  ] +=  w ;
+         RES[2*INDEX+1] +=  all_escaped ;
+#    else
          AADD(&(RES[2*INDEX]),    w) ;
-         AADD(&(RES[2*INDEX+1]),  all_escaped) ; 
+         AADD(&(RES[2*INDEX+1]),  all_escaped) ;
+#    endif
       } // lid==0
       // }      
 #   else // else no ALI *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
@@ -1824,7 +1856,11 @@ __kernel void UpdateHF4(  // @h
       if (lid==0) {
          for(int i=1; i<LOCAL; i++)  sum_delta_true += SDT[i] ;    
          w  =   A_b  * ((weight*nu*Aul + sum_delta_true) / nb_nb)  ;
+#    if (NO_ATOMICS>0)
+         RES[INDEX] +=  w ;
+#    else
          AADD((__global float*)(RES+INDEX), w) ;
+#    endif
       } 
 #   endif // no ALI *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
       
@@ -2036,7 +2072,7 @@ __kernel void Paths(  //
       
       distance += dx ;
 # if (PLWEIGHT>0)
-#  if 0
+#  if (NO_ATOMICS>0)
       PL[INDEX] += dx ;           // path length, cumulative over idir and ioff
 #  else
       AADD(&(PL[INDEX]), dx) ;
@@ -2218,7 +2254,11 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
 # if (BRUTE_COOLING>0)
    float cool = BG*DIRWEI*CHANNELS ;
    if (INDEX>=0) {
+#  if (NO_ATOMICS>0)
+      COOL[INDEX] -= cool ;
+#  else
       AADD(&(COOL[INDEX]), -cool) ; // heating of the entered cell
+#  endif
    }
 # endif
    
@@ -2327,8 +2367,13 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       }   // over channels
       // Update SIJ and ESC
       // without atomics, large dTex in individual cells
+#   if (NO_ATOMICS>0)
+      RES[2*INDEX  ]  +=  A_b*(sum_delta_true/nb_nb) ; // parentheses!
+      RES[2*INDEX+1]  +=  all_escaped ;
+#   else
       AADD(&(RES[2*INDEX  ]),  A_b*(sum_delta_true/nb_nb)) ; // parentheses!
-      AADD(&(RES[2*INDEX+1]),  all_escaped) ;      
+      AADD(&(RES[2*INDEX+1]),  all_escaped) ;
+#   endif
 #  else  // ELSE NO ALI
       
 #   if 0 // DOUBLE  ... absolutely no effect on optical thin Tex !!
@@ -2356,7 +2401,11 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
 #   endif
       
       // printf("    dx = %7.4f  ... EPS = %.3e\n", dx, EPS) ;
+#   if (NO_ATOMICS>0)
+      RES[INDEX] += w ;
+#   else
       AADD((__global float*)(RES+INDEX),   w) ;   // Sij counter update
+#   endif
       
       // printf("dx = %8.4f  w = %12.4e  w/dx %12.4e  W = %12.4e  BG = %12.4e\n", dx, w, w/dx, RES[INDEX], BG) ;
       
@@ -2409,14 +2458,22 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
       // total number of photons in the package as it exits the cell
       float cool = 0.0f ;
       for(int ii=0; ii<CHANNELS; ii++) cool += NTRUE[ii] ;
+#  if (NO_ATOMICS>0)
+      COOL[INDEX] += cool ;
+#  else
       AADD(&(COOL[INDEX]), cool) ; // cooling of cell INDEX
+#  endif
 # endif
       
       INDEX      = Index(POS) ;
       
 # if (BRUTE_COOLING>0)
       if (INDEX>=0) {
+#  if (NO_ATOMICS>0)
+         COOL[INDEX] -= cool ;
+#  else
          AADD(&(COOL[INDEX]), -cool) ; // heating of the next cell
+#  endif
       }
 # endif
       
@@ -2437,7 +2494,11 @@ __kernel void Update(   //  @u  Cartesian grid, PL not used, only APL
             for(int ii=0; ii<CHANNELS; ii++) NTRUE[ii] = BG * DIRWEI ;
 # if (BRUTE_COOLING>0)
             float cool = BG*DIRWEI*CHANNELS ;
+#  if (NO_ATOMICS>0)
+            COOL[INDEX] -= cool ;
+#  else
             AADD(&(COOL[INDEX]), -cool) ; // heating of the entered cell
+#  endif
 # endif
             
          }
@@ -2507,7 +2568,7 @@ __kernel void PathsOT1(__global   float   *PL,      //
       dx      =  GetStepOT(&POS, &DIR, &OTL, &OTI, RHO, OFF, PAR, 99, NULL   , LEADING) ; // step [GL] == root grid units !!
 # endif
       tpl    +=  dx ;
-# if 0
+# if (NO_ATOMICS>0)
       PL[INDEX] += dx ;
 # else
       AADD(&(PL[INDEX]), dx) ;
@@ -2622,7 +2683,11 @@ __kernel void UpdateOT1( //
 # if (BRUTE_COOLING>0)
    float cool = BG*DIRWEI*CHANNELS ;
    if (INDEX>=0) {
+#  if (NO_ATOMICS>0)
+      COOL[INDEX] -= cool ;
+#  else
       AADD(&(COOL[INDEX]), -cool) ; // heating of the entered cell
+#  endif
    }
 # endif
    
@@ -5872,12 +5937,14 @@ __kernel void PathsOT40(  // @p
       dr      =  GetStepOT(&POS, &DIR, &OTL, &OTI, RHO, OFF, PAR, OTLO, NULL   , LEADING) ; // step [GL] == root grid units !!
       
       
-      
       SIDERAYS_ADDED = 0 ;  // whenever we have made one step, it is again safe to test if main ray has siderays
       
       
+# if (NO_ATOMICS>0)
+      PL[INDEX] += dr ;
+# else
       AADD(&(PL[INDEX]), dr) ;
-      
+#endif      
       
       
       tpl       += dr ;               // just the total value for current idir, ioff
@@ -6634,9 +6701,13 @@ __kernel void UpdateOT40(  // @u
       }  // loop over channels
       // RES[2*INDEX]    += sij ;            // division by VOLUME done in the solver (kernel)
       // RES[2*INDEX+1]  += all_escaped ;    // divided by VOLUME only oin Solve() !!!
+#  if (NO_ATOMICS>0)
+      RES[2*INDEX]    +=  sij ;
+      RES[2*INDEX+1]  +=  all_escaped ;
+#  else
       AADD(&(RES[2*INDEX]), sij) ;
       AADD(&(RES[2*INDEX+1]), all_escaped) ;
-      
+#  endif
       
 # else   // not  WITH_CRT ***************************************************************************************
       
@@ -6668,8 +6739,13 @@ __kernel void UpdateOT40(  // @u
       // RES[2*INDEX]   +=  A_b * (sum_delta_true / nb_nb) ;
       // RES[2*INDEX+1] +=  all_escaped ;
       w  =  A_b * (sum_delta_true/nb_nb) ;
+#   if (NO_ATOMICS>0)
+      RES[2*INDEX]    +=   w ;
+      RES[2*INDEX+1]  +=   all_escaped ;
+#   else
       AADD(&(RES[2*INDEX]),    w) ;
-      AADD(&(RES[2*INDEX+1]),  all_escaped) ; 
+      AADD(&(RES[2*INDEX+1]),  all_escaped) ;
+#   endif
       
 #  else // else no ALI *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
       
@@ -6695,7 +6771,11 @@ __kernel void UpdateOT40(  // @u
       w  =   A_b  * ((weight*nu*Aul + sum_delta_true) / nb_nb)  ;
       // RES[INDEX] += w ;
       // AADD(&(RES[INDEX]), w) ;
+#   if (NO_ATOMICS>0)
+      RES[INDEX] += w ;
+#  else
       AADD((__global float*)(RES+INDEX), w) ;
+#  endif
 #  endif // no ALI *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
       
 # endif  // WITH OR WITHOUT CRT
@@ -7589,8 +7669,12 @@ __kernel void PathsOT4(  // @p
       
       
       dr      =  GetStepOT(&POS, &DIR, &OTL, &OTI, RHO, OFF, PAR, OTLO, NULL, LEADING) ; // step [GL] == root grid units !!
-      
+
+#  if (NO_ATOMICS>0)
+      PL[INDEX] += dr ;
+#  else
       AADD(&(PL[INDEX]), dr) ;
+#  endif
       tpl       += dr ;               // just the total value for current idir, ioff
       
       
@@ -8420,10 +8504,14 @@ __kernel void UpdateOT4(  // @u
          // Total change of photons in the package
          NTRUE[i]     =  NTRUE[i]*exp(-Ttau) + Dleave + Lleave ;
       }  // loop over channels
-      // RES[2*INDEX]    += sij ;            // division by VOLUME done in the solver (kernel)
-      // RES[2*INDEX+1]  += all_escaped ;    // divided by VOLUME only oin Solve() !!!
+      
+#  if (NO_ATOMICS>0)
+      RES[2*INDEX]    += sij ;            // division by VOLUME done in the solver (kernel)
+      RES[2*INDEX+1]  += all_escaped ;    // divided by VOLUME only oin Solve() !!!
+#  else
       AADD(&(RES[2*INDEX]), sij) ;
       AADD(&(RES[2*INDEX+1]), all_escaped) ;
+#  endif
       
       
 # else   // not  WITH_CRT ***************************************************************************************
@@ -8462,8 +8550,13 @@ __kernel void UpdateOT4(  // @u
          // RES[2*INDEX]   +=  A_b * (sum_delta_true / nb_nb) ;
          // RES[2*INDEX+1] +=  all_escaped ;
          w  =  A_b * (sum_delta_true/nb_nb) ;
+#   if (NO_ATOMICS>0)
+         RES[2*INDEX]    +=  w ;
+         RES[2*INDEX+1]  +=  all_escaped ;
+#   else
          AADD(&(RES[2*INDEX]),    w) ;
-         AADD(&(RES[2*INDEX+1]),  all_escaped) ; 
+         AADD(&(RES[2*INDEX+1]),  all_escaped) ;
+#   endif
       } // lid==0
       // }
       
@@ -8490,9 +8583,12 @@ __kernel void UpdateOT4(  // @u
       if (lid==0) {
          for(int i=1; i<LOCAL; i++)  sum_delta_true += SDT[i] ;    
          w  =   A_b  * ((weight*nu*Aul + sum_delta_true) / nb_nb)  ;
-         // RES[INDEX] += w ;
+#   if (NO_ATOMICS>0)         
+         RES[INDEX] += w ;
+#   else
          // AADD(&(RES[INDEX]), w) ;
          AADD((__global float*)(RES+INDEX), w) ;
+#   endif
       } 
 #  endif // no ALI *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
       

@@ -720,7 +720,7 @@ if (INI['iterations']>0):
                 kernel_paths(queue, [GLOBAL,], [LOCAL], PL_buf, TPL_buf, COUNT_buf, LEADING, POS, DIR, 
                 LCELLS_buf, OFF_buf, PAR_buf, RHO_buf, BUFFER_buf)            
             elif (OCTREE in [4,5]): # one work group per ray
-                if (NRAY%NWG==0): niter = NRAY//NWG     # ONESHOT => NRAY ~ NX*NY, not ~(NX/2)*(NY/2)
+                if (NRAY%NWG==0): niter =  NRAY//NWG     # ONESHOT => NRAY ~ NX*NY, not ~(NX/2)*(NY/2)
                 else:             niter = (NRAY//NWG)+1
                 if (PLWEIGHT<1):  niter = 0   # just skip the path calculation
                 
@@ -994,8 +994,8 @@ def Simulate():
     if (COOLING==2):
         SUM_COOL = zeros(CELLS, float32)
         LEV_COOL = zeros(CELLS, float32)
-        hf       = MOL.F*PLANCK/VOLUME        
-    sys.stdout.write('      ')
+        hf       = MOL.F*PLANCK/VOLUME
+    if (INI['verbose']<2):  sys.stdout.write('      ')
     for tran in range(MOL.TRANSITIONS): # ------>
         t_tran        =  time.time()
         upper, lower  =  MOL.T2L(tran)
@@ -1033,8 +1033,9 @@ def Simulate():
             cl.enqueue_copy(queue, CRT_EMI_buf, asarray(CRT_EMI[:,tran].copy(), float32))
         ###
         GNORM         = (C_LIGHT/(1.0e5*WIDTH*freq)) * GL  # GRID_LENGTH multiplied to gauss norm
-        sys.stdout.write(' %2d' % tran)
-        sys.stdout.flush()
+        if (INI['verbose']<2):
+             sys.stdout.write(' %2d' % tran)
+             sys.stdout.flush()
         kernel_clear(queue, [GLOBAL,], [LOCAL,], RES_buf)
 
         # Upload NI[upper] and NB_NB[tran] values
@@ -1317,9 +1318,12 @@ def Simulate():
                             
         m = nonzero(RHO>0.0)
         if (WITH_ALI>0):
-            print(" TRANSITION %2d  <SIJ> %12.5e   <ESC> %12.5e  T/TRAN  %6.1f" %
-            (tran, mean(SIJ_ARRAY[m[0],tran]), mean(ESC_ARRAY[m[0],tran]), time.time()-t_tran))
+            if (INI['verbose']>1):
+                print("      TRANSITION %2d  <SIJ> %12.5e   <ESC> %12.5e  T/TRAN  %6.1f" %
+                (tran, mean(SIJ_ARRAY[m[0],tran]), mean(ESC_ARRAY[m[0],tran]), time.time()-t_tran))
 
+            if (0): sys.exit()
+            
             
         if (1):
             m1  =  nonzero(~isfinite(SIJ_ARRAY[m[0],0]))
@@ -1387,7 +1391,8 @@ def Simulate():
         if (0):
             print("       tran = %3d  = %2d - %2d  => <SIJ> = %.3e   <ESC> = %.3e" % 
             (tran, upper, lower, mean(WRK[:,0]), mean(WRK[:,1])))
-    sys.stdout.write('\n')
+    if (INI['verbose']<2):
+        sys.stdout.write('\n')
 
 
 
@@ -1900,7 +1905,7 @@ def WriteSpectra(INI, u, l):
             asarray([-0.5*(nchn-1.0)*WIDTH, WIDTH], float32).tofile(fp)
             fptau       =  open('%s_%s_%02d-%02d.%03d.tau' % (INI['prefix'], MOL.NAME, u, l, iview), 'wb')
         else:
-            # pix  =   INI['grid']
+            print("MakeEmptyFitsDim... nchn = %d" % nchn)
             fp    =  MakeEmptyFitsDim(0.0, 0.0, INI['grid']*ARCSEC_TO_RADIAN, NRA, NDE, WIDTH, nchn)
             fptau =  MakeEmptyFitsDim(0.0, 0.0, INI['grid']*ARCSEC_TO_RADIAN, NRA, NDE, WIDTH, nchn)
             
@@ -1911,7 +1916,6 @@ def WriteSpectra(INI, u, l):
         follow      =  -1
         for de in range(NDE):
             DE      =  de-0.5*(NDE-1.0)
-            ## DE      =  +de
             if (HFS): # since CHANNELS has been changed, all transitions written using this kernel ???
                 if (OCTREE==0):
                     print("HFS:  OCTREE==0   GLOBAL %d  LOCAL %d" % (GLOBAL, LOCAL))
@@ -1961,6 +1965,8 @@ def WriteSpectra(INI, u, l):
                         
                         
             # save spectrum
+            queue.finish()
+                        
             cl.enqueue_copy(queue, NTRUE, NTRUE_buf)
             
             WWW  = sum(NTRUE, axis=1)
@@ -1979,11 +1985,11 @@ def WriteSpectra(INI, u, l):
                 tau.tofile(fptau)      # file containing peak tau for each spectrum
             else:
                 for ra in range(NRA):
-                    fp[0].data[:, de, ra] = NTRUE[ra,:]
+                    fp[0].data[:, de, ra]  =  NTRUE[ra, :]   #  NTRUE[NRA, nchn],  fp[nchn, NDE, NRA]
                 # save optical depth
                 cl.enqueue_copy(queue, NTRUE, STAU_buf)
                 for ra in range(NRA):
-                    fptau[0].data[:, de, ra]  = NTRUE[ra,:]
+                    fptau[0].data[:, de, ra]  =  NTRUE[ra,:]
         # --- for de
         if (INI['FITS']==0):
             fp.close()

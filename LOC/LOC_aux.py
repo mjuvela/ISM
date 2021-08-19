@@ -62,7 +62,10 @@ class MoleculeO:
         Returns -1 if transition not found.
         """
         if ((tr<0)|(tr>=self.TRANSITIONS)): return -1
-        return self.TRANSITION[tr,:]
+        if self.TRANSITIONS == 1:
+            return self.TRANSITION[0][:]
+        else:
+            return self.TRANSITION[tr,:]
     
     
     def C(self, upper, lower, Tkin, partner):
@@ -112,9 +115,15 @@ class MoleculeO:
         self.TRANSITIONS = int(fp.readline().split()[0])     # number of transitions
         fp.readline()                                        # comment
         d            =  loadtxt(fp, max_rows=self.TRANSITIONS) # Einstein A array
-        self.TRANSITION = asarray(d[:,1:3], np.int32)-1      # mapping transition -> (u,l), 0-offset
-        self.A       =  asarray(d[:,3], float32)
-        self.F       =  asarray(d[:,4]*1.0e9, float32)
+        ### 18-08-2021
+        if self.TRANSITIONS == 1:
+            self.TRANSITION = asarray([d[1:3]], np.int32)-1  # mapping transition -> (u,l), 0-offset
+            self.A       =  asarray([d[3]], float32)
+            self.F       =  asarray([d[4]*1.0e9], float32)
+        else:
+            self.TRANSITION = asarray(d[:,1:3], np.int32)-1
+            self.A       =  asarray(d[:,3], float32)
+            self.F       =  asarray(d[:,4]*1.0e9, float32)
         fp.readline()                                        # comment
         self.PARTNERS = int(fp.readline().split()[0])        # number of collisional partners
         self.PNAME    = []
@@ -144,8 +153,13 @@ class MoleculeO:
             self.TKIN.append(ravel(asarray(T, np.float32)))   
             fp.readline()                                      # comment
             d             = loadtxt(fp, max_rows=nc)           # the array
-            self.CUL.append(  asarray(d[:,1:3], np.int32)-1 )  # (upper, lower) --- zero offset values
-            self.CC.append(  asarray(d[:,3: ], np.float32))    # collisional coefficients
+            ### 18-08-2021
+            if self.TRANSITIONS == 1:
+                self.CUL.append(  asarray([d[1:3]], np.int32)-1 )  # (upper, lower) --- zero offset values
+                self.CC.append(  asarray([d[3: ]], np.float32))    # collisional coefficients
+            else:
+                self.CUL.append(  asarray(d[:,1:3], np.int32)-1 )  # (upper, lower) --- zero offset values
+                self.CC.append(  asarray(d[:,3: ], np.float32))    # collisional coefficients
             # next line is again "!COLLISIONS BETWEEN"
         ###
         self.CABU = asarray(self.CABU, np.float32)
@@ -249,6 +263,7 @@ def ReadIni(filename):
     'direction'       : [0.0, 0.0],          #  (theta, phi), the direction towards the observer
     'points'          : [10,10],             #  number pixels in the output maps
     'cooling'         : 0,                   #  save cooling rates 
+    'coolfile'        : 'brute.cool',
     'mapview'         : [],                  #  theta, phi, nx, ny,  (x,y,z) map centre
     'GPU'             : 0 ,                  #  use GPU instead of CPU
     'platforms'       : [0,1,2,3,4],         #  OpenCL platforms to try
@@ -298,7 +313,8 @@ def ReadIni(filename):
     'KILL_EMISSION'   :  999999,             #  write spectra ignoring emission from cells >= KILL_EMISSION, 1D models only!!
     'minmaplevel'     : -1,                  #  only hierarky levels level>minmaplevel used in map calculation
     'MAP_INTERPOLATION': -1,                 #  spatial interpolation in map making
-    'FITS'            :  0                   #  if >0, save spectra and tau as FITS images
+    'FITS'            :  0,                  #  if >0, save spectra and tau as FITS images
+    'verbose'         :  1
     }
     lines = open(filename, 'r').readlines()
     for line in lines:        
@@ -360,6 +376,10 @@ def ReadIni(filename):
             if (s[0].find('crttau')>=0):  INI.update({'crttau':   s[1]})
             if (s[0].find('crtemit')>=0): INI.update({'crtemit':  s[1]})
             if (s[0].find('device')>=0):  INI.update({'sdevice':  s[1]})
+            ### 18-08-2021: now specifies a file name if the "cooling" keyword exists
+            if (s[0].find('cooling')>=0):
+                INI.update({'cooling':  1})
+                INI.update({'coolfile':  s[1]})
             # float argument
             try:
                 x = float(s[1])
@@ -401,6 +421,7 @@ def ReadIni(filename):
                 if (s[0].find("ALI")==0):          INI.update({'WITH_ALI':    x})
                 if (s[0].find("ali")==0):          INI.update({'WITH_ALI':    x})
                 if (s[0].find("FITS")==0):         INI.update({'FITS':        x})
+                if (s[0].find("verbose")==0):      INI.update({'verbose':     x})
                 if (s[0].find("tausave")>=0):      INI.update({'savetau':     x})
                 if (s[0].find("plweight")>=0):     INI.update({'plweight':    x})
                 if (s[0].find("oneshot")>=0):      INI.update({'oneshot':     x})
@@ -522,21 +543,29 @@ def ReadCloudOT(INI, MOL):
         if (INI['ktemperature']!=1.0): tmp[nonzero(tmp>0.0)] *= INI['ktemperature']                        
         TKIN[(OFF[level]):(OFF[level]+cells)] = tmp
     # sigma = turbulent linewidth
+    print("================================================================================")
     for level in range(OTL):
+        # Note: any NaN values make np.min() np.max() equal to NaN !
         cells   = fromfile(fp, int32, 1)[0]
-        if (cells!=LCELLS[level]):       print("Error in the hierarchy file, in sigma !"),  sys.exit()
-        tmp  = fromfile(fp, float32, LCELLS[level])
-        m    = nonzero(RHO[OFF[level]:(OFF[level]+LCELLS[level])]>0.0) # must ignore sigma for links
+        if (cells!=LCELLS[level]):    print("Error in the hierarchy file, in sigma !"),  sys.exit()
+        tmp  = fromfile(fp, float32, cells)
+        m    = nonzero(RHO[OFF[level]:(OFF[level]+cells)]>0.0) # must ignore sigma for links
         if (len(m[0])>0):
+            #print("tmp-1 %12.4e %12.4e,   ksigma %10.3e" % (np.min(tmp[m]), np.max(tmp[m]), INI['ksigma']))
             if (INI['ksigma']!=1.0):   tmp[m] *= INI['ksigma']
-            if (INI['thermaldv']>0):
+            #print("tmp-2 %12.4e %12.4e" % (np.min(tmp[m]), np.max(tmp[m])))
+            #print("Tkin %12.4e %12.4e" % (np.min(TKIN[(OFF[level]):(OFF[level]+cells)][m]), np.max(TKIN[(OFF[level]):(OFF[level]+cells)][m])))
+            if (INI['thermaldv']>0):                
                 tmp[m]  = (np.sqrt(tmp**2.0+2.0e-10*BOLTZMANN*TKIN[(OFF[level]):(OFF[level]+cells)]/(AMU*MOL.WEIGHT)))[m]
+                # print("tmp-3 %12.4e %12.4e" % (np.min(tmp[m]), np.max(tmp[m])))
             INI['min_sigma'] = min([ INI['min_sigma'],  np.min(tmp[m]) ])
             INI['max_sigma'] = max([ INI['max_sigma'],  np.max(tmp[m]) ])
+        print("min_sigma %12.4e, max_sigma %12.4e" % (INI['min_sigma'], INI['max_sigma']))
         if (WITH_HALF==0):
             CLOUD[(OFF[level]):(OFF[level]+cells)]['w'] = tmp
         else:
             CLOUD[(OFF[level]):(OFF[level]+cells),3] = tmp
+    print("================================================================================")
     # vx, vy, vz
     for level in range(OTL):
         cells   = fromfile(fp, int32, 1)[0]
@@ -1334,7 +1363,7 @@ def ConvolveSpectra1D(filename, fwhm_as, GPU=0, platforms=[0,1,2,3,4], angle_as=
     program      =  cl.Program(context, source).build()
     kernel_con   =  program.Convolve
     kernel_con.set_scalar_arg_dtypes([np.int32, np.int32, np.int32, np.float32, None, None])
-    LOCAL        =  [ 4, 32 ][GPU>0]
+    LOCAL        =  [ 1, 32 ][GPU>0]
     GLOBAL       =  (NSPE//LOCAL+1)*LOCAL
     cl.enqueue_copy(queue, SPE_buf, SPE)
     kernel_con(queue, [GLOBAL,], [LOCAL,], NSPE, NCHN, int(samples)//2, fwhm, SPE_buf, CON_buf)

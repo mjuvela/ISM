@@ -27,6 +27,7 @@ CHANNELS    =  INI['channels']
 WIDTH       =  INI['bandwidth'] / CHANNELS        # km/s, remains unchanged, even for HFS
 TRANSITIONS =  MOL.TRANSITIONS
 COOLING     =  INI['cooling']
+COOLFILE    =  INI['coolfile']
 if (COOLING & HFS):
     print("*** Cooling not implemented for HFS => cooling will not be calculated!")
     COOLING =  0
@@ -89,10 +90,10 @@ if (0):
 NRAY   =  INI['nray']
 
 if (INI['GPU']):  LOCAL = 32
-else:             LOCAL =  4
+else:             LOCAL =  1
 if (OVERLAP): 
     if (INI['GPU']):  LOCAL =  8  # on Tux lower is better, down to LOCAL=2 !!
-    else:             LOCAL =  8  # on Tux higher is better, x3 speedup from LOCAL=4 to LOCAL=8 !!
+    else:             LOCAL =  1  # on Tux higher is better, x3 speedup from LOCAL=4 to LOCAL=8 !!
 if (INI['LOCAL']>0):  LOCAL = INI['LOCAL']
 else:                 INI['LOCAL'] = LOCAL
 GLOBAL        =  IRound(NRAY,  32)
@@ -295,8 +296,9 @@ elif (OVERLAP):
         None,   None, None, None, None, None,  None, np.int32, np.int32, None, None, None,  None])
 else:    
     if (COOLING):
-        kernel_sim.set_scalar_arg_dtypes([None,None,np.float32,np.float32,np.float32,None,None,None,None,np.float32,
-        None,None,None,None])
+        ### 18-08-2021: added two data type entries for proper initialization
+        kernel_sim.set_scalar_arg_dtypes([None,None,None,np.float32,np.float32,np.float32,None,None,None,None,np.float32,
+        None,None,None,None,None])
     else:
         if (WITH_CRT):
             #                                 CLOUD, GAU,  LIM,  Aul,        A_b,        GN         
@@ -427,7 +429,7 @@ if (COOLING):
     if (DOUBLE_COOL):
         COOL_buf  = cl.Buffer(context, mf.READ_WRITE, 8*CELLS*GLOBAL)
     else:
-        COOL_buf  = cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
+        COOL_buf  = cl.Buffer(context, mf.READ_WRITE, 4*CELLS*GLOBAL) # *GLOBAL OS 18-08-2021
 
 WRK  = zeros(CELLS, cl.cltypes.float2)
 
@@ -617,7 +619,7 @@ def Simulate(INI, MOL):
             if (COOLING):
                 kernel_sim(queue, [GLOBAL,], [LOCAL,], CLOUD_buf, GAU_buf, LIM_buf, A_Aul, A_b, A_gauss_norm,
                 WEI_buf, VOL_buf, STEP_buf, APL_buf, BG, IP_buf, NI_buf, NTRUE_buf, ARES_buf, COOL_buf)
-                c.enqueue_copy(queue, LEV_COOL, COOL_buf)   # float32 or float64  [CELLS*GLOBAL]
+                cl.enqueue_copy(queue, LEV_COOL, COOL_buf)   # float32 or float64  [CELLS*GLOBAL]
                 LEV_COOL.shape = (GLOBAL, CELLS)
                 for icell in range(CELLS):
                     SUM_COOL[icell] += sum(LEV_COOL[:,icell]) * HF[tran] / VOLUME[icell]    # per cm3 !!
@@ -639,7 +641,8 @@ def Simulate(INI, MOL):
     queue.finish()
     sys.stdout.write("   [%.4f s]\n" % (time.time()-t00))    
     if (COOLING):
-        print("BRUTE_COOL: %10.3e", mean(asarray(SUM_COOL, float64)))
+        ### 18-08-2021: corrected typo in output
+        print("BRUTE_COOL: %10.3e" % mean(asarray(SUM_COOL, float64)))
         fpb = open(COOLFILE, "wb") 
         asarray(SUM_COOL, float32).tofile(fpb)
         fpb.close()
@@ -759,7 +762,7 @@ def WriteSpectra(tran, prefix, savetau=0):
     A_gauss_norm  =  (C_LIGHT/(1.0e5*WIDTH*freq))     # GRID_LENGTH **NOT** multiplied in
     channels      =  CHANNELS
     if (HFS): 
-        print("WRITE HFS SEPCTRA: CHANNELS %d -> %d" % (channels, BAND[tran].Channels()))
+        print("WRITE HFS SPECTRA: CHANNELS %d -> %d" % (channels, BAND[tran].Channels()))
         channels = BAND[tran].Channels()        # CHANNELS is the allocation, channels for current transition
         # buffers are reserved for CHANNELS... so use them and just cut channels at the end
     # this time BG is BG intensity (not photon number)
