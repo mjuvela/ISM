@@ -62,10 +62,7 @@ class MoleculeO:
         Returns -1 if transition not found.
         """
         if ((tr<0)|(tr>=self.TRANSITIONS)): return -1
-        if self.TRANSITIONS == 1:
-            return self.TRANSITION[0][:]
-        else:
-            return self.TRANSITION[tr,:]
+        return self.TRANSITION[tr,:]
     
     
     def C(self, upper, lower, Tkin, partner):
@@ -114,16 +111,11 @@ class MoleculeO:
         fp.readline()                                        # comment
         self.TRANSITIONS = int(fp.readline().split()[0])     # number of transitions
         fp.readline()                                        # comment
-        d            =  loadtxt(fp, max_rows=self.TRANSITIONS) # Einstein A array
-        ### 18-08-2021
-        if self.TRANSITIONS == 1:
-            self.TRANSITION = asarray([d[1:3]], np.int32)-1  # mapping transition -> (u,l), 0-offset
-            self.A       =  asarray([d[3]], float32)
-            self.F       =  asarray([d[4]*1.0e9], float32)
-        else:
-            self.TRANSITION = asarray(d[:,1:3], np.int32)-1
-            self.A       =  asarray(d[:,3], float32)
-            self.F       =  asarray(d[:,4]*1.0e9, float32)
+        d            =  loadtxt(fp, max_rows=self.TRANSITIONS, usecols=(0,1,2,3,4)) # Einstein A array
+        d.shape      =  (self.TRANSITIONS, 5)
+        self.TRANSITION = asarray(d[:,1:3], np.int32)-1
+        self.A       =  asarray(d[:,3], float32)
+        self.F       =  asarray(d[:,4]*1.0e9, float32)
         fp.readline()                                        # comment
         self.PARTNERS = int(fp.readline().split()[0])        # number of collisional partners
         self.PNAME    = []
@@ -153,13 +145,9 @@ class MoleculeO:
             self.TKIN.append(ravel(asarray(T, np.float32)))   
             fp.readline()                                      # comment
             d             = loadtxt(fp, max_rows=nc)           # the array
-            ### 18-08-2021
-            if self.TRANSITIONS == 1:
-                self.CUL.append(  asarray([d[1:3]], np.int32)-1 )  # (upper, lower) --- zero offset values
-                self.CC.append(  asarray([d[3: ]], np.float32))    # collisional coefficients
-            else:
-                self.CUL.append(  asarray(d[:,1:3], np.int32)-1 )  # (upper, lower) --- zero offset values
-                self.CC.append(  asarray(d[:,3: ], np.float32))    # collisional coefficients
+            if (len(d.shape)==1): d.shape = (1, len(d))
+            self.CUL.append( asarray(d[:,1:3], np.int32)-1 )   # (upper, lower) --- zero offset values
+            self.CC.append(  asarray(d[:,3: ], np.float32))    # collisional coefficients
             # next line is again "!COLLISIONS BETWEEN"
         ###
         self.CABU = asarray(self.CABU, np.float32)
@@ -169,6 +157,8 @@ class MoleculeO:
             for t in range(self.TRANSITIONS):
                 u, l = self.T2L(t)
                 print("  %2d -> %2d   F= %12.4e   E= %12.4e   A= %12.4e" % (u, l, self.F[t], self.E[u], self.A[t]))
+            print(self.CUL[0])
+            print(self.CC[0])
             sys.exit()
             
         
@@ -200,6 +190,8 @@ class MoleculeO:
         """
         Update self.TRANSITION array so that it contains only transitions between levels < levels.
         """
+        print("Transitions(%d) from TRANSITIONS=%d" % (levels, self.TRANSITIONS))
+        print(self.TRANSITION)
         ok  =  np.zeros(self.TRANSITIONS, np.int32)
         for i in range(self.TRANSITIONS):  # loop over original array
             a, b = self.TRANSITION[i,:]
@@ -241,6 +233,7 @@ class MoleculeO:
                 for j in range(self.LEVELS):
                     fp.write("  %3d %3d  %12.4e\n" % (i, j, self.C(i,j,25.0,0)))
             fp.close()
+        print("Transitions -> %d" % self.TRANSITIONS)
         return self.TRANSITIONS
     
         
@@ -743,7 +736,9 @@ def ReadCloud1D(INI, MOL):
         print('RADIUS')
         print(RADIUS)
         print('VOLUME')
-        print(VOLUME)
+        print(VOLUME) 
+        print("TKIN")
+        print(TKIN)
         print("SIGMA")
         print(CLOUD[:,]['w'])
         print("VRAD")
@@ -751,6 +746,7 @@ def ReadCloud1D(INI, MOL):
         print("ABU")
         print(CLOUD[:,]['z'])
         print("________________________________________________________________________________")
+        sys.exit()
     return RADIUS, VOLUME, RHO, TKIN, CLOUD, ABU
 
 

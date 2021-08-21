@@ -114,7 +114,7 @@ print("NRAY %d, NRAY_SPE %d" % (NRAY, NRAY_SPE))
 DIRWEI =  zeros(NRAY, float32)
 IP     =  zeros(NRAY, float32)
 for i in range(NRAY):
-    IP[i]      =  ((i+0.4999)/NRAY)**0.5
+    IP[i]      =  ((i+0.49999)/NRAY)**0.5
     DIRWEI[i]  =  1.0 
 
 # Weighted version --- p(IP) = (k+1) * r^k,  P(IP) = r^(k+1)
@@ -133,6 +133,11 @@ STEP, APL        =  GetSteps1D(CELLS, RADIUS,    NRAY, IP, DIRWEI)
 PATH_CORRECTION  =  zeros(CELLS, float32)
 PATH_CORRECTION  =  VOLUME/APL
 PATH_CORRECTION /=  mean(PATH_CORRECTION)
+if (1):
+    print(PATH_CORRECTION)
+    ## sys.exit()
+else:
+    PATH_CORRECTION = []
 
 SINGLE  =  []
 MAXCHN  =  CHANNELS
@@ -485,8 +490,6 @@ cl.enqueue_copy(queue, MOL_C_buf, C)
 MOL_CABU_buf = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=MOL.CABU)    
 
     
-    
-    
 
 # kernel_clear -- to zero the SIJ and ESC arrays on the device side
 if (OVERLAP):
@@ -547,7 +550,6 @@ else:
         asarray([CELLS, LEVELS], int32).tofile(fp)
         asarray(NI_ARRAY, float32).tofile(fp)
         fp.close()
-
         
         
 ##########################################################################################
@@ -580,8 +582,9 @@ def Simulate(INI, MOL):
         BGPHOT        =  Planck(freq, Tbg)*pi*CLOUD_AREA/(PLANCK*C_LIGHT)*(1.0e5*WIDTH) / (CLOUD_VOLUME*GL)
         BG            =  BGPHOT / NRAY                       # photons per ray, before possible DIRWEI!=1
         A_gauss_norm  = (C_LIGHT/(1.0e5*WIDTH*freq)) * GL    # GRID_LENGTH multiplied to gauss norm
-        # print("A_b %.3e, A_Aul %.3e, freq %.3e, gg %.3f, GN %.3e, BG %.3e" % (A_b, A_Aul, freq, gg, A_gauss_norm, BG))
-        if (tran==0): sys.stdout.write('   %d' % tran)
+        print("A_b %.3e, A_Aul %.3e, freq %.3e, gg %.3f, GN %.3e, BG %.3e" % (A_b, A_Aul, freq, gg, A_gauss_norm, BG))
+        if (tran==0): 
+            sys.stdout.write('   %d' % tran)
         else:         
             if (tran%((TRANSITIONS+10)//10)==0): sys.stdout.write(", %d" % tran)
         sys.stdout.flush()
@@ -591,8 +594,9 @@ def Simulate(INI, MOL):
         nu   =  NI_ARRAY[:,upper]
         nl   =  NI_ARRAY[:,lower]
         tmp  =  (tmp_1 * A_Aul * (nl*gg-nu)) / (freq*freq)
-        tmp[nonzero(abs(tmp)<1.0e-25)] =  2.0e-25
-        tmp[nonzero(tmp<(-1.0e-3))]    = -1.0e-3
+        if (0):
+            tmp[nonzero(abs(tmp)<1.0e-25)] =  2.0e-25
+            tmp[nonzero(tmp<(-1.0e-3))]    = -1.0e-3
         WRK[:]['x']  = nu      #  NI(upper)
         WRK[:]['y']  = tmp     #  NB_NB(cell, tran)
         cl.enqueue_copy(queue, NI_buf, WRK)      
@@ -622,7 +626,7 @@ def Simulate(INI, MOL):
                 cl.enqueue_copy(queue, LEV_COOL, COOL_buf)   # float32 or float64  [CELLS*GLOBAL]
                 LEV_COOL.shape = (GLOBAL, CELLS)
                 for icell in range(CELLS):
-                    SUM_COOL[icell] += sum(LEV_COOL[:,icell]) * HF[tran] / VOLUME[icell]    # per cm3 !!
+                    SUM_COOL[icell] += sum(LEV_COOL[:, icell]) * HF[tran] / VOLUME[icell]    # per cm3 !!
             else:
                 if (WITH_CRT):
                     kernel_sim(queue, [GLOBAL,], [LOCAL,], CLOUD_buf, GAU_buf, LIM_buf, A_Aul, A_b, A_gauss_norm, 
@@ -641,7 +645,6 @@ def Simulate(INI, MOL):
     queue.finish()
     sys.stdout.write("   [%.4f s]\n" % (time.time()-t00))    
     if (COOLING):
-        ### 18-08-2021: corrected typo in output
         print("BRUTE_COOL: %10.3e" % mean(asarray(SUM_COOL, float64)))
         fpb = open(COOLFILE, "wb") 
         asarray(SUM_COOL, float32).tofile(fpb)
@@ -651,15 +654,15 @@ def Simulate(INI, MOL):
         print("       *** SIJ_ARRAY: NUMBER OF BAD VALUES = %d" % len(m[0]))
     m  = nonzero(SIJ_ARRAY<-1.0e-15)
     if (len(m[0])>0):   
-        print("       *** SIJ_ARRAY: NUMBER OF NEGATIVE VALUES = %d" % len(m[0]))
+        print("       *** SIJ_ARRAY: NUMBER OF VALUES below 1e-15 = %d" % len(m[0]))
         for i in range(len(m[0])):
             print("  CELL %3d   TRAN %3d" % (m[0][i], m[1][i]))
-    if (0):
+    if (1):
         for i in range(CELLS):
-            print("CELL %d\n" % i, SIJ_ARRAY[i,:])
-        sys.exit()
+            print("CELL %4d  SIJ = " % i, SIJ_ARRAY[i,:])
     # --- end of Simulate
-   
+
+    
 
     
 def SimulateOL(INI, MOL):
@@ -778,8 +781,9 @@ def WriteSpectra(tran, prefix, savetau=0):
     nu            =  NI_ARRAY[:, upper] 
     nl            =  NI_ARRAY[:, lower] 
     tmp           =  (tmp_1 * A_Aul * (nl*gg-nu)) / (freq*freq) 
-    tmp[nonzero(abs(tmp)<1.0e-25)] = 2.0e-25
-    tmp[nonzero(tmp<(-1.0e-3))]    = -1.0e-3
+    if (1):  # @@
+        tmp[nonzero(abs(tmp)<1.0e-25)] = 2.0e-25
+        tmp[nonzero(tmp<(-1.0e-3))]    = -1.0e-3
     WRK[:]['x'] = nu     #  NI(upper)
     WRK[:]['y'] = tmp    #  NB_NB(cell, tran)
     cl.enqueue_copy(queue, NI_buf, WRK)    
@@ -915,7 +919,7 @@ def Solve(INI, MOL):
         for iii in range(LEVELS):
             for jjj in range(LEVELS):
                 if (iii==jjj):
-                    COMATRIX[iii,jjj] = 0.0
+                    COMATRIX[iii,jjj] = 0.0e0
                 else:
                     if (PARTNERS==1):
                         gamma = MOL.C(iii,jjj,tkin,0)  # rate iii -> jjj
@@ -938,12 +942,12 @@ def Solve(INI, MOL):
             for iii in range(LEVELS):
                 for jjj in range(LEVELS):
                     if (iii==jjj):
-                        MATRIX[iii,jjj] = 0.0
+                        MATRIX[iii,jjj] = 0.0e0
                     else:
                         if (PARTNERS==1):
                             gamma = MOL.C(iii,jjj,tkin,0)  # rate iii -> jjj
                         else:
-                            gamma = 0.0
+                            gamma = 0.0e0
                             for ip in range(PARTNERS):
                                 gamma += cab[ip] * MOL.C(iii, jjj, tkin, ip)
                         MATRIX[jjj, iii] = gamma*rho
@@ -966,10 +970,10 @@ def Solve(INI, MOL):
                 MATRIX[u, l]  +=  SIJ_ARRAY[icell, t]               #  u <-- l
                 MATRIX[l, u]  +=  SIJ_ARRAY[icell, t] / MOL.GG[t]   #  l <-- u
         for u in range(LEVELS-1): # diagonal = -sum of the column
-            tmp            = sum(MATRIX[:,u])    # MATRIX[i,i] was still == 0
+            tmp            = np.sum(MATRIX[:,u])    # MATRIX[i,i] was still == 0
             MATRIX[u,u]    = -tmp            
         MATRIX[LEVELS-1, :]   =  -MATRIX[0,0]    # replace last equation = last row
-        VECTOR[:]             =   0.0
+        VECTOR[:]             =   0.0e0
         VECTOR[LEVELS-1]      =  -(rho*chi) * MATRIX[0,0]  # ???
         if (0):
             if (icell==10):
@@ -982,14 +986,15 @@ def Solve(INI, MOL):
                 sys.stdout.write('\n')
                 sys.exit()
         VECTOR  =  np.linalg.solve(MATRIX, VECTOR)        
-        VECTOR *=  rho*chi / sum(VECTOR)        
-        VECTOR  =  clip(VECTOR, NI_LIMIT, 1e99)
+        VECTOR *=  rho*chi / np.sum(VECTOR)        
+        if (1):
+            VECTOR  =  clip(VECTOR, NI_LIMIT, 1.0e20) # @@
         if (0):
             print("CO_ARRAY")
             for j in range(LEVELS):
                 for i in range(LEVELS):
                     sys.stdout.write('%9.2e ' % (MATRIX[j,i]))
-                sys.stdout.write('   %9.2e\n' % (VECTOR[j]))
+                sys.stdout.write('    %9.2e\n' % (VECTOR[j]))
             print('')
             print("SIJ")
             for j in range(TRANSITIONS):
@@ -1003,8 +1008,8 @@ def Solve(INI, MOL):
             for j in range(LEVELS):
                 sys.stdout.write(' %10.2e' % VECTOR[j])
             sys.stdout.write('\n')
-            sys.exit()            
-        max_relative_change =  max((NI_ARRAY[icell, 0:CHECK]-VECTOR[0:CHECK])/(NI_ARRAY[icell, 0:CHECK]))        
+            ### sys.exit()            
+        max_relative_change =  max(abs((NI_ARRAY[icell, 0:CHECK]-VECTOR[0:CHECK])/(NI_ARRAY[icell, 0:CHECK])))
         NI_ARRAY[icell,:]   =  VECTOR        
         ave_max_change     +=  max_relative_change
         global_max_change   =  max([global_max_change, max_relative_change])    
@@ -1069,8 +1074,8 @@ def SolveCL(INI, MOL):
         cl.enqueue_copy(queue, res, S_RES_buf)
         # delta = for each cell, the maximum level populations change among levels 0:CHECK
         delta             =  np.max((res[0:batch,0:CHECK] - NI_ARRAY[a:b,0:CHECK]) / NI_ARRAY[a:b,0:CHECK], axis=1)
-        global_max_change =  max([global_max_change, max(delta)])
-        ave_max_change   +=  sum(delta)
+        global_max_change =  max([global_max_change, max(abs(delta))])
+        ave_max_change   +=  np.sum(delta)
         NI_ARRAY[a:b,:]   =  res[0:batch,:]                        
         # sys.exit()
     ave_max_change /= CELLS
@@ -1093,16 +1098,18 @@ for ITER in range(NITER):
     if (OVERLAP):  SimulateOL(INI, MOL) 
     else:          Simulate(INI, MOL) 
     Tsim += Seconds() 
-    if (1):
+    if (1):  # @@
         SIJ_ARRAY = clip(SIJ_ARRAY, 0.0, 1.0)
     # max_change = SolveParallel()   #  64^3  0.18 seconds, 256^3  10.76 seconds
     if (INI['clsolve']):
-        max_change =  SolveCL(INI, MOL)
+        max_change =  clip(SolveCL(INI, MOL), 0.0, 1e10)
     else:
-        max_change =    Solve(INI, MOL)
+        max_change =  clip(Solve(INI, MOL), 0.0, 1.0e10)
     Tsol += Seconds() 
-    if (1):
-        NI_ARRAY = clip(NI_ARRAY, 1.0e-20, 1.0)
+    if (1):  # @@
+        #  *** this cause problems for OI calculation***
+        #  *** upper limit was set to 1.0 but n*chi could be larger... ***
+        NI_ARRAY = clip(NI_ARRAY, 1.0e-20, 1.0e10) 
     if (0):
         print('*********************************************************************')
         for icell in range(CELLS):
