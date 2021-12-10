@@ -13,6 +13,8 @@ subdirectory (which then contains Defs.py and further subdirectories
 FITS, TM, etc.). If ISM_DIRECTORY is not set, that is the same as
 having ISM_DIRECTORY equal to ~/GITHUB.
 
+**Note:** radiative transfer programs SOC and LOC now reside in separate repositories: https://github.com/mjuvela/SOC and https://github.com/mjuvela/LOC .
+
 
 ## TM - template matching analysis of images
 
