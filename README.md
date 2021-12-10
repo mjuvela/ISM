@@ -5,7 +5,7 @@ Most of the programs require a working OpenCL environment and the
 installation of pyOpenCL (see
 https://mathema.tician.de/software/pyopencl/).
 
-Apart from SOC, the other programs assume that the source tree exists
+Programs assume that the source tree exists
 under one's own home directory, in ~/GITHUB. If the files are
 elsewhere, one can set an environmental variable ISM_DIRECTORY. 
 ISM_DIRECTORY should point to the directory that contains ISM as a
