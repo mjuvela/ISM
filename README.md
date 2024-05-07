@@ -2,8 +2,7 @@
 # ISM - programs for interstellar medium studies 
 
 Most of the programs require a working OpenCL environment and the
-installation of pyOpenCL (see
-https://mathema.tician.de/software/pyopencl/).
+installation of pyOpenCL (see https://mathema.tician.de/software/pyopencl/).
 
 Programs assume that the source tree exists
 under one's own home directory, in ~/GITHUB. If the files are
@@ -24,10 +23,9 @@ of these, the script test_TM.py will run both routines on the provided
 FITS image. The expected output is shown in the included test_TM.png.
 For further information, see 
 * http://www.interstellarmedium.org/numerical_tools/template_matching
-* Juvela M.: Pattern matching methods for the analysis of interstellar
-cloud structure, 2016, A&A 593, A58),
-https://ui.adsabs.harvard.edu/abs/2016A%26A...593A..58J
-* http://www.interstellarmedium.org/numerical_tools/rht/
+* [Juvela M. 2016, A&A 593, A56: Pattern matching methods for the analysis of interstellar
+cloud structure](https://ui.adsabs.harvard.edu/abs/2016A%26A...593A..58J)
+* [www.interstellarmedium.org/numerical_tools/rht/](http://www.interstellarmedium.org/numerical_tools/rht/)
 
 
 ## Extinction
@@ -41,8 +39,8 @@ results to a FITS files. The programs again require a working OpenCL
 environment.
 
 For further information, see
-* http://www.interstellarmedium.org/extinction/ 
-  and the references mentioned there.
+*[www.interstellarmedium.org/extinction](http://www.interstellarmedium.org/extinction/)'
+and the references mentioned there.
 
 
 ## FITS  - tools for FITS images
@@ -86,7 +84,7 @@ The directory contains comparisons between modified blackbody fits
 with Scipy leastsq and a simplistic OpenCL routine. There are further
 examples of modified blackbody fits with Markov chain Monte Carlo. The
 results are discussed at 
-* http://www.interstellarmedium.org/numerical_tools/mbb/
+* [www.intertellarmedium.org/numerical_tools/mbb](http://www.interstellarmedium.org/numerical_tools/mbb/)
 
 
 ## Ocfil - OpenCL program for filament extraction
@@ -98,5 +96,13 @@ other being perpendicular). The current GitHub version relies on
 scipy.ndimage routine label(), which may not scale well for large
 images (>1000x1000 pixels). The (simple) program will be described
 in more detail at
-* http://www.interstellarmedium.org/numerical_tools/filaments/
+* [www.interstellarmedium.org/numerical_tools/filaments](http://www.interstellarmedium.org/numerical_tools/filaments/)
 
+## SPIF - OpenCL program for fitting spectral lines
+
+SPIF can fit individual spectral lines with Gaussian (one or multiple velocity
+components) or as hyperfine lines consisting of several components. The input 
+and output files are FITS cubes. The program is described in Juvela, M.,
+Tharakkal, D., 2024, A&A, "Fast fitting of spectral lines with Gaussian and
+hyperfine structure models" [in
+arXiv](https://ui.adsabs.harvard.edu/abs/2024arXiv240304352J/abstract)
