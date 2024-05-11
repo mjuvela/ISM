@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 import os, sys
-sys.path.append('.')
+
+INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
+sys.path.append(INSTALL_DIR)
+
 from SPIF_aux import *
 
 # list of command line parameters with default values
@@ -145,7 +148,7 @@ if (Y2.find('HFS(')>=0):
 # Y1 may also have a reference to auxiliary FITS file, such as  GAUSS(x1, p[0], aux, p[1])
 PENALTIES = len(PEN)>0
 PRIORS    = len(PRIOR)>0
-src = open("kernel_SPIF.c").read().replace('@y1',Y1).replace('@y2',Y2)
+src = open(INSTALL_DIR+"/kernel_SPIF.c").read().replace('@y1',Y1).replace('@y2',Y2)
 if (PENALTIES>0): src = src.replace('@pen',   PEN)
 if (PRIORS>0):    src = src.replace('@prior', PRIOR)
 
@@ -188,6 +191,7 @@ M1, NY, NX =  F[0].data.shape
 N          =  NY*NX
 V1 =  asarray(F[0].header['CRVAL3']+(arange(1,M1+1)-F[0].header['CRPIX3'])*F[0].header['CDELT3'], float32)
 Y1 =  asarray(F[0].data.copy(), float32)
+if (F[0].header['CUNIT3'].strip()=='m/s'): V1 /= 1000.0
 Y1 =  Y1.reshape(M1, N).transpose().copy()      # Y1[N, M1]
 # error dFITS1 is either file name or floating point constant
 if (dFITS1==None): 
@@ -200,7 +204,7 @@ else:
         dY1 =  dY1.reshape(N).copy()      # Y1[N]
     except:
         dY1 =  float(dFITS1)*ones(N, float32)
-    
+
 TWIN = 0    
 M2   = 0
 if (FITS2!=None):
@@ -369,7 +373,7 @@ OPT   +=  "-D NHF1=%d -D NHF2=%d -D TBG=%.4ff " % (NHF1, NHF2, TBG)
 OPT   +=  "-D HFK1=%.4ef -D HFK2=%.4ef " % (HFK1, HFK2)
 OPT   +=  "-D BURNIN=%d -D SAMPLES=%d -D THIN=%d " % (BURNIN, SAMPLES, THIN)
 OPT   +=  "-D PENALTIES=%d -D PRIORS=%d -D N_AUX=%d -D ADAPT=%d " % (PENALTIES, PRIORS, N_AUX, ADAPT)
-OPT   +=  "-I . -D LOCAL=%d -D POLAK=%d " % (LOCAL, POLAK)
+OPT   +=  "-I %s -D LOCAL=%d -D POLAK=%d " % (INSTALL_DIR, LOCAL, POLAK)
 OPT   +=  "-D USE_MCMC=%d" % USE_MCMC
 print(OPT)
 
