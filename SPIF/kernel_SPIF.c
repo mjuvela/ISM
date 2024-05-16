@@ -117,6 +117,9 @@ float  Chi2_1(const          float  *x,
    // The effect of possible penalties and priors is added directly into the returnc chi2 value.
    float  y1, v1, chi2=0.0f ;
    for(int i=0; i<M1; i++) {   // M1 velocity channels in the spectrum Y1
+# if (IGNORE_NAN==1)
+      if (isfinite(Y1[i])) ; else continue ;
+# endif
       v1 = V1[i] ;
       // @y1 is replaced with the model expression from the INI-file, 
       // such as a sum of Gaussians  "y1 = GAUSS(v1, x[0],x[1],x[2]) + ..."
@@ -147,6 +150,9 @@ float Chi2_2(const          float  *x,
    // Chi2 values (with penalties and priors) for the second spectrum y2.
    float chi2=0.0f, y2, v2 ;   
    for(int i=0; i<M2; i++) {  // M2 velocity channels in the spectrum Y2
+# if (IGNORE_NAN==1)
+      if (isfinite(Y2[i])) ; else continue ;
+# endif
       v2 = V2[i] ;
       @y2 ;
       chi2 += (y2-Y2[i])*(y2-Y2[i]) ;

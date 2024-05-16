@@ -10,7 +10,7 @@ from SPIF_aux import *
 PAR = { '-gpu':'1', '-mcmc': '0', '-samples':'1000', '-burnin':'1000', '-thin':'20', \
         '-platforms': '[0,1,2,3]', '-iter':'1', '-adapt':'0', '-plot':'0', \
         '-ini': 'test.ini', '-preopt':'0', '-mc':'0', '-method':'0',
-        '-polak':'0', '-mciter':'1', '-fullsave':'0' }
+        '-polak':'0', '-mciter':'1', '-fullsave':'0', '-nan':'0'  }
 
 if (len(sys.argv)<2):
     print()
@@ -20,7 +20,7 @@ if (len(sys.argv)<2):
     print("   -gpu #        for #>0, use GPU instead of cpu (default %s)" % PAR['-gpu'])
     print("   -platforms s  list of OpenCL platforms to choose from (default %s)" % PAR['-platforms'])
     print("   -iter #       number of iterations (not for MCMC)  (default %s)" % PAR['-iter'])
-    print("   -method #     optimiser, 0=Simplex, 1=cradient descent, 2=conjugate gradient (default %s)" % PAR['-method'])
+    print("   -method #     optimiser, 0=Simplex, 1=gradient descent, 2=conjugate gradient (default %s)" % PAR['-method'])
     print("   -polak #      for congugate gradient method, use Polak-Ribiere (default %s)" % PAR['-polak'])
     print("   -plot #       1 = show graphics window (default %s)" % PAR['-plot'])
     print("") 
@@ -32,61 +32,70 @@ if (len(sys.argv)<2):
     print("   -samples #    number of MCMC samples (default %s)" % PAR['-samples'])
     print("   -burnin #     length of burn-in phase in MCMC steps (default %s)" % PAR['-burnin'])
     print("   -thin #       register every #:th sample (default %s)" % PAR['-thin'])
-    # print("   -adapt #      1 = adapt individual MCMC stepsizes during burnin (default %s)" % PAR['-adapt'])
     print("   -preopt #     1 = optimisation as initial state for MCMC (default %s)" % PAR['-preopt'])
+    print("   -nan #        0 = do not check for Nan, 1 = ignore channels with NaN values")
     print("")
     print("Examples of possible lines in the ini-file (lines are not mutually consistent)")
     print("-------------------------------")
-    print("  fits1   =  file1.fits                        # input file for 1. spectra")
-    print("  dfits1  =  file1_error.fits                  # error map for 1. spectra")
-    print("  fits2   =  file2.fits                        # input file for 2. spectra")
-    print("  dfits2  =  file1_error.fits                  # error map for 2. spectra") 
-    print("  y1      =  GAUSS(x1,p[0],p[1],p[2])              # 1. model: single Gaussian")
-    print("  y1      =  HFS(x1,p[0],p[1],p[2],p[3],VHF1,IHF1) # 1. model: hyperfine structure")    
-    print("  hfs1    =  n2h+.hfs                          # data for the 1. spectrum HFS model")
-    print("  aux     =  aux.fits                          # auxiliary FITS image")
-    print("  y2      =  GAUSS(x1,p[0],aux,p[2])           # 2. model: Gaussian with velocity from aux")
-    print("  init    =  y1:5.0 y1:vmean y1:fwhm y2:vmax   # set initial values for all p[:]")
-    print("  init    =  init.fits                         # read initial values from FITS file")
-    print("  penalty =  (y[3]<2) ? ((2-y[3])/0.1) : 0.0   # penalties for p[:]")
-    print("  prior   =  NORMAL(p[1], 1.0)                 # prior for a model parameter")
-    print("  delta   =  r:0.3 a:0.5 a:0.3  r:0.3 a:0.5 a:0.3  # perturbation in initial values (with -iter)")
-    print("  prefix  =  test                              # prefix for output files")
-    print("  step    =  0.17068787 0.20831834 0.2675255  0.30431524  # modify MCMC step sizes")
+    print("  fits1     =  file1.fits                        # input file for 1. spectra")
+    print("  dfits1    =  file1_error.fits                  # error map for 1. spectra")
+    print("  fits2     =  file2.fits                        # input file for 2. spectra")
+    print("  dfits2    =  file1_error.fits                  # error map for 2. spectra") 
+    print("  y1        =  GAUSS(v1,x[0],x[1],x[2])              # 1. model: single Gaussian")
+    print("  y1        =  HFS(v1,x[0],x[1],x[2],x[3],VHF1,IHF1) # 1. model: hyperfine structure")    
+    print("  hfs1      =  n2h+.hfs                          # data for the 1. spectrum HFS model")
+    print("  aux       =  aux.fits                          # auxiliary FITS image")
+    print("  y2        =  GAUSS(v1,x[0],aux,x[2])           # 2. model: Gaussian with velocity from aux")
+    print("  init      =  y1:5.0 y1:vmean y1:fwhm y2:vmax   # set initial values for all x[:]")
+    print("  init      =  init.fits                         # read initial values from FITS file")
+    print("  penalty   =  (x[3]<2) ? ((2-x[3])/0.1) : 0.0   # penalties for x[:]")
+    print("  prior     =  NORMAL(x[1], 1.0)                 # prior for a model parameter")
+    print("  delta     =  r:0.3 a:0.5 a:0.3  r:0.3 a:0.5 a:0.3  # perturbation in initial values (with -iter)")
+    print("  prefix    =  test                              # prefix for output files")
+    print("  step      =  0.17068787 0.20831834 0.2675255  0.30431524  # modify MCMC step sizes")
+    print("  mask      =  some_2d.fits                      # pixel value <=0 => pixel not fitted")
+    print("  threshold =  0.1                               # fit only pixels with Tmax>threshold")
     print("  ")
     print("  -------------------------------")
     print()
     sys.exit()
 
+"""
+2025-05-14:
+    - FWHM is now always returned as non-negative values
+    - added ini-file options MASK and THRESHOLD (to exclude some pixels from the fit)
+"""
 
 for k in PAR.keys():
     if (k in sys.argv):
         ind    = sys.argv.index(k)
         PAR[k] = sys.argv[ind+1]
         
-GPU      =  int(PAR['-gpu'])
-PLF      =  []
+GPU        =  int(PAR['-gpu'])
+PLF        =  []
 for x in PAR['-platforms'].replace('[','').replace(']','').split(','):
     PLF.append(int(x))
-POLAK    =  int(PAR['-polak'])        
-METHOD   =  int(PAR['-method'])    
-USE_MCMC =  int(PAR['-mcmc'])
-MC_ITER  =  int(PAR['-mciter'])
-FULLSAVE =  int(PAR['-fullsave'])
-DO_MC    =  int(PAR['-mc'])    
-BURNIN   =  int(PAR['-burnin'])
-SAMPLES  =  int(PAR['-samples'])
-THIN     =  int(PAR['-thin'])
-NITER    =  int(PAR['-iter'])
-ADAPT    =  int(PAR['-adapt'])
-PLOT     =  int(PAR['-plot'])
-PARFILE  =  PAR['-ini']
-PREOPT   =  int(PAR['-preopt'])
-TBG      =  2.73    
-STEP     =  ones(100, float32)
+POLAK      =  int(PAR['-polak'])        
+METHOD     =  int(PAR['-method'])    
+USE_MCMC   =  int(PAR['-mcmc'])
+MC_ITER    =  int(PAR['-mciter'])
+FULLSAVE   =  int(PAR['-fullsave'])
+DO_MC      =  int(PAR['-mc'])    
+BURNIN     =  int(PAR['-burnin'])
+SAMPLES    =  int(PAR['-samples'])
+THIN       =  int(PAR['-thin'])
+NITER      =  int(PAR['-iter'])
+ADAPT      =  int(PAR['-adapt'])
+PLOT       =  int(PAR['-plot'])
+PARFILE    =  PAR['-ini']
+PREOPT     =  int(PAR['-preopt'])
+TBG        =  2.73    
+STEP       =  ones(100, float32)
+IGNORE_NAN =  int(PAR['-nan'])
 
-FITS1, FITS2, dFITS1, dFITS2, INI = None, None, None, None, []
+FITS1, FITS2, dFITS1, dFITS2, INI, MASK = None, None, None, None, [], None
 Y1, Y2, hfs1, hfs2, PEN, PRIOR, AUX, DELTA = "", "", "", "", "", "", [], []
+THRESHOLD = -999.0
 PREFIX = 'res'
 for l in open(PARFILE).readlines():
     if (l[0:1]=='#'): continue
@@ -116,6 +125,11 @@ for l in open(PARFILE).readlines():
     if (s[0].lower()=='delta'):    DELTA  = s[2:]
     if (s[0].lower()=='step'):
         for i in range(2, len(s)): STEP[i-2] = float(s[i])
+    if (s[0].lower()=='mask'):      
+        tmp = pyfits.open(s[2])
+        MASK = nonzero(tmp[0].data>0.0)  # fit only these pixels
+    if (s[0].lower()=='threshold'):      
+        THRESHOLD = float(s[2])
             
     
 NHF1, NHF2, HFK1, HFK2 = 0, 0, 0.0, 0.0
@@ -152,6 +166,18 @@ src = open(INSTALL_DIR+"/kernel_SPIF.c").read().replace('@y1',Y1).replace('@y2',
 if (PENALTIES>0): src = src.replace('@pen',   PEN)
 if (PRIORS>0):    src = src.replace('@prior', PRIOR)
 
+# find the parameter indices for FWHM parameters (at the end absolute value is returned)
+FWHM_INDICES = []
+for s in Y1.split(')'):
+    if (s.find('GAUSS')>=0):
+        #  GAUSS(v, x[0], x[1], x[2]
+        tmp = s.split(',')[-1].replace(']','').split('[')[1]
+        FWHM_INDICES.append(int(tmp))
+    elif (s.find('HFS')>=0):
+        # HFS(x1,p[0],p[1],p[2],p[3],VHF1,IHF1
+        tmp = s.split(',')[3].replace(']','').split('[')[1]
+        FWHM_INDICES.append(int(tmp))
+print("FWHM_INDICES = ", FWHM_INDICES)
 
 if (USE_MCMC==2):
     src_grad = WriteGradient(Y1, Y2)
@@ -187,11 +213,20 @@ def SHOW():
 print("GOPT.py reading file ", FITS1)
 F          =  pyfits.open(FITS1)
 M1, NY, NX =  F[0].data.shape 
-
+if (THRESHOLD>0.0): # overrides previous MASK
+    MASK   =  np.nonzero(np.max(F[0].data, axis=0)>THRESHOLD)
+    
+    
+if (0): # test NaNs
+    F[0].data[40:50, 30:40, 30:40] = NaN
+    
 N          =  NY*NX
 V1 =  asarray(F[0].header['CRVAL3']+(arange(1,M1+1)-F[0].header['CRPIX3'])*F[0].header['CDELT3'], float32)
-Y1 =  asarray(F[0].data.copy(), float32)
+Y1 =  asarray(F[0].data.copy(), float32)        # Y1[M1, NY, NX]
 if (F[0].header['CUNIT3'].strip()=='m/s'): V1 /= 1000.0
+if (MASK):
+    Y1 = Y1[:, MASK[0], MASK[1]]
+    N  = len(MASK[0])
 Y1 =  Y1.reshape(M1, N).transpose().copy()      # Y1[N, M1]
 # error dFITS1 is either file name or floating point constant
 if (dFITS1==None): 
@@ -201,10 +236,11 @@ else:
     try:
         F   =  pyfits.open(dFITS1)
         dY1 =  asarray(F[0].data.copy(), float32)
+        if (MASK): dY1 =  dY1[MASK]
         dY1 =  dY1.reshape(N).copy()      # Y1[N]
     except:
         dY1 =  float(dFITS1)*ones(N, float32)
-
+        
 TWIN = 0    
 M2   = 0
 if (FITS2!=None):
@@ -214,6 +250,8 @@ if (FITS2!=None):
     if ((ny!=NY)|(nx!=NX)): print("Inconsisten dimensions in fits2"), sys.exit()
     V2   =  asarray(F[0].header['CRVAL3']+(arange(1,M1+1)-F[0].header['CRPIX3'])*F[0].header['CDELT3'], float32)
     Y2   =  asarray(F[0].data.copy(), float32)
+    if (MASK):
+        Y2 =  Y2[:, MASK[0], MASK[1]]
     Y2   =  Y2.reshape(M2, N).transpose().copy()     # Y2[N, M2]
     if (dFITS2==None): 
         print("One should  specify dfits2 ... using dT=1.0...!")
@@ -221,7 +259,8 @@ if (FITS2!=None):
     try:
         F    =  pyfits.open(dFITS2)
         dY2  =  asarray(F[0].data.copy(), float32)
-        dY2  =  dY2.reshape(N).copy()  # Y1[N, M1]
+        if (MASK): dY2 = dY2[MASK]
+        dY2  =  dY2.reshape(N).copy()  # dY2[N, M1]
     except:
         dY2  =  float(dFITS1)*ones(N, float32)
 
@@ -240,7 +279,10 @@ if (len(INI)>0):
             print("Error in ini %s: images %d x %d, not %d x %d pixels" % (ny, nx, NY, NX))
             sys.exit()
         for i in range(NP):
-            P[:,i] = ravel(F0[0].data[i,:,:])
+            P[:,i] = ravel(F0[0].data[i,:,:])   #  P[NY*NX, NP]
+        if (MASK):
+            tmp = F0[0].data[:, MASK[0], MASK[1]].copy().reshape(NP, N)
+            for i in range(NP): P[:,i] = tmp[i,:]
         del F0        
     else: # INI contains some instructions for setting initial values
         """
@@ -265,16 +307,16 @@ if (len(INI)>0):
                 else:   
                     print("initialisation should be a constant or y1:... or y2:...: %s ?" % INI[i])
                     continue
-                if (tag.find('tmax')>=0):
-                    P[:,i] = np.max(Y, axis=1)           # maximum value
-                elif (tag.find('vmax')>=0):
-                    P[:,i] = X[np.argmax(Y, axis=1)]     # velocity of maximum intensity
-                elif (tag.find('vmean')>=0):  
-                    P[:,i] = sum(Y*X)/sum(Y)             # intensity-weighted mean velocity
-                elif (tag.find('fwhm')>=0):
-                    z  =  np.sum(Y*X, axis=1)
-                    z2 =  np.sum(Y*X*X, axis=1)
-                    w  =  np.sum(Y, axis=1)
+                if (tag.lower().find('tmax')>=0):
+                    P[:,i] = np.nanmax(Y, axis=1)        # maximum value
+                elif (tag.lower().find('vmax')>=0):
+                    P[:,i] = X[np.nanargmax(Y, axis=1)]  # velocity of maximum intensity
+                elif (tag.lower().find('vmean')>=0):  
+                    P[:,i] = nansum(Y*X)/nansum(Y)       # intensity-weighted mean velocity
+                elif (tag.lower().find('fwhm')>=0):
+                    z  =  np.nansum(Y*X, axis=1)
+                    z2 =  np.nansum(Y*X*X, axis=1)
+                    w  =  np.nansum(Y, axis=1)
                     P[:,i] = 2.355*sqrt((z2-z*z/w)/w)
                     # there is no guanrantee that this would be positive, if spectrum has
                     # many negative values due to noise
@@ -354,13 +396,14 @@ AUX_DATA = zeros((NY, NX, N_AUX), float32)  # N_AUX auxiliary images
 for k in range(N_AUX):
     s       =  AUX[k].split(':')
     if (len(s)==1):
-        AUX_DATA[:,:,k]  =  asarray(pyfits.open(s[0])[0].data, float32)
+        AUX_DATA[:,:,k]  =  asarray(pyfits.open(s[0])[0].data, float32)  # [NY, NX, N_AUX]
     else:
         j   =  int(s[1])
         AUX_DATA[:,:,k]  =  asarray(pyfits.open(s[0])[0].data[j,:,:], float32)
 if (N_AUX>0):
+    if (MASK):  AUX_DATA = AUX_DATA[MASK[0], MASK[1], :].copy()
     AUX_DATA = ravel(AUX_DATA)
-    AUX_buf  = cl.Buffer(context, mf.READ_ONLY, 4*N_AUX*NY*NX)
+    AUX_buf  = cl.Buffer(context, mf.READ_ONLY, 4*N_AUX*N)
     cl.enqueue_copy(queue, AUX_buf, AUX_DATA)
 else:
     AUX_buf =  cl.Buffer(context, mf.READ_ONLY, 4*NP)  # dummy small buffer
@@ -374,7 +417,7 @@ OPT   +=  "-D HFK1=%.4ef -D HFK2=%.4ef " % (HFK1, HFK2)
 OPT   +=  "-D BURNIN=%d -D SAMPLES=%d -D THIN=%d " % (BURNIN, SAMPLES, THIN)
 OPT   +=  "-D PENALTIES=%d -D PRIORS=%d -D N_AUX=%d -D ADAPT=%d " % (PENALTIES, PRIORS, N_AUX, ADAPT)
 OPT   +=  "-I %s -D LOCAL=%d -D POLAK=%d " % (INSTALL_DIR, LOCAL, POLAK)
-OPT   +=  "-D USE_MCMC=%d" % USE_MCMC
+OPT   +=  "-D USE_MCMC=%d -D IGNORE_NAN=%d" % (USE_MCMC, IGNORE_NAN)
 print(OPT)
 
 
@@ -460,8 +503,15 @@ if (not((USE_MCMC>0)&(PREOPT==0))):
     # save the result... even when one continues with MCMC
     F[0].data = zeros((NP+1, NY, NX), float32)
     for i in range(NP):
-        F[0].data[i,:,:] = P[:,i].reshape(NY, NX)
-    F[0].data[NP,:,:] = C2.reshape(NY,NX)   
+        if (MASK):
+            F[0].data[i,MASK[0],MASK[1]] = P[:,i]
+        else:
+            F[0].data[i,:,:] = P[:,i].reshape(NY, NX)
+    if (MASK):
+        F[0].data[NP,MASK[0],MASK[1]] = C2
+    else:
+        F[0].data[NP,:,:] = C2.reshape(NY,NX)   
+    for i in FWHM_INDICES: F[0].data[i,:,:] = np.abs(F[0].data[i,:,:])
     F.writeto(f'{PREFIX}_res.fits', overwrite=True)
     ##
     t0 = time.time()-t0
@@ -519,25 +569,37 @@ if (DO_MC):
             ###
             P[:,:] = BEST[:,0:NP]  # copy best fits back to P
         #####
-        RES[:,:,ITER]  =  1.0*P
+        RES[:,:,ITER]  =  1.0*P    #  RES[N, NP,DO_MC]
+    # make FWHM non-negative
+    for i in FWHM_INDICES: RES[:,i,:] = np.abs(RES[:,i,:]) 
     # Save results to a fits file
     if (FULLSAVE): # save MC samples ... from RES[N, NP, DO_MC]
         G  =  pyfits.open(FITS1)
         G[0].data = zero((DO_MC, NP, NY, NX), float32)
-        for ipar in range(NP):
-            G[0].data[:, ipar, :, :] = transpose(RES[:, ipar,:]).reshape(DO_MC, NY, NX)
+        if (MASK):
+            for ido in range(DO_MC):
+                for ipar in range(NP):
+                    G[0].data[ido, ipar, MASK[0], MASK[1]] = RES[:, ipar, ido]
+        else:
+            for ipar in range(NP):
+                G[0].data[:, ipar, :, :] = transpose(RES[:, ipar,:]).reshape(DO_MC, NY, NX)
         G.writeto(f'{PREFIX}_mc_samples.fits', overwrite=True)
-    RES  =  np.std(RES, axis=2).reshape(NY, NX, NP)   # to RES[NY, NX, NO]
     G    =  pyfits.open(FITS1)
     G[0].data = zeros((NP, NY, NX), float32)
-    for i in range(NP): 
-        G[0].data[i,:,:] = RES[:,:,i]
+    if (MASK):
+        RES  =  np.std(RES, axis=2).reshape(N, NP)   #  RES[N, NP, DO_MC] -> std  RES[N, NP]
+        for ipar in range(NP): 
+            G[0].data[ipar, MASK[0], MASK[1]] = RES[:,ipar]
+    else:
+        RES  =  np.std(RES, axis=2).reshape(NY, NX, NP)   # RES[N, NP, DO_MC] -> std RES[NY, NX, NP]
+        for ipar in range(NP): 
+            G[0].data[ipar,:,:] = RES[:,:,ipar]           #  RES[NY, NX, NP] -> G[NP, NY, NX]
     G.writeto(f'{PREFIX}_mc.fits', overwrite=True)  #  [NP, NY, NX]
     
 
 # Markov chain Monte Carlo
 if (USE_MCMC>0):
-    # for PREOPT>0, the maxmum lilehood solution is already in P, not yet in P_buf
+    # for PREOPT>0, the maxmum likelyhood solution is already in P, not yet in P_buf
     t0   = time.time()
     RES  = zeros((N,SAMPLES,NP+1), float32)
     SEED = np.random.rand()
@@ -551,24 +613,37 @@ if (USE_MCMC>0):
     print("MCMC ... done")
     # put mean values of RES[N, SAMPLES, 0:NP] to to P[:, 0:NP]
     cl.enqueue_copy(queue, RES, RES_buf)    
+    for i in FWHM_INDICES: RES[:,:,i] = np.abs(RES[:,:,i])
     for i in range(NP):
-        P[:,i] = np.mean(RES[:,:,i], axis=1)   # replaceP with the mean over samples
+        P[:,i] = np.mean(RES[:,:,i], axis=1)   # replace P with the mean over samples
     C2[:] = np.mean(RES[:,:,NP], axis=1).reshape(N)  # last is the chi2 value
     if (FULLSAVE):
         G         = pyfits.open(FITS1)
-        G[0].data = zeros((SAMPLES, NP, NY*NX), float32)
-        for ipix in range(N):
-            for ipar in range(NP):
-                G[0].data[:, ipar, ipix] = RES[ipix,:,ipar]
-        G[0].data.shape = (SAMPLES, NP, NY, NX)
+        if (MASK):
+            G[0].data = zeros((SAMPLES, NP, NY, NX), float32)
+            for isam in range(SAMPLES):
+                for ipar in range(NP):
+                    G[0].data[isam, ipar, :, :] = RES[:, isam, ipar]
+        else:
+            G[0].data = zeros((SAMPLES, NP, NY*NX), float32)
+            for ipix in range(N):
+                for ipar in range(NP):
+                    G[0].data[:, ipar, ipix] = RES[ipix, :, ipar]
+            G[0].data.shape = (SAMPLES, NP, NY, NX)
         G.writeto(f'{PREFIX}_mcmc_samples.fits', overwrite=True)   # all samples
     # save another file with just the mean and the std of each parameter
     G         =  pyfits.open(FITS1)  #   [M, NY, NX]
-    G[0].data =  zeros((2*NP, NY*NX), float32)
-    for i in range(NP):
-        G[0].data[2*i  ,:] = np.mean(RES[:,:,i], axis=1)  # RES[N, SAMPLES, NP+1]
-        G[0].data[2*i+1,:] = np.std( RES[:,:,i], axis=1)
-    G[0].data.shape = (2*NP, NY, NX)
+    if (MASK):
+        G[0].data =  zeros((2*NP, NY, NX), float32)
+        for ipar in range(NP):
+            G[0].data[2*ipar  , MASK[0], MASK[1]] = np.mean(RES[:,:,ipar], axis=1)  # RES[N, SAMPLES, NP+1]
+            G[0].data[2*ipar+1, MASK[0], MASK[1]] = np.std( RES[:,:,ipar], axis=1)
+    else:
+        G[0].data =  zeros((2*NP, NY*NX), float32)
+        for i in range(NP):
+            G[0].data[2*i  ,:] = np.mean(RES[:,:,i], axis=1)  # RES[N, SAMPLES, NP+1]
+            G[0].data[2*i+1,:] = np.std( RES[:,:,i], axis=1)
+        G[0].data.shape = (2*NP, NY, NX)
     G.verify('fix')
     G.writeto(f'{PREFIX}_mcmc.fits', overwrite=True)   # all samples    
     ###
