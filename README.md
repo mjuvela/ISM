@@ -106,3 +106,15 @@ and output files are FITS cubes. The program is described in Juvela, M.,
 Tharakkal, D., 2024, A&A, "Fast fitting of spectral lines with Gaussian and
 hyperfine structure models" [in
 arXiv](https://ui.adsabs.harvard.edu/abs/2024arXiv240304352J/abstract)
+
+## DIES - dust radiative transfer with the immediate reemission method
+
+Program handles currently only spherical models (cells are spherical shells),
+computes dust temperatures (equilibrium temperatures only), and returns
+spectra for different impact parameters. The program uses OpenCL libraries and
+is recommended to be run on GPUs. The paper Juvela M., "DIES: parallel dust
+radiative transfer program with the immediate re-emission method" has been
+submitted. Further information will be provided at 
+* [www.interstellarmedium.org/radiative_transfer](http://www.interstellarmedium.org/radiative_transfer/)
+
+
