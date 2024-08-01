@@ -121,10 +121,12 @@ submitted. Further information will be provided at
 
 ## PEP - line intensity predictions with the escape probability method
 
-Program calculates line-intensity predictions for a a given kinetic
+Program calculates line-intensity predictions for a given kinetic
 temperature and in parallel for a grid of density and column density values. The
-calculation is based on the escape probability formalism. Some documentation
-on the use of the program can be found at
+calculation is based on the escape probability formalism. A paper
+(M. Juvela: PEP: parallel estimation of spectral line parameters
+with the escape-probability method, 2024) has been submitted, and
+some documentation can be found at
 * [www.interstellarmedium.org/radiative_transfer](http://www.interstellarmedium.org/radiative_transfer/)
 
 
