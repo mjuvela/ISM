@@ -257,6 +257,8 @@ if (INI['weightstepabs']>+8.0): tmp = 2   # adaptive free-path change
 OPT += ' -D WEIGHT_STEP_ABS=%d -D K_WEIGHT_STEP_ABS=%.3ef' % (tmp,  INI['weightstepabs'])
 OPT += ' -I ./ '
 # 
+print(OPT)
+#
 src  = open(INSTALL_DIR+"/kernel_DIES.c").read()
 
 t0 = time.time()

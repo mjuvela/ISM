@@ -30,7 +30,7 @@ def ReadIni(filename):
     INI.update({'colden':       [1e10, 1e15, 20] })
     INI.update({'fwhm':         1.0 })
     INI.update({'density':      [1e2, 1e6,   20] })
-    INI.update({'gpu':          1 })
+    INI.update({'gpu':          0 })
     INI.update({'sdevice':      ''  })
     INI.update({'cabu':         []})
     INI.update({'output':       'pepo.output'})
@@ -70,7 +70,9 @@ def ReadIni(filename):
                 INI.update({'tolerance': [float(s[1]), float(s[2]), maxiter]})
         if (s[0]=='cabu'):
             tmp = []
-            for x in s[1:]:  tmp.append(float(x))
+            for x in s[1:]:
+                if (x=='#'): break
+                tmp.append(float(x))
             INI.update({'cabu': tmp})
     return INI
 

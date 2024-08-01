@@ -11,6 +11,7 @@ PARSEC, STEFAN_BOLTZMANN  =  3.0856775e+18, 5.670373e-05
 C_LIGHT, H_K, PLANCK      =  29979245800.0, 4.799243348e-11, 6.62606957e-27
 delta, DELTA              =  1.0e-6, 4.0e-6
 EPS                       =  1.0e-5
+LSUN, RSUN  =  3.839e+33, 69550000000.0   # Solar luminosity [cgs], Sun's radius [cm]
 
 def SHOW():
     show(block=True)

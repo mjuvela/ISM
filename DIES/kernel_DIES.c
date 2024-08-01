@@ -25,14 +25,14 @@
 // ... otherwise the default atomicAdd below is very slow
 float atomicAdd(__global float* p, float val)
 {
-       float prev;
-       asm volatile(
-		    "atom.global.add.f32 %0, [%1], %2;"
-		    : "=f"(prev)
-		    : "l"(p) , "f"(val)
-		    : "memory"
-		   );
-       return prev;
+   float prev;
+   asm volatile(
+		"atom.global.add.f32 %0, [%1], %2;"
+		: "=f"(prev)
+		: "l"(p) , "f"(val)
+		: "memory"
+	       );
+   return prev;
 }
 
 #else           // GENERIC / AMD VERSION .....................................................................
@@ -173,11 +173,11 @@ void __kernel SimulateBG(const    float SEED,    // [ 0]
 			) {
    // constants NT, NF
    const int id  = get_global_id(0) ;
-  
+   
    float3  POS, DIR, DIR0 ;
    float   cos_theta, sin_theta, phi, FPA, FPS, F, G, KABS, KSCA, dx, dxa, dxs, Eabs, T, alfa, W, DE_BG0, K ;
    int     IND, iE, ifreq, iT, j ;
-
+   
    mwc64x_state_t rng;
    ulong samplesPerStream = 274877906944L ;  // 2^38
    MWC64X_SeedStreams(&rng, (unsigned long)(fmod(SEED,1.0f)*4294967296L), samplesPerStream);
@@ -186,15 +186,27 @@ void __kernel SimulateBG(const    float SEED,    // [ 0]
    POS.x     =  0.0f ;      POS.y     =  0.0f ;      POS.z     =  -RC[NC-1]+DEPS ;
    W         =  DE_BG ;
    
-#if (WEIGHT_BG>0)  //  weighting the background packages
-   // with 0<WEIGHT_BG<0.5, direct more photon packages towards the model centre
-   cos_theta  =  pow(Rand(&rng), K_WEIGHT_BG)  ;
-   W         *=  2.0f*K_WEIGHT_BG*pow(cos_theta, 2.0f-1.0f/K_WEIGHT_BG) ;
+#if (WEIGHT_BG>0)           //  weighting the background packages
+   if (K_WEIGHT_BG>10.0) {
+      //  alternative background weighting, normal p = 2*cos(th)*sin(th), new   p = 1 / (pi/2) = 2/pi,  0<th<0.5*pi
+      cos_theta  =  cos(0.5f*PI*Rand(&rng)) ;         // theta unifor [0,pi/2]
+      sin_theta  =  sqrt(clamp(1.0f-cos_theta*cos_theta, 0.0f, 1.0f)) ;
+      W         *=  cos_theta*sin_theta * PI ;
+   } else {
+      // with 0<K_WEIGHT_BG<0.5, direct more photon packages towards the model centre
+      //  original probability    p = 2*cos(th)*sin(th)
+      //  modified probability    p = sin(th) * cos(th)^(1/K-1) / K,     K=0.5 is the normal unweighted case
+      //                          P = 1 - cos(th)^(1/K)  =>  u = cos(th)^(1/K),  u^K = cos(th)
+      //                          W = 2*cos(th)*sin(th) / [ sin(th)*cos(th)^(1/K-1) ] * K
+      //                            = 2*cos(th)^[2-1/K] * K
+      cos_theta  =  pow(Rand(&rng), K_WEIGHT_BG)  ;
+      W         *=  2.0f*K_WEIGHT_BG*pow(cos_theta, 2.0f-1.0f/K_WEIGHT_BG) ;
+   }
 #else
    // W         =  DE_BG ;
    cos_theta =  sqrt(Rand(&rng))  ;
 #endif
-
+   
    sin_theta =  sqrt(clamp(1.0f-cos_theta*cos_theta, 0.0f, 1.0f)) ;   
    phi       =  2.0f*PI*Rand(&rng) ;
    DIR.x     =  sin_theta*cos(phi) ;
@@ -266,16 +278,17 @@ void __kernel SimulateBG(const    float SEED,    // [ 0]
    dx        =   dxa+dxs ;
    FPA       =  -log(1.0f-Rand(&rng)*(1.0-exp(-dx))) ;
    FPS       =  -log(1.0f-Rand(&rng)*(1.0-exp(-dx))) ;
-   W         =   DE_BG  * (1.0f-exp(-dx)) ;
+   //// W         =   DE_BG  * (1.0f-exp(-dx)) ;
+   W        *=   1.0f-exp(-dx) ;
 #endif // FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
    
    DE_BG0    =  W  ;                        // weighting of the original package
-      
+   
    while(IND>=0) {   // stepping
-
+      
       // safeguard against a weighted photon package getting stuck in the model centre
       if (W<(1.0e-12f*DE_BG)) break ;
-
+      
 #if (DEBUG>0)
       printf("[%7d] %3d\n", id, IND) ;
       if ((IND>=0)&&(IND<NC)) { ; } else { printf("???\n") ; }
@@ -298,7 +311,7 @@ void __kernel SimulateBG(const    float SEED,    // [ 0]
 	 POS  += (dx+DEPS)*DIR ;	 
       } else {
 	 // scattering or absorption before the full step
-
+	 
 	 if (dxs<dxa) {                      // SCATTERING =====================================================
 	    dx     =  dxs ;                  // actual length of the step
 	    POS   +=  (dx+DEPS)*DIR ;        // ... before DIR is changed, go to location of scattering
@@ -375,7 +388,7 @@ void __kernel SimulateBG(const    float SEED,    // [ 0]
 	    KABS      =  ipKABS[ifreq] ;
 	    KSCA      =  ipKSCA[ifreq] ;
 	    G         =  ipG[ifreq] ;
-
+	    
 #if (WEIGHT_EMIT>0)
 	    // emission directed towards the cloud centre
 	    //   normal probability     p  = 1/(4*pi)  * dOmega
@@ -455,26 +468,26 @@ void __kernel SimulatePS(const    float  SEED,   // [ 0]
    F         =  ipFS[j] ;                   // ipFS[NF], could include linear interpolation
    
    // free path for absorption
-# if (WEIGHT_STEP_ABS>0)
-#  if (WEIGHT_STEP_ABS>1)
+#if (WEIGHT_STEP_ABS>0)
+# if (WEIGHT_STEP_ABS>1)
    K         =   ALFA - BETA * (log10(RHO[IND])-log10(RHO[NC-1])) / (log10(RHO[0])-log10(RHO[NC-1])) ;
    FPA       =  -log(Rand(&rng)) / K ;
    W        *=   exp(FPA*(K-1.0f)) / K ;
-#  else
+# else
    FPA       =  -log(Rand(&rng)) / K_WEIGHT_STEP_ABS ;
    W        *=   exp(FPA*(K_WEIGHT_STEP_ABS-1.0f)) / K_WEIGHT_STEP_ABS ;
-#  endif
-# else
-   FPA       =  -log(Rand(&rng)) ;           // free path for absorption (in optical depth units)
 # endif
+#else
+   FPA       =  -log(Rand(&rng)) ;           // free path for absorption (in optical depth units)
+#endif
    
-# if (WEIGHT_STEP_SCA>0)
+#if (WEIGHT_STEP_SCA>0)
    // free path for scattering increased by factor K_WEIGHT_STEP < 1
    FPS       =  -log(Rand(&rng)) / K_WEIGHT_STEP_SCA ;
    W        *=   exp(FPS*(K_WEIGHT_STEP_SCA-1.0f)) / K_WEIGHT_STEP_SCA ;
-# else
+#else
    FPS       = -log(Rand(&rng)) ;           // ... and scattering
-# endif
+#endif
    
    // update dust parameters, lookup table FF -> KABS,  F = F0*KF**ifreq
    ifreq     =  round(log(F/F0)/log(KF)) ;
@@ -486,21 +499,21 @@ void __kernel SimulatePS(const    float  SEED,   // [ 0]
       
       if (W<(1.0e-10f*DE_PS)) break ;        // terminate if the weight becomes insignificant
       
-# if (DEBUG>0)
+#if (DEBUG>0)
       if ((IND>=0)&&(IND<NC)) { ; } else { printf("???\n") ; }
-# endif
+#endif
       dx  = Step(&POS, &DIR, IND, RC)  ;     // POS and IND not yet updated, [dx] = 1 pc
-# if (DEBUG>0)
+#if (DEBUG>0)
       if (isfinite(dx)) {
 	 ;
       } else {
 	 printf("????? [%d]\n", id) ;
 	 return ;
       }
-# endif
+#endif
       dxs = FPS/(RHO[IND]*KSCA) ;            // distance to next scattering, tau = dx*RHO*K
       dxa = FPA/(RHO[IND]*KABS) ;            // distance to next absorption
-            
+      
       if (dx<min(dxa, dxs)) {                // full step without interactions
 	 FPA  -=  dx*KABS*RHO[IND] ;
 	 FPS  -=  dx*KSCA*RHO[IND] ;         // update free paths
@@ -512,7 +525,7 @@ void __kernel SimulatePS(const    float  SEED,   // [ 0]
 	    POS   +=  (dx+DEPS)*DIR ;        // ... before DIR is changed, go to location of scattering
 	    FPA   -=  dx*KABS*RHO[IND] ;     // update free path for absorptions
 	    FPS    = -log(Rand(&rng)) ;      // new free path for scattering
-# if (WEIGHT_SCA_PS>0)
+#if (WEIGHT_SCA_PS>0)
 	    // weighted case
 	    //   direction generated wrt outward  direction, using HG
 	    //   weight is the ratio of HG functions, with parameters g and g'=K_WEIGHT_SCA_PS
@@ -524,48 +537,48 @@ void __kernel SimulatePS(const    float  SEED,   // [ 0]
 	    Deflect(&DIR, cos_theta, &rng) ; // DIR is the new direction
 	    T   =  dot(DIR0, DIR) ;          // cos(scattering angle)
 	    W  *=  pHG(G, T)  /  pHG(K_WEIGHT_SCA_PS, cos_theta) ;
-# else
+#else
 	    // normal case, scattering angle = deflection wrt original direction
 	    cos_theta  =  HenyeyGreenstein(G, &rng) ; 
 	    Deflect(&DIR, cos_theta, &rng) ; // new dir
-# endif	    	    
-# if (WEIGHT_STEP_SCA>0)
+#endif	    	    
+#if (WEIGHT_STEP_SCA>0)
 	    // free path for scattering increased by factor K_WEIGHT_STEP < 1
 	    FPS    =  -log(Rand(&rng)) / K_WEIGHT_STEP_SCA ;     // longer free path for K_WEIGHT_SCA<1.0
 	    W     *=   exp(FPS*(K_WEIGHT_STEP_SCA-1.0f)) / K_WEIGHT_STEP_SCA ;	 // modified weight for the package
-# else
+#else
 	    FPS    = -log(Rand(&rng)) ;      // new free path for scattering
-# endif
+#endif
 	 } else {                            // ABSORPTION ---------------------------------------------------
-#  if (BATCH<=1)
+#if (BATCH<=1)
 	    atomicAdd(&( ABS[IND]), W) ;     // still in the same cell IND
-#  else
+#else
 	    atomicAdd(&(DABS[IND]), W) ;     // still in the same cell IND
-#  endif
+#endif
 	    dx        =  dxa ;
 	    POS      +=  (dx+EPS)*DIR ;      // truncated step to location of absorption
 	    FPS       = -log(Rand(&rng)) ;   // new photon packahe at  new frequency => regenerate also FPS
-# if (WEIGHT_STEP_ABS>0)
-#  if (WEIGHT_STEP_ABS>1)
+#if (WEIGHT_STEP_ABS>0)
+# if (WEIGHT_STEP_ABS>1)
 	    K         =   ALFA - BETA * (log10(RHO[IND])-log10(RHO[NC-1])) / (log10(RHO[0])-log10(RHO[NC-1])) ;
 	    FPA       =  -log(Rand(&rng)) / K ;
 	    W        *=   exp(FPA*(K-1.0f)) / K ;
-#  else	    
+# else	    
 	    FPA       =  -log(Rand(&rng)) / K_WEIGHT_STEP_ABS ;
 	    W        *=   exp(FPA*(K_WEIGHT_STEP_ABS-1.0f)) / K_WEIGHT_STEP_ABS ;
-#  endif
-# else	    
-	    FPA       = -log(Rand(&rng)) ;   // free path for sabsorptions, after the current absorption
 # endif
+#else	    
+	    FPA       = -log(Rand(&rng)) ;   // free path for sabsorptions, after the current absorption
+#endif
 	    // ipET = temperatures for energies E = E0*KE**iE,    iE =  log(E/E0) / log(KE)
 	    //  energies are  E / H * pc
 	    //  DE = E / pc^2   =>   ABS = true energy / pc^2
 	    //  E / H * pc  =  ABS*pc^2 / (RHO * VC*pc^3) * pc =  ABS / RHO / VC
-# if (BATCH<=1)
+#if (BATCH<=1)
 	    Eabs      =   ABS[IND]            / VC[IND] / RHO[IND] ;  //  E / H * pc
-# else
+#else
 	    Eabs      =  (ABS[IND]+DABS[IND]) / VC[IND] / RHO[IND] ;  //  E / H * pc
-# endif
+#endif
 	    iE        =  clamp((int)(round(log(Eabs/E0)/log(KE))), 0, NT-1) ;
 	    T         =  ipET[iE] ;          // convert energy to temperature
 	    // at current temperature, generate random frequency for re-emission
@@ -579,7 +592,7 @@ void __kernel SimulatePS(const    float  SEED,   // [ 0]
 	    KABS      =  ipKABS[ifreq] ;
 	    KSCA      =  ipKSCA[ifreq] ;
 	    G         =  ipG[ifreq] ;	    
-# if (WEIGHT_EMIT_PS>0)
+#if (WEIGHT_EMIT_PS>0)
 	    // emission directed towards cloud surface
 	    //   normal probability     p  = 1/(4*pi)  * dOmega
 	    //   modified probability   p' = C*(1+cos(theta))^k,   k>0 more directed towards the centre
@@ -591,7 +604,7 @@ void __kernel SimulatePS(const    float  SEED,   // [ 0]
 	    DIR.x     =  POS.x ;   DIR.y  =  POS.y ;   DIR.z  =  POS.z ;
 	    DIR       =  normalize(DIR) ;     // unit vector pointing outwards
 	    Deflect(&DIR, cos_theta, &rng) ;  // deflection cos_theta from the out direction
-# else
+#else
 	    // isotropic emission
 	    cos_theta =  -1.0f+2.0f*Rand(&rng) ;
 	    sin_theta =  sqrt(clamp(1.0f-cos_theta*cos_theta, 0.0f, 1.0f)) ;   
@@ -599,7 +612,7 @@ void __kernel SimulatePS(const    float  SEED,   // [ 0]
 	    DIR.x     =  sin_theta*cos(phi) ;
 	    DIR.y     =  sin_theta*sin(phi) ;
 	    DIR.z     =  cos_theta ;
-# endif
+#endif
 	 }  // -----------------------------------------------------------------------------------------------
       }      
       // take the step and update cell index

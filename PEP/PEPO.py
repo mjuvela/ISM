@@ -80,16 +80,6 @@ CX  =  zeros((NTCOL,NL,NL), FLOAT)
 for i in range(len(CC)):
     CX[:,:,:] += CABU[i] * CC[i][:, 0:NL, 0:NL]
             
-if (0):
-    for i in range(NL):
-        print("   level %2d  E %7.2f cm-1   G %.1f" % (i, E[i]/(h0*c0), G[i]))
-    for i in range(NTR):
-        print("   tran  %2d  %d->%d  F %10.3e  Aul %10.3e" % (i, UL[i,0],UL[i,1], F[i], Aul[i]))
-    for u in range(NL):
-        for l in range(u):
-            print("   C(%d,%d) =  %12.4e" % (u, l, CX[1,l,u]))
-    sys.exit()
-    
 if (0):  # Recompute frequencies based on the energies?
     for tr in range(NTR):
         u, l  = UL[tr]
@@ -132,8 +122,8 @@ if (len(INI['hfs'])>0):
     HFSTR = TR[u,l]
     HFSN, HFS0, HFSK, HFSC, HFSMAX  =  get_HFS_beta(hfs, FWHM)
 
-print("Molecule preparation (read, cut levels, update Clu): %.2f seconds" % (time.time()-t0))
-print("So far %.2f seconds" % (time.time()-t00)) 
+print("Molecule prep.   %.2f seconds (read, cut levels, update Clu)" % (time.time()-t0))
+print("So far:          %.2f seconds" % (time.time()-t00)) 
     
 
 # OpenCL initialisation -----------------------------------------------------------------
@@ -183,8 +173,8 @@ for i in range(NCD):
         nn[i,j,:] = n        
 cl.enqueue_copy(queue, n_buf, nn)
 
-print("OpenCL initialisations: %.2f seconds" % (time.time()-t0))
-print("So far: %.2f seconds" % (time.time()-t00))
+print("OpenCL init.:    %.2f seconds" % (time.time()-t0))
+print("So far:          %.2f seconds" % (time.time()-t00))
 # OpenCL initialisations:  0.81 seconds out of 1.28 second run time
 # ---------------------------------------------------------------------------------------
 
@@ -195,8 +185,8 @@ STEP(queue, [GLOBAL,], [LOCAL,],     E_buf, G_buf,     F_buf, A_buf, Ibg_buf,
      TEX_buf, TAU_buf, TRAD_buf,    V_buf, P_buf,   HFSC_buf)
 cl.enqueue_copy(queue, nn, n_buf)
 
-print("KERNEL CALL: %.3f seconds" % (time.time()-t0))
-print("So far %.2f seconds" % (time.time()-t0))
+print("Kernel call:     %.3f seconds" % (time.time()-t0))
+print("So far           %.2f seconds" % (time.time()-t00))
 
 """
 ./PEPO.py pep.ini 128x128 parameters
@@ -214,16 +204,18 @@ cl.enqueue_copy(queue, TRAD, TRAD_buf)
 
 # Save outputs to a binary file  (=0.005 seconds)
 fp = open(INI['output'], 'wb')
-asarray([NCD, NRHO, NTR], int32).tofile(fp)  # number of values for:  N(molecule), n(H2), transitions
-asarray(F,    FLOAT).tofile(fp)  # transition frequencies  F[NTR]
-asarray(RHO,  FLOAT).tofile(fp)  # density values          RHO[NRHO]
-asarray(CD0,  FLOAT).tofile(fp)  # column densities        CD0[ NCD]
-asarray(TEX,  FLOAT).tofile(fp)  # Tex values              TEX[ NCD, NRHO, NTR]
-asarray(TAU,  FLOAT).tofile(fp)  # optical depths          TAU[ NCD, NRHO, NTR]
-asarray(TRAD, FLOAT).tofile(fp)  # Trad intensities        TRAD[NCD, NRHO, NTR]
+asarray([NCD, NRHO, NTR, NL], int32).tofile(fp)  # number of values for:  N(molecule), n(H2), transitions
+asarray(F,    np.float32).tofile(fp)  # transition frequencies  F[NTR]
+asarray(RHO,  np.float32).tofile(fp)  # density values          RHO[NRHO]
+asarray(CD0,  np.float32).tofile(fp)  # column densities        CD0[ NCD]
+asarray(TEX,  np.float32).tofile(fp)  # Tex values              TEX[ NCD, NRHO, NTR]
+asarray(TAU,  np.float32).tofile(fp)  # optical depths          TAU[ NCD, NRHO, NTR]
+asarray(TRAD, np.float32).tofile(fp)  # Trad intensities        TRAD[NCD, NRHO, NTR]
 U = []
-NU  =  nn[:,:,UL[:,0]].copy()    # upper level populations  NU[NCD, NRHO, NTR]
-asarray(NU, FLOAT).tofile(fp)
+if (0):
+    NU  =  nn[:,:,UL[:,0]].copy()    # upper level populations  NU[NCD, NRHO, NTR]
+else:
+    asarray(nn, np.float32).tofile(fp)  # ni[NCD, NRHO, NL]
 fp.close()
 
 if (0):
@@ -238,7 +230,7 @@ if (0):
             print("t=%2d %2d-%2d  Tex %6.2f  tau %11.4e  Trad %11.4e  Aul %11.4e  F %11.4e nu %11.4e" % \
             (tr, u, l,  tex, tau, trad, Aul[tr], F[tr], nu))
 
-print("PEPO.py finished, run time %.2f seconds" % (time.time()-t00))
+print("PEPO.py total:   %.2f seconds" % (time.time()-t00))
 # Beware of GPU (and CPU?)  powersaving settings.
 # Example with an external AMD GPU, a with "normal" run time 0.7 seconds, 
 # Once computer was idel for 5 seconds, next run took over five seconds.
