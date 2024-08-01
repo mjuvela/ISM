@@ -105,7 +105,8 @@ components) or as hyperfine lines consisting of several components. The input
 and output files are FITS cubes. The program is described in Juvela, M.,
 Tharakkal, D., 2024, A&A, "Fast fitting of spectral lines with Gaussian and
 hyperfine structure models" [in
-arXiv](https://ui.adsabs.harvard.edu/abs/2024arXiv240304352J/abstract)
+arXiv](https://ui.adsabs.harvard.edu/abs/2024arXiv240304352J/abstract) and 
+[in ADS](https://ui.adsabs.harvard.edu/abs/2024A%26A...685A.164J/abstract).
 
 ## DIES - dust radiative transfer with the immediate reemission method
 
@@ -115,6 +116,15 @@ spectra for different impact parameters. The program uses OpenCL libraries and
 is recommended to be run on GPUs. The paper Juvela M., "DIES: parallel dust
 radiative transfer program with the immediate re-emission method" has been
 submitted. Further information will be provided at 
+* [www.interstellarmedium.org/radiative_transfer](http://www.interstellarmedium.org/radiative_transfer/)
+
+
+## PEP - line intensity predictions with the escape probability method
+
+Program calculates line-intensity predictions for a a given kinetic
+temperature and in parallel for a grid of density and column density values. The
+calculation is based on the escape probability formalism. Some documentation
+on the use of the program can be found at
 * [www.interstellarmedium.org/radiative_transfer](http://www.interstellarmedium.org/radiative_transfer/)
 
 
