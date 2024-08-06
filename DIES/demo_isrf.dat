@@ -1,0 +1,84 @@
+## The following table lists my adopted average Galactic background spectrum.
+## The absolute temperature of the cosmic background radiation (CBR) is now
+## taken to be  T_CBR = 2.728 (+/-.004) K  based on the full COBE data set
+## as analyzed by Fixsen et al. (1996, ApJ, 473, 576). This model of the 
+## background spectrum represents the broadband continuum only and does not
+## yet include the strong emission lines, several of which contain significant
+## power in the far-IR and submm part of the spectrum (see, e.g., Fixsen, Bennett,
+## and Mather 1999, ApJ, 526, 207). The other sources of the background model
+## are: the UV/Visible/near-IR part of the spectrum is based on the model of
+## average Galactic starlight in the solar neighborhood of Mathis, Mezger, and
+## Panagia (1983, Astron. Astrophys., 128, 212); the far-infrared and 
+## submillimeter part of the spectrum is based on the single-temperature fit to 
+## the Galactic thermal dust emission of Wright et al. (1991, ApJ, 381, 200). 
+## At frequencies below 10 cm-1 (29.9 GHz), there is a background contribution 
+## from non-thermal radiation in the Galaxy.
+#
+# frequencies
+# 66
+  1.0000e+09     1.51e-18
+  1.2590e+09     1.89e-18
+  1.5850e+09     2.56e-18
+  1.9950e+09     3.68e-18
+  2.5120e+09     5.51e-18
+  3.1620e+09     8.44e-18
+  3.9810e+09     1.31e-17
+  5.0120e+09     2.03e-17
+  6.3100e+09     3.17e-17
+  7.9430e+09     4.94e-17
+  1.0000e+10     7.68e-17
+  1.2590e+10     1.19e-16
+  1.5850e+10     1.83e-16
+  1.9950e+10     2.79e-16
+  2.5120e+10     4.21e-16
+  3.1620e+10     6.27e-16
+  3.9810e+10     9.17e-16
+  5.0120e+10     1.31e-15
+  6.3100e+10     1.82e-15
+  7.9430e+10     2.43e-15
+  1.0000e+11     3.07e-15
+  1.2590e+11     3.61e-15
+  1.5850e+11     3.85e-15
+  1.9950e+11     3.61e-15
+  2.5120e+11     2.85e-15
+  3.1620e+11     1.80e-15
+  3.9810e+11     8.55e-16
+  5.0120e+11     2.94e-16
+  6.3100e+11     9.31e-17
+  7.9430e+11     7.62e-17
+  1.0000e+12     1.24e-16
+  1.2590e+12     1.99e-16
+  1.5850e+12     2.85e-16
+  1.9950e+12     3.49e-16
+  2.5120e+12     3.48e-16
+  3.1620e+12     2.65e-16
+  3.9810e+12     1.73e-16
+  5.0120e+12     1.14e-16
+  6.3100e+12     7.44e-17
+  7.9430e+12     4.87e-17
+  1.0000e+13     3.19e-17
+  1.2590e+13     2.09e-17
+  1.5850e+13     1.37e-17
+  1.9950e+13     8.96e-18
+  2.5120e+13     5.87e-18
+  3.1620e+13     3.84e-18
+  3.9810e+13     2.46e-18
+  5.0120e+13     1.56e-18
+  6.3100e+13     1.31e-18
+  7.9430e+13     1.70e-18
+  1.0000e+14     2.40e-18
+  1.2590e+14     2.89e-18
+  1.5850e+14     3.37e-18
+  1.9950e+14     3.65e-18
+  2.5120e+14     3.58e-18
+  3.1620e+14     2.90e-18
+  3.9810e+14     2.23e-18
+  5.0120e+14     1.49e-18
+  6.3100e+14     9.23e-19
+  7.9430e+14     5.27e-19
+  1.0000e+15     2.61e-19
+  1.2590e+15     1.18e-19
+  1.5850e+15     1.08e-19
+  1.9950e+15     1.03e-19
+  2.5120e+15     7.95e-20
+  3.1620e+15     2.89e-20
