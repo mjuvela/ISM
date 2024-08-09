@@ -144,7 +144,7 @@ def LOC_write_spectra_3D(filename, V, SPE):
     fp              =  open(filename, 'wb')
     np.asarray([NRA, NDE, NCHN], np.int32).tofile(fp)
     np.asarray([V0, DV], np.float32).tofile(fp)
-    SSPE            =  zeros((NDE, NRA, 2+NCHN), np.float32)
+    SSPE            =  np.zeros((NDE, NRA, 2+NCHN), np.float32)
     SSPE[:,:,0]     =  Y
     SSPE[:,:,1]     =  X
     SSPE[:,:,2:]    =  SPE
@@ -202,9 +202,9 @@ def OT_ReadHierarchyV(filename):
     fp = open(filename, 'r')
     nx, ny, nz, levels, cells = np.fromfile(fp, np.int32, 5)
     # print('    OT_ReadHierarchy: ', nx, ny, nz, levels, cells)
-    LCELLS = zeros(levels, np.int32)
-    OFF    = zeros(levels, np.int32)
-    H      = zeros(cells,  np.float32)
+    LCELLS = np.zeros(levels, np.int32)
+    OFF    = np.zeros(levels, np.int32)
+    H      = np.zeros(cells,  np.float32)
     for i in range(levels):
         tmp       = np.fromfile(fp, np.int32, 1)[0]
         LCELLS[i] = tmp
@@ -485,7 +485,7 @@ def OT_GetValueV(x, y, z, NX, NY, NZ, LCELLS, OFF, H):
         LL.append(ll)
         m   =  np.nonzero(H[i]<1e-10)
     # Root cell
-    i, j, k = int(floor(x)), int(floor(y)), int(floor(z))      # root grid indices
+    i, j, k = int(np.floor(x)), int(np.floor(y)), int(np.floor(z))      # root grid indices
     if ((i<0)|(i>=NX)|(j<0)|(j>=NY)|(k<0)|(k>=NZ)): return 0.0 # outside the cloud
     # print(k*NX*NY+j*NX+i, len(H[0]))
     if (H[0][k*NX*NY+j*NX+i]>0.0):   # a leaf at root level
@@ -541,13 +541,13 @@ def OT_GetIndicesV(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, max_level=99, glo
         if (global_index==True):
             indices  =  vector of global cell indices [len(x)]
     """
-    if ((type(x[0])!=float32)|(type(x[0])!=float32)|(type(x[0])!=float32)|(type(H[0])!=float32)):
-        print("OT_GetIndicesV() -- parameters must be vectors of type numpy.float32"), sys.exit()
-    if ((type(LCELLS[0])!=int32)|(type(OFF[0])!=int32)):
+    if ((type(x[0])!=np.float32)|(type(y[0])!=np.float32)|(type(z[0])!=np.float32)|(type(H[0])!=np.float32)):
+        print("OT_GetIndicesV() -- coordinates must be 1d numpy.float32 vectors"), sys.exit()
+    if ((type(LCELLS[0])!=np.int32)|(type(OFF[0])!=np.int32)):
         print("OT_GetIndicesV() -- LCELLS and OFF must be numpy.int32 arrays"), sys.exit()
     LEVELS   =  len(LCELLS)
     CELLS    =  sum(LCELLS)
-    N        =  size(x)
+    N        =  np.size(x)
     ###
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=False)
     LOCAL    =  [ 8, 32 ][GPU>0]
@@ -602,9 +602,9 @@ def OT_GetIndicesForLevels(x, y, z, l, NX, NY, NZ, LCELLS, OFF, H, GPU=1, platfo
     Return:
         indices  =  vector of global cell indices [len(x)]
     """
-    if ((type(x[0])!=float32)|(type(x[0])!=float32)|(type(x[0])!=float32)|(type(H[0])!=float32)):
-        print("OT_GetIndicesV() -- parameters must be vectors of type numpy.float32"), sys.exit()
-    if ((type(LCELLS[0])!=int32)|(type(OFF[0])!=int32)):
+    if ((type(x[0])!=np.float32)|(type(y[0])!=np.float32)|(type(z[0])!=np.float32)|(type(H[0])!=np.float32)):
+        print("OT_GetIndicesV() -- coordinates must be 1d numpy.float32 vectors"), sys.exit()
+    if ((type(LCELLS[0])!=np.int32)|(type(OFF[0])!=np.int32)):
         print("OT_GetIndicesV() -- LCELLS and OFF must be numpy.int32 arrays"), sys.exit()
     LEVELS   =  len(LCELLS)
     CELLS    =  sum(LCELLS)
@@ -1062,7 +1062,7 @@ def OT_GetValue(x, y, z, NX, NY, NZ, H):
         ## print(ll[m])   # appear to be ok
     ####
     # Root cell
-    i, j, k = int(floor(x)), int(floor(y)), int(floor(z))      # root grid indices
+    i, j, k = int(np.floor(x)), int(np.floor(y)), int(np.floor(z))      # root grid indices
     if ((i<0)|(i>=NX)|(j<0)|(j>=NY)|(k<0)|(k>=NZ)): return 0.0 # outside the cloud
     # print(k*NX*NY+j*NX+i, len(H[0]))
     if (H[0][k*NX*NY+j*NX+i]>0.0):   # a leaf at root level
