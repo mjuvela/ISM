@@ -3,7 +3,7 @@ import os, sys
 
 INSTALL_DIR  = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(INSTALL_DIR)
-from IRE_Aux import *
+from DIES_Aux import *
 
 IPO = interp1d
 IPO = interpL
