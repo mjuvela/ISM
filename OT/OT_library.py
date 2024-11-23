@@ -1,4 +1,4 @@
-from MJ.mjDefs import *
+
 import pyopencl as cl
 import ctypes
 import numpy as np
@@ -17,7 +17,7 @@ def F2I(x):
     return ctypes.c_int.from_buffer(ctypes.c_float(x)).value
         
 
-if (1):
+if (0):
     from MJ.Aux.mjGPU import *
 else:
     def InitCL(GPU=0):
@@ -43,9 +43,9 @@ else:
     
 def ReadCloudLOC1D(name):
     fp = open(name, 'rb')
-    cells = fromfile(fp, int32, 1)[0]
-    R     = fromfile(fp, float32, cells)
-    tmp   = fromfile(fp, float32, cells*6).reshape(cells, 5) #  n, T, s, chi, vrad
+    cells = fromfile(fp, np.int32, 1)[0]
+    R     = fromfile(fp, np.float32, cells)
+    tmp   = fromfile(fp, np.float32, cells*6).reshape(cells, 5) #  n, T, s, chi, vrad
     fp.close()
     return R, tmp
     
@@ -63,9 +63,9 @@ def LOC_read_spectra_1D(filename):
              NCHN spectral channels
     """
     fp = open(filename, 'rb')
-    NRAY, NCHN      =  fromfile(fp, int32, 2)
-    V0, DV          =  fromfile(fp, float32, 2)
-    SPE             =  fromfile(fp, float32, NRAY*NCHN).reshape(NRAY,NCHN)
+    NRAY, NCHN      =  fromfile(fp, np.int32, 2)
+    V0, DV          =  fromfile(fp, np.float32, 2)
+    SPE             =  fromfile(fp, np.float32, NRAY*NCHN).reshape(NRAY,NCHN)
     fp.close()
     return V0+arange(NCHN)*DV, SPE
 
@@ -82,8 +82,8 @@ def LOC_read_Tex_1D(filename):
               with the innermost shell.
     """
     fp    =  open(filename, 'rb')
-    CELLS =  fromfile(fp, int32, 1)[0]
-    TEX   =  fromfile(fp, float32, CELLS)
+    CELLS =  fromfile(fp, np.int32, 1)[0]
+    TEX   =  fromfile(fp, np.float32, CELLS)
     fp.close()
     return TEX
 
@@ -102,9 +102,9 @@ def LOC_read_spectra_3D(filename):
              NRA times NDE points on the sky
     """    
     fp              =  open(filename, 'rb')
-    NRA, NDE, NCHN  =  fromfile(fp, int32, 3)
-    V0, DV          =  fromfile(fp, float32, 2)
-    SPE             =  fromfile(fp, float32).reshape(NDE, NRA, 2+NCHN)
+    NRA, NDE, NCHN  =  fromfile(fp, np.int32, 3)
+    V0, DV          =  fromfile(fp, np.float32, 2)
+    SPE             =  fromfile(fp, np.float32).reshape(NDE, NRA, 2+NCHN)
     OFF             =  SPE[:,:,0:2].copy()
     SPE             =  SPE[:,:,2:]
     fp.close()
@@ -122,17 +122,17 @@ def LOC_write_spectra_3D(filename, V, SPE):
         SPE      = spectrum cube with dimensions S[N,M,NCHN]
     """
     NDE, NRA, NCHN  =  SPE.shape
-    Y, X            =  indices((NDE, NRA), float32)
+    Y, X            =  indices((NDE, NRA), np.float32)
     V0, DV          =  V[0], V[1]-V[0]
     ###
     fp              =  open(filename, 'wb')
-    asarray([NRA, NDE, NCHN], int32).tofile(fp)
-    asarray([V0, DV], float32).tofile(fp)
-    SSPE            =  zeros((NDE, NRA, 2+NCHN), float32)
+    np.asarray([NRA, NDE, NCHN], np.int32).tofile(fp)
+    np.asarray([V0, DV], np.float32).tofile(fp)
+    SSPE            =  np.zeros((NDE, NRA, 2+NCHN), np.float32)
     SSPE[:,:,0]     =  Y
     SSPE[:,:,1]     =  X
     SSPE[:,:,2:]    =  SPE
-    asarray(SSPE, float32).tofile(fp)
+    np.asarray(SSPE, np.float32).tofile(fp)
     fp.close()
     return
 
@@ -154,8 +154,8 @@ def LOC_read_Tex_3D(filename):
         See the routine OT_GetCoordinatesAllV()
     """
     fp    =  open(filename, 'rb')
-    NX, NY, NZ, dummy  =  fromfile(fp, int32, 4)
-    TEX                =  fromfile(fp, float32).reshape(NZ, NY, NX)
+    NX, NY, NZ, dummy  =  fromfile(fp, np.int32, 4)
+    TEX                =  fromfile(fp, np.float32).reshape(NZ, NY, NX)
     fp.close()
     return TEX
                                         
@@ -184,15 +184,15 @@ def OT_ReadHierarchyV(filename):
     """
     # print('ReadHierarchy ', filename)
     fp = open(filename, 'r')
-    nx, ny, nz, levels, cells = fromfile(fp, int32, 5)
+    nx, ny, nz, levels, cells = fromfile(fp, np.int32, 5)
     # print('    OT_ReadHierarchy: ', nx, ny, nz, levels, cells)
-    LCELLS = zeros(levels, int32)
-    OFF    = zeros(levels, int32)
-    H      = zeros(cells,  float32)
+    LCELLS = np.zeros(levels, np.int32)
+    OFF    = np.zeros(levels, np.int32)
+    H      = np.zeros(cells,  np.float32)
     for i in range(levels):
-        tmp       = fromfile(fp, int32, 1)[0]
+        tmp       = fromfile(fp, np.int32, 1)[0]
         LCELLS[i] = tmp
-        H[OFF[i]:(OFF[i]+LCELLS[i])] =  fromfile(fp, float32, LCELLS[i])
+        H[OFF[i]:(OFF[i]+LCELLS[i])] =  fromfile(fp, np.float32, LCELLS[i])
         if (i<levels-1):
             OFF[i+1] = OFF[i] + LCELLS[i]
     print("LCELLS ", LCELLS)
@@ -214,24 +214,24 @@ def OT_ReadHierarchyV_LOC(filename):
         H, T, ....  = the hierarchy structure, a single vector for each parameter
     """
     fp      =  open(filename, 'rb')
-    NX, NY, NZ, LEVELS, CELLS = fromfile(fp, int32, 5)
-    LCELLS  =  zeros(LEVELS, int32)
-    OFF     =  zeros(LEVELS, int32)
-    H       =  zeros(CELLS,  float32)
-    T       =  zeros(CELLS,  float32)
-    S       =  zeros(CELLS,  float32)
-    VX      =  zeros(CELLS,  float32)
-    VY      =  zeros(CELLS,  float32)
-    VZ      =  zeros(CELLS,  float32)
-    CHI     =  zeros(CELLS,  float32)
+    NX, NY, NZ, LEVELS, CELLS = fromfile(fp, np.int32, 5)
+    LCELLS  =  np.zeros(LEVELS, np.int32)
+    OFF     =  np.zeros(LEVELS, np.int32)
+    H       =  np.zeros(CELLS,  np.float32)
+    T       =  np.zeros(CELLS,  np.float32)
+    S       =  np.zeros(CELLS,  np.float32)
+    VX      =  np.zeros(CELLS,  np.float32)
+    VY      =  np.zeros(CELLS,  np.float32)
+    VZ      =  np.zeros(CELLS,  np.float32)
+    CHI     =  np.zeros(CELLS,  np.float32)
     for X in [ H, T, S, VX, VY, VZ, CHI]:
         for i in range(LEVELS):
-            cells       =  fromfile(fp, int32, 1)
+            cells       =  fromfile(fp, np.int32, 1)
             # print('cells = ', cells)
             cells = cells[0]
             if (i>0):  OFF[i] = OFF[i-1] + LCELLS[i-1]
             LCELLS[i]   =  cells
-            X[OFF[i]:(OFF[i]+LCELLS[i])] =  fromfile(fp, float32, LCELLS[i])
+            X[OFF[i]:(OFF[i]+LCELLS[i])] =  fromfile(fp, np.float32, LCELLS[i])
     return NX, NY, NZ, LCELLS, OFF, H, T, S, VX, VY, VZ, CHI
 
 
@@ -245,11 +245,11 @@ def OT_WriteHierarchyV_LOC(NX, NY, NZ, LCELLS, OFF, H, T, S, VX, VY, VZ, CHI, fi
     LEVELS = len(LCELLS)
     CELLS  = sum(LCELLS)
     fp      =  open(filename, 'wb')
-    asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fp)
+    np.asarray([NX, NY, NZ, LEVELS, CELLS], np.int32).tofile(fp)
     print("OT_WriteHierarchyV_LOC: %d levels, %d = %.3e cells" % (LEVELS, CELLS, CELLS))
     for X in [ H, T, S, VX, VY, VZ, CHI]:
         for i in range(LEVELS):
-            asarray([LCELLS[i],], int32).tofile(fp)
+            np.asarray([LCELLS[i],], np.int32).tofile(fp)
             X[OFF[i]:(OFF[i]+LCELLS[i])].tofile(fp)
     return
 
@@ -268,14 +268,14 @@ def OT_WriteHierarchyV(NX, NY, NZ, LCELLS, OFF, H, filename):
         filename     =  name of the output file
     """
     fp = open(filename, 'wb')
-    asarray([NX, NY, NZ, len(LCELLS), sum(LCELLS)], int32).tofile(fp)
+    np.asarray([NX, NY, NZ, len(LCELLS), sum(LCELLS)], np.int32).tofile(fp)
     levels  = len(LCELLS)
     cells   = sum(LCELLS)
     print("OT_WriteHierarchyV_LOC: %d levels, %d = %.3e cells" % (levels, cells, cells))
     for i in range(levels):
         print("    level %2d   lcells %9d = %.3e" % (i, LCELLS[i], LCELLS[i]))
-        asarray([LCELLS[i],], int32).tofile(fp)
-        asarray( H[  (OFF[i]) : (OFF[i]+LCELLS[i])  ], float32).tofile(fp)
+        np.asarray([LCELLS[i],], np.int32).tofile(fp)
+        np.asarray( H[  (OFF[i]) : (OFF[i]+LCELLS[i])  ], np.float32).tofile(fp)
     fp.close()
 
     
@@ -310,11 +310,11 @@ def OT_GetCoordinatesAllV(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1,2,3,
     program    =  cl.Program(context, source).build(OPT)
     # Use kernel Parents to find the parents
     print('Parents...')
-    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, int32))
-    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, int32))
+    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
+    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, np.int32))
     H_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=H)
     PAR_buf    =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS) # lives on device
-    PAR        =  zeros(CELLS, int32)
+    PAR        =  np.zeros(CELLS, np.int32)
     cl.enqueue_copy(queue, PAR_buf, PAR)
     Parents    =  program.ParentsV
     Parents.set_scalar_arg_dtypes([None,None,None,None])
@@ -328,7 +328,7 @@ def OT_GetCoordinatesAllV(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1,2,3,
     I2C        =  program.Ind2CooAllV
     I2C.set_scalar_arg_dtypes([None,None,None,None,None,None])
     I2C(queue, [GLOBAL,], [LOCAL,], LCELLS_buf, OFF_buf, PAR_buf, X_buf, Y_buf, Z_buf)
-    X, Y, Z    =  zeros(CELLS, float32), zeros(CELLS, float32), zeros(CELLS, float32),
+    X, Y, Z    =  np.zeros(CELLS, np.float32), np.zeros(CELLS, np.float32), np.zeros(CELLS, np.float32),
     cl.enqueue_copy(queue, X, X_buf)
     cl.enqueue_copy(queue, Y, Y_buf)
     cl.enqueue_copy(queue, Z, Z_buf)
@@ -364,11 +364,11 @@ def OT_GetCoordinatesAndLevels(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1
     source     =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
     program    =  cl.Program(context, source).build(OPT)
     # Use kernel Parents to find the parents
-    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, int32))
-    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, int32))
+    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
+    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, np.int32))
     H_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=H)
     PAR_buf    =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS) # lives on device
-    PAR        =  zeros(CELLS, int32)
+    PAR        =  np.zeros(CELLS, np.int32)
     cl.enqueue_copy(queue, PAR_buf, PAR)
     Parents    =  program.ParentsV
     Parents.set_scalar_arg_dtypes([None,None,None,None])
@@ -382,8 +382,8 @@ def OT_GetCoordinatesAndLevels(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1
     I2C        =  program.Ind2CooAndLevel
     I2C.set_scalar_arg_dtypes([     None,       None,    None,    None,  None,  None,  None])
     I2C(queue, [GLOBAL,], [LOCAL,], LCELLS_buf, OFF_buf, PAR_buf, X_buf, Y_buf, Z_buf, L_buf)
-    X, Y, Z    =  zeros(CELLS, float32), zeros(CELLS, float32), zeros(CELLS, float32),
-    L          =  zeros(CELLS, int32)
+    X, Y, Z    =  np.zeros(CELLS, np.float32), np.zeros(CELLS, np.float32), np.zeros(CELLS, np.float32),
+    L          =  np.zeros(CELLS, np.int32)
     cl.enqueue_copy(queue, X, X_buf)
     cl.enqueue_copy(queue, Y, Y_buf)
     cl.enqueue_copy(queue, Z, Z_buf)
@@ -421,7 +421,7 @@ def OT_GetCoordinatesLevelV(NX, NY, NZ, LCELLS, OFF, H, L, GPU=0, platforms=[0,1
     OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=OFF)
     H_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=H)
     PAR_buf    =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS) # lives on device
-    PAR        =  zeros(CELLS, int32)
+    PAR        =  np.zeros(CELLS, np.int32)
     cl.enqueue_copy(queue, PAR_buf, PAR)
     Parents    =  program.ParentsV
     Parents.set_scalar_arg_dtypes([None,None,None,None])
@@ -434,7 +434,7 @@ def OT_GetCoordinatesLevelV(NX, NY, NZ, LCELLS, OFF, H, L, GPU=0, platforms=[0,1
     I2C        =  program.Ind2CooLevelV
     I2C.set_scalar_arg_dtypes([None,None,None,None,None,None,np.int32])
     I2C(queue, [GLOBAL,], [LOCAL,], LCELLS_buf, OFF_buf, PAR_buf, X_buf, Y_buf, Z_buf, L)
-    X, Y, Z    =  zeros(LCELLS[L], float32), zeros(LCELLS[L], float32), zeros(LCELLS[L], float32),
+    X, Y, Z    =  np.zeros(LCELLS[L], np.float32), np.zeros(LCELLS[L], np.float32), np.zeros(LCELLS[L], np.float32),
     cl.enqueue_copy(queue, X, X_buf)
     cl.enqueue_copy(queue, Y, Y_buf)
     cl.enqueue_copy(queue, Z, Z_buf)
@@ -464,12 +464,12 @@ def OT_GetValueV(x, y, z, NX, NY, NZ, LCELLS, OFF, H):
             continue
         ll  =  H[OFF[i]:(OFF[i]+LCELLS[i])].copy()
         ll  = -ll           # links positive floats
-        asarray(ll, float32).tofile('/dev/shm/tmp.bin')
-        ll  =  fromfile('/dev/shm/tmp.bin', int32)  # positive indices
+        np.asarray(ll, np.float32).tofile('/dev/shm/tmp.bin')
+        ll  =  fromfile('/dev/shm/tmp.bin', np.int32)  # positive indices
         LL.append(ll)
         m   =  nonzero(H[i]<1e-10)
     # Root cell
-    i, j, k = int(floor(x)), int(floor(y)), int(floor(z))      # root grid indices
+    i, j, k = int(np.floor(x)), int(np.floor(y)), int(np.floor(z))      # root grid indices
     if ((i<0)|(i>=NX)|(j<0)|(j>=NY)|(k<0)|(k>=NZ)): return 0.0 # outside the cloud
     # print(k*NX*NY+j*NX+i, len(H[0]))
     if (H[0][k*NX*NY+j*NX+i]>0.0):   # a leaf at root level
@@ -527,7 +527,7 @@ def OT_GetIndicesV(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, max_level=99, glo
     """
     if ((type(x[0])!=float32)|(type(x[0])!=float32)|(type(x[0])!=float32)|(type(H[0])!=float32)):
         print("OT_GetIndicesV() -- parameters must be vectors of type numpy.float32"), sys.exit()
-    if ((type(LCELLS[0])!=int32)|(type(OFF[0])!=int32)):
+    if ((type(LCELLS[0])!=np.int32)|(type(OFF[0])!=np.int32)):
         print("OT_GetIndicesV() -- LCELLS and OFF must be numpy.int32 arrays"), sys.exit()
     LEVELS   =  len(LCELLS)
     CELLS    =  sum(LCELLS)
@@ -540,8 +540,8 @@ def OT_GetIndicesV(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, max_level=99, glo
     source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
     program  =  cl.Program(context, source).build(OPT)
     #
-    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, int32))
-    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, int32))
+    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
+    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, np.int32))
     H_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=H)
     X_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=x)
     Y_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=y)
@@ -553,7 +553,7 @@ def OT_GetIndicesV(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, max_level=99, glo
         Coo2IndV.set_scalar_arg_dtypes([None,None,None,None,None,None,None,None])
         Coo2IndV(queue, [GLOBAL,], [LOCAL,], LCELLS_buf, OFF_buf, H_buf,
         X_buf, Y_buf, Z_buf,   ALEV_buf, AIND_buf)
-        ALEV, AIND = zeros(N, int32), zeros(N, int32)
+        ALEV, AIND = np.zeros(N, np.int32), np.zeros(N, np.int32)
         cl.enqueue_copy(queue, ALEV, ALEV_buf)
         cl.enqueue_copy(queue, AIND, AIND_buf)
         return ALEV, AIND
@@ -562,7 +562,7 @@ def OT_GetIndicesV(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, max_level=99, glo
         Coo2IndV.set_scalar_arg_dtypes([     None,       None,    None,  None,  None,  None,  None,     np.int32])
         Coo2IndV(queue, [GLOBAL,], [LOCAL,], LCELLS_buf, OFF_buf, H_buf, X_buf, Y_buf, Z_buf, AIND_buf, max_level)
         queue.finish()
-        IND       =  zeros(N, int32)
+        IND       =  np.zeros(N, np.int32)
         cl.enqueue_copy(queue, IND, AIND_buf)
         return IND
     
@@ -588,7 +588,7 @@ def OT_GetIndicesForLevels(x, y, z, l, NX, NY, NZ, LCELLS, OFF, H, GPU=1, platfo
     """
     if ((type(x[0])!=float32)|(type(x[0])!=float32)|(type(x[0])!=float32)|(type(H[0])!=float32)):
         print("OT_GetIndicesV() -- parameters must be vectors of type numpy.float32"), sys.exit()
-    if ((type(LCELLS[0])!=int32)|(type(OFF[0])!=int32)):
+    if ((type(LCELLS[0])!=np.int32)|(type(OFF[0])!=np.int32)):
         print("OT_GetIndicesV() -- LCELLS and OFF must be numpy.int32 arrays"), sys.exit()
     LEVELS   =  len(LCELLS)
     CELLS    =  sum(LCELLS)
@@ -601,8 +601,8 @@ def OT_GetIndicesForLevels(x, y, z, l, NX, NY, NZ, LCELLS, OFF, H, GPU=1, platfo
     source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
     program  =  cl.Program(context, source).build(OPT)
     #
-    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, int32))
-    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, int32))
+    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
+    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, np.int32))
     H_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=H)
     X_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=x)
     Y_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=y)
@@ -613,7 +613,7 @@ def OT_GetIndicesForLevels(x, y, z, l, NX, NY, NZ, LCELLS, OFF, H, GPU=1, platfo
     Coo2Ind.set_scalar_arg_dtypes([      None,       None,    None,  None,  None,  None,  None,  None ])
     Coo2Ind(queue, [GLOBAL,], [LOCAL,], LCELLS_buf, OFF_buf, H_buf, X_buf, Y_buf, Z_buf, L_buf, AIND_buf)
     queue.finish()
-    IND       =  zeros(N, int32)
+    IND       =  np.zeros(N, np.int32)
     cl.enqueue_copy(queue, IND, AIND_buf)
     return IND
     
@@ -644,11 +644,11 @@ def OT_GetIndicesVLowmem(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, global_inde
     LEVELS   =  len(LCELLS)
     CELLS    =  sum(LCELLS)
     N        =  size(x)
-    x        =  asarray(x, float32)
-    y        =  asarray(y, float32)
-    z        =  asarray(z, float32)
+    x        =  np.asarray(x, np.float32)
+    y        =  np.asarray(y, np.float32)
+    z        =  np.asarray(z, np.float32)
     #
-    BATCH      =  min([10000000, len(x)])
+    BATCH      =  np.min([10000000, len(x)])
     ###
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=False)
     LOCAL    =  [ 8, 32 ][GPU>0]
@@ -657,22 +657,22 @@ def OT_GetIndicesVLowmem(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, global_inde
     source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
     program  =  cl.Program(context, source).build(OPT)
     #
-    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, int32))
-    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, int32))
+    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
+    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, np.int32))
     H_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=H)
     X_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*BATCH)
     Y_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*BATCH)
     Z_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*BATCH)
     AIND_buf   =  cl.Buffer(context, mf.WRITE_ONLY, 4*BATCH)
     if (global_index==False):
-        ALEV, AIND =  zeros(N, int32), zeros(N, int32)
+        ALEV, AIND =  np.zeros(N, np.int32), np.zeros(N, np.int32)
         ALEV_buf   =  cl.Buffer(context, mf.WRITE_ONLY, 4*BATCH)  # N = number of (x,y,z) points
         Coo2IndV   = program.Coo2IndV
         #                               LCELLS  OFF   H     X     Y     Z     ALEV  AIND
         Coo2IndV.set_scalar_arg_dtypes([None,   None, None, None, None, None, None, None ])
         for ibatch in range(1+N//BATCH):
             a = ibatch*BATCH
-            b = min([a + BATCH, N])
+            b = np.min([a + BATCH, N])
             cl.enqueue_copy(queue, X_buf, x[a:b])
             cl.enqueue_copy(queue, Y_buf, y[a:b])
             cl.enqueue_copy(queue, Z_buf, z[a:b])
@@ -683,13 +683,13 @@ def OT_GetIndicesVLowmem(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, global_inde
         cl.enqueue_copy(queue, AIND[a:b], AIND_buf)
         return ALEV, AIND
     else:
-        IND       =  zeros(N, int32)
+        IND       =  np.zeros(N, np.int32)
         Coo2IndV  =  program.Coo2IndVV
         #                               LCELLS  OFF   H     X     Y     Z     IND   MAX_LEVEL
         Coo2IndV.set_scalar_arg_dtypes([None,   None, None, None, None, None, None, np.int32])
         for ibatch in range(1+N//BATCH): 
             a = ibatch*BATCH
-            b = min([a + BATCH, N])
+            b = np.min([a + BATCH, N])
             cl.enqueue_copy(queue, X_buf, x[a:b])
             cl.enqueue_copy(queue, Y_buf, y[a:b])
             cl.enqueue_copy(queue, Z_buf, z[a:b])        
@@ -714,12 +714,12 @@ def Reroot(old_ot_filename, new_ot_filename):
     NX, NY, NZ, LCELLS, OFF, H = OT_ReadHierarchyV(old_ot_filename)
     DIM = NX//2    # new root level is one level above old root grid
     # add new root layer
-    H0 = zeros(DIM*DIM*DIM, float32)
+    H0 = np.zeros(DIM*DIM*DIM, np.float32)
     for i in range(DIM*DIM*DIM):
         H0[i] = -I2F(8*i)  # links to old root grid cells, all root cells refined
     # WE MUST STILL REORDER OLD ROOT LEVEL SO THAT CELLS OF AN OCTET (old root level) ARE CONSECUTIVE
     OLD    =  H[0: (NX*NY*NZ)].reshape(NZ, NY, NX)   # old root grid
-    NEW    =  zeros(NZ*NY*NX,  float32)
+    NEW    =  np.zeros(NZ*NY*NX,  np.float32)
         
     for k in range(DIM):      # loop over new root level
         print("%3d / %3d" % (1+k, DIM))
@@ -736,8 +736,8 @@ def Reroot(old_ot_filename, new_ot_filename):
                 NEW[8*ind+6]   =  OLD[2*k+1, 2*j+1, 2*i  ]
                 NEW[8*ind+7]   =  OLD[2*k+1, 2*j+1, 2*i+1]
     H[0:(NX*NY*NZ)] = ravel(NEW)
-    LCELLS = concatenate(( asarray([DIM*DIM*DIM], int32), LCELLS ))
-    OFF    = concatenate(( asarray([0,], int32), OFF ))
+    LCELLS = concatenate(( np.asarray([DIM*DIM*DIM], np.int32), LCELLS ))
+    OFF    = concatenate(( np.asarray([0,], np.int32), OFF ))
     for i in range(1, len(OFF)):
         OFF[i] += DIM*DIM*DIM
     H = concatenate((H0, H))
@@ -763,14 +763,14 @@ def OT_MakeEmptyHierarchy(DIM, MAXL):
     LEVELS     =  MAXL+1
     LCELLS     =  [ NX*NY*NZ,]
     OFF        =  [ 0,]
-    H          =  ones(NX*NY*NZ, float32)  # root level
+    H          =  np.ones(NX*NY*NZ, np.float32)  # root level
     for P in range(MAXL):                                 # loop over parent layers = addition of child layers
         LCELLS.append(LCELLS[P]*8)                        # children on level P+1
         OFF.append(OFF[P]+LCELLS[P])                      # offset for cells on layer P+1
-        H  = concatenate((H, ones(LCELLS[P+1], float32))) # add child cells, filled with ones
+        H  = concatenate((H, np.ones(LCELLS[P+1], np.float32))) # add child cells, filled with ones
         # update links for all level P cells
         for i in range(LCELLS[P]):  H[OFF[P]+i] = -I2F(8*i)
-    return  NX, NY, NZ, asarray(LCELLS, int32), asarray(OFF, int32), H
+    return  NX, NY, NZ, np.asarray(LCELLS, np.int32), np.asarray(OFF, np.int32), H
 
 
 
@@ -790,15 +790,15 @@ def OT_MakeEmptyHierarchyCL(DIM, MAXL, GPU=1, platforms=[0,1,2,3]):
     """
     NX, NY, NZ =  DIM, DIM, DIM
     LEVELS     =  MAXL+1
-    LCELLS     =  zeros(LEVELS, int32)
-    OFF        =  zeros(LEVELS, int32)
+    LCELLS     =  np.zeros(LEVELS, np.int32)
+    OFF        =  np.zeros(LEVELS, np.int32)
     total      =  0
     for i in range(LEVELS):
         LCELLS[i]  =  DIM*DIM*DIM*(8**i)
         total     +=  LCELLS[i]
         if (i>0):  OFF[i] = OFF[i-1]+LCELLS[i-1]
     cells =  sum(LCELLS)
-    H     =  ones(cells, float32)
+    H     =  np.ones(cells, np.float32)
     ##
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=True)
     LOCAL    =  [ 8, 32 ][GPU>0]
@@ -811,7 +811,7 @@ def OT_MakeEmptyHierarchyCL(DIM, MAXL, GPU=1, platforms=[0,1,2,3]):
     C_buf    =  cl.Buffer(context, mf.READ_WRITE, 4*LCELLS[MAXL-1])
     for j in range(MAXL):   # loop over parent layers, setting the links
         Index(queue, [GLOBAL,], [LOCAL,], LCELLS[j], C_buf)
-        tmp = zeros(LCELLS[j], float32)
+        tmp = np.zeros(LCELLS[j], np.float32)
         cl.enqueue_copy(queue, tmp, C_buf)
         H[OFF[j]:(OFF[j]+LCELLS[j])] = tmp
     return  NX, NY, NZ, LCELLS, OFF, H
@@ -852,10 +852,10 @@ def OT_PropagateVelocity(NX, NY, NZ, LCELLS, OFF, H0, VX, VY, VZ, SIGMA,
     source     =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
     program    =  cl.Program(context, source).build(OPT)
     # Use kernel Parents to find the parents
-    max_cells  =  max(LCELLS)
+    max_cells  =  np.max(LCELLS)
     print('max_cells = %.3e' % max_cells)
-    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, int32))
-    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF,    int32))
+    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
+    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF,    np.int32))
     HP_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)   # hierarchy information - parent level
     HC_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)   # hierarchy information - child level
     PX_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)   # parameters on parent level
@@ -935,9 +935,9 @@ def OT_PropagateScalar(NX, NY, NZ, LCELLS, OFF, H, X, GPU=0, platforms=[0,1,2,3,
     OPT        =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d " % (LEVELS, CELLS, NX, NY, NZ)
     source     =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
     program    =  cl.Program(context, source).build(OPT)
-    max_cells  =  max(LCELLS)
-    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, int32))
-    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF,    int32))
+    max_cells  =  np.max(LCELLS)
+    LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
+    OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF,    np.int32))
     HP_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)   # hierarchy information - parent level
     HC_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)   # hierarchy information - child level
     P_buf      =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)   # parameters on parent level
@@ -987,16 +987,16 @@ def OT_ReadHierarchy(filename):
     """
     # print('ReadHierarchy ', filename)
     fp = open(filename, 'r')
-    nx, ny, nz, levels, cells = fromfile(fp, int32, 5)
+    nx, ny, nz, levels, cells = fromfile(fp, np.int32, 5)
     # print('    OT_ReadHierarchy: ', nx, ny, nz, levels, cells)
-    lcells = zeros(levels, int32)
+    lcells = np.zeros(levels, np.int32)
     H = []
     for i in range(levels):
-        tmp       = fromfile(fp, int32, 1)
+        tmp       = fromfile(fp, np.int32, 1)
         # print(tmp)
         # print('    OT_ReadHierarchy  --- LCELLS[%02d] = %6d' % (i, tmp))
         lcells[i] = tmp
-        H.append(fromfile(fp, float32, lcells[i]))
+        H.append(fromfile(fp, np.float32, lcells[i]))
     return nx, ny, nz, levels, lcells, H
 
 
@@ -1006,12 +1006,12 @@ def OT_WriteHierarchy(nx, ny, nz, levels, lcells, H, filename):
     OT_WriteHierarchy(nx, ny, nz, levels, lcells, H, filename)
     """
     fp = open(filename, 'wb')
-    asarray([nx, ny, nz, levels, sum(lcells)], int32).tofile(fp)
+    np.asarray([nx, ny, nz, levels, sum(lcells)], np.int32).tofile(fp)
     cells = sum(lcells)
     print("OT_WriteHierarchy, %d levels, %d = %.3e cells" % (levels, cells, cells))
     for i in range(levels):
-        asarray([lcells[i],], int32).tofile(fp)
-        asarray(H[i], float32).tofile(fp)
+        np.asarray([lcells[i],], np.int32).tofile(fp)
+        np.asarray(H[i], np.float32).tofile(fp)
         print("    level %2d    cells  %.3e = %d" % (i, lcells[i], lcells[i]))
     fp.close()
 
@@ -1039,14 +1039,14 @@ def OT_GetValue(x, y, z, NX, NY, NZ, H):
             continue
         ll  =  H[i].copy()
         ll  = -ll           # links positive floats
-        asarray(ll, float32).tofile('/dev/shm/tmp.bin')
-        ll  =  fromfile('/dev/shm/tmp.bin', int32)  # positive indices
+        np.asarray(ll, np.float32).tofile('/dev/shm/tmp.bin')
+        ll  =  fromfile('/dev/shm/tmp.bin', np.int32)  # positive indices
         LL.append(ll)
         m   =  nonzero(H[i]<1e-10)
         ## print(ll[m])   # appear to be ok
     ####
     # Root cell
-    i, j, k = int(floor(x)), int(floor(y)), int(floor(z))      # root grid indices
+    i, j, k = int(np.floor(x)), int(np.floor(y)), int(np.floor(z))      # root grid indices
     if ((i<0)|(i>=NX)|(j<0)|(j>=NY)|(k<0)|(k>=NZ)): return 0.0 # outside the cloud
     # print(k*NX*NY+j*NX+i, len(H[0]))
     if (H[0][k*NX*NY+j*NX+i]>0.0):   # a leaf at root level
@@ -1105,16 +1105,16 @@ def OT_GetIndices(x, y, z, NX, NY, NZ, H, GPU=0, platforms=[0,1,2,3,4]):
     program   =  cl.Program(context, source).build(OPT)
     #
     DENS_buf  =  []
-    LCELLS    =  zeros(LEVELS, int32)
+    LCELLS    =  np.zeros(LEVELS, np.int32)
     for i in range(7):  # maximum of 7 levels
         if (i<LEVELS):
             LCELLS[i] = len(H[i])
-            DENS_buf.append( cl.Buffer(context, mf.READ_ONLY, 4*max([1,LCELLS[i]]))  )
+            DENS_buf.append( cl.Buffer(context, mf.READ_ONLY, 4*np.max([1,LCELLS[i]]))  )
         else:
             DENS_buf.append( cl.Buffer(context, mf.READ_ONLY, 4) )
     # print('LEVELS %d, DENS_buf %d' % (LEVELS, len(DENS_buf)))
     CELLS_buf  =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=LCELLS)
-    x, y, z    =  asarray(x, float32), asarray(y, float32), asarray(z, float32)
+    x, y, z    =  np.asarray(x, np.float32), np.asarray(y, np.float32), np.asarray(z, np.float32)
     X_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=x)
     Y_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=y)
     Z_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=z)
@@ -1138,7 +1138,7 @@ def OT_GetIndices(x, y, z, NX, NY, NZ, H, GPU=0, platforms=[0,1,2,3,4]):
     DENS_buf[0], DENS_buf[1], DENS_buf[2], DENS_buf[3], DENS_buf[4], DENS_buf[5], DENS_buf[6],
     X_buf, Y_buf, Z_buf,   ALEV_buf, AIND_buf)
     ####
-    ALEV, AIND = zeros(N, int32), zeros(N, int32)
+    ALEV, AIND = np.zeros(N, np.int32), np.zeros(N, np.int32)
     cl.enqueue_copy(queue, ALEV, ALEV_buf)
     cl.enqueue_copy(queue, AIND, AIND_buf)
     return ALEV, AIND        
@@ -1169,9 +1169,9 @@ def OT_cut_levels(infile, outfile, maxlevel, HHH_in=[], GPU=0, platforms=[0,1,2,
     """
     # Input file
     fpin     =  open(infile, 'rb')
-    NX, NY, NZ, LEVELS, CELLS = fromfile(fpin, int32, 5)
-    maxlevel =  min([LEVELS-1, maxlevel])
-    LCELLS   =  zeros(LEVELS, int32)
+    NX, NY, NZ, LEVELS, CELLS = fromfile(fpin, np.int32, 5)
+    maxlevel =  np.min([LEVELS-1, maxlevel])
+    LCELLS   =  np.zeros(LEVELS, np.int32)
     print('OT_cut_levels: reading hierarchy with %d levels -> maxlevel %d' % (LEVELS, maxlevel))
     # Output file
     fpout    =  open(outfile, 'wb')
@@ -1193,16 +1193,16 @@ def OT_cut_levels(infile, outfile, maxlevel, HHH_in=[], GPU=0, platforms=[0,1,2,
         H = []      # current field ---there will not be "V" version, here array of vectors is more convenient
         # Read data for the current field
         for i in range(LEVELS):
-            cells      =  fromfile(fpin, int32, 1)[0]
+            cells      =  fromfile(fpin, np.int32, 1)[0]
             LCELLS[i]  =  cells
-            H.append(fromfile(fpin, float32, cells))
+            H.append(fromfile(fpin, np.float32, cells))
         if (ifield==0):  # allocate buffers only once LCELLS is known
-            GLOBAL   =  max(LCELLS)   # at most this many parent cells, at most this many vector elements
+            GLOBAL   =  np.max(LCELLS)   # at most this many parent cells, at most this many vector elements
             P_buf    =  cl.Buffer(context, mf.READ_WRITE, 4*GLOBAL)   # parent level cells
             C_buf    =  cl.Buffer(context, mf.READ_ONLY,  4*GLOBAL)   # child level cells 
             H_buf    =  cl.Buffer(context, mf.READ_ONLY,  4*GLOBAL)   # hierarchy for the parent level            
             ### also dimensions of the output file are known only now
-            asarray([NX, NY, NZ, maxlevel+1, sum(LCELLS[0:(maxlevel+1)])], int32).tofile(fpout)            
+            np.asarray([NX, NY, NZ, maxlevel+1, sum(LCELLS[0:(maxlevel+1)])], np.int32).tofile(fpout)            
         # Copy hierarchy information to HHH (in case we have more fields, others not with proper hierarchy data)
         if ((ifield==0)&(len(HHH)<1)):
             HHH = []
@@ -1221,8 +1221,8 @@ def OT_cut_levels(infile, outfile, maxlevel, HHH_in=[], GPU=0, platforms=[0,1,2,
         # Write data for the current field
         for i in range(maxlevel+1):
             print('   ---> write level %2d' % i)
-            asarray([LCELLS[i],], int32).tofile(fpout)
-            asarray(H[i], float32).tofile(fpout)
+            np.asarray([LCELLS[i],], np.int32).tofile(fpout)
+            np.asarray(H[i], np.float32).tofile(fpout)
     #############################
     fpin.close()
     fpout.close()
@@ -1297,43 +1297,43 @@ def OT_cut_volume_old(infile, outfile, limits, hierarchy=[]):
     fin  = open(infile,  'rb')
     fout = open(outfile, 'wb')
     faux = None
-    NX, NY, NZ, LEVELS, CELLS = fromfile(fin, int32, 5)
+    NX, NY, NZ, LEVELS, CELLS = fromfile(fin, np.int32, 5)
     print('INFILE:', NX, NY, NZ, LEVELS, CELLS)
     if (len(hierarchy)>0):  
         faux = open(hierarchy, 'rb')
-        NX, NY, NZ, LEVELS, CELLS = fromfile(faux, int32, 5)
+        NX, NY, NZ, LEVELS, CELLS = fromfile(faux, np.int32, 5)
     NX0, NY0, NZ0 = NX, NY, NZ
     TRUE_LEVELS = 0
-    limits      = asarray(limits)
-    rho, RHO, link, LINKS = None, None, None, None  # LINKS = -RHO read as int32 == links
+    limits      = np.asarray(limits)
+    rho, RHO, link, LINKS = None, None, None, None  # LINKS = -RHO read as np.int32 == links
     for i in range(LEVELS):
         # READ THE NEXT LEVEL
-        cells = fromfile(fin, int32, 1)[0]
-        rho   = fromfile(fin, float32, cells)
+        cells = fromfile(fin, np.int32, 1)[0]
+        rho   = fromfile(fin, np.float32, cells)
         ##########################################################
         links = None
         if (faux==None):              # convert rho into links
-            asarray(-rho,  float32).tofile('/dev/shm/tmp143563.bin')
-            links =  fromfile('/dev/shm/tmp143563.bin', int32)
+            np.asarray(-rho,  np.float32).tofile('/dev/shm/tmp143563.bin')
+            links =  fromfile('/dev/shm/tmp143563.bin', np.int32)
         else:                         # read links from separate file
-            fromfile(faux, int32, 1)  # cells
-            tmp = fromfile(faux, float32, cells)
-            asarray(-tmp,  float32).tofile('/dev/shm/tmp143563.bin')
-            links =  fromfile('/dev/shm/tmp143563.bin', int32) # links >= 0
+            fromfile(faux, np.int32, 1)  # cells
+            tmp = fromfile(faux, np.float32, cells)
+            np.asarray(-tmp,  np.float32).tofile('/dev/shm/tmp143563.bin')
+            links =  fromfile('/dev/shm/tmp143563.bin', np.int32) # links >= 0
         ##########################################################
         if (i==0):
             # we cut the root grid to a set of root cells
-            K, J, I    =  indices((NZ, NY, NX), int32)
+            K, J, I    =  indices((NZ, NY, NX), np.int32)
             K, J, I    =  ravel(K), ravel(J), ravel(I)
             m          =  nonzero((I>=limits[0,0])&(I<=limits[0,1])&(J>=limits[1,0])&(J<=limits[1,1])&(K>=limits[2,0])&(K<=limits[2,1]))
             rho        =  rho[m]           # links and leaf cells, the subvolume only
             links      =  links[m]
             I, J, K    =  I[m], J[m], K[m]
-            NX         =  max(I)-min(I)+1
-            NY         =  max(J)-min(J)+1
-            NZ         =  max(K)-min(K)+1            
+            NX         =  np.max(I)-np.min(I)+1
+            NY         =  np.max(J)-np.min(J)+1
+            NZ         =  np.max(K)-np.min(K)+1            
             CELLS      =  len(rho)
-            asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fout) # CELLS must be updated later!!
+            np.asarray([NX, NY, NZ, LEVELS, CELLS], np.int32).tofile(fout) # CELLS must be updated later!!
             CELLS      =  0        # SO FAR NO CELL DATA WRITTEN TO FILE
             RHO        =  rho.copy()
             LINKS      =  links.copy()
@@ -1341,8 +1341,8 @@ def OT_cut_volume_old(infile, outfile, limits, hierarchy=[]):
         # RHO is the parent level, still with the old links; actual links in LINKS
         # make new vector rho for the cut child vector and update links in RHO
         # new vector, dropping all children without parents
-        rho2    = zeros(len(rho), float32)
-        links2  = zeros(len(rho), int32)
+        rho2    = np.zeros(len(rho), np.float32)
+        links2  = np.zeros(len(rho), np.int32)
         ic      = 0                        # new index to child octets
         for iparent in arange(len(RHO)):   # loop over parents
             l  =  LINKS[iparent]
@@ -1360,54 +1360,54 @@ def OT_cut_volume_old(infile, outfile, limits, hierarchy=[]):
         rho, links =  rho2[0:(8*ic)], links2[0:(8*ic)]
         print('PARENT HAS LINKS TO %d OCTETS, %d CELLS -- THERE ARE %d CHILDREN' % (ic, 8*ic, len(rho)))
         # how many links does this have
-        L   =  asarray(links[nonzero(links>=0)], int32)  # all the links on child level
-        LP  =  asarray(LINKS[nonzero(LINKS>=0)], int32)  # all the links on parent level
+        L   =  np.asarray(links[nonzero(links>=0)], np.int32)  # all the links on child level
+        LP  =  np.asarray(LINKS[nonzero(LINKS>=0)], np.int32)  # all the links on parent level
         print('LEVEL %d:' % i)
         maxi = -1
-        if (len(LP)>0): maxi = max(LP)
+        if (len(LP)>0): maxi = np.max(LP)
         print('         parent %5d CELLS, %5d CHILDREN, MAX LINK %5d' %   (len(RHO), 8*len(LP), maxi))
         if (len(L)>0):
-            print('         child  %5d CELLS, %5d CHILDREN, MAX LINK %5d' % (len(rho), 8*len(L), max(L)))
+            print('         child  %5d CELLS, %5d CHILDREN, MAX LINK %5d' % (len(rho), 8*len(L), np.max(L)))
         else:
             print('         child  %5d CELLS' % (len(rho)))
         # write the data for THE PARENT LEVEL
         CELLS  += len(RHO)   # total number of cells
-        asarray([len(RHO),], int32).tofile(fout)
-        # replace all LINK values with the int32 read as float, times -1
-        asarray(LINKS, int32).tofile('/dev/shm/tmp143563.bin')
-        tmp    =  fromfile('/dev/shm/tmp143563.bin', float32)
+        np.asarray([len(RHO),], np.int32).tofile(fout)
+        # replace all LINK values with the np.int32 read as float, times -1
+        np.asarray(LINKS, np.int32).tofile('/dev/shm/tmp143563.bin')
+        tmp    =  fromfile('/dev/shm/tmp143563.bin', np.float32)
         #### m      =  nonzero(RHO<=0.0)
         m      =  nonzero(LINKS>=0.0)  # mask for link cells
         RHO[m] = -tmp[m] 
-        asarray(RHO, float32).tofile(fout)
+        np.asarray(RHO, np.float32).tofile(fout)
         RHO   = rho.copy()       # the vector of parents for the next iteration
         LINKS = links.copy()
         TRUE_LEVELS += 1         # could be less than LEVELS, if the cut region is not refined
         if (len(rho)<1): break   # the cut region does not contain any deeper levels
         if (len(LP)>0):
-            if (max(LP)>=len(rho)):
+            if (np.max(LP)>=len(rho)):
                 print('*'*80)
-                print('  ERROR:  PARENT HAS A LINK TO CELL %d, THIS LEVEL HAS ONLY %d CELLS' % (max(LP), len(rho)))
+                print('  ERROR:  PARENT HAS A LINK TO CELL %d, THIS LEVEL HAS ONLY %d CELLS' % (np.max(LP), len(rho)))
                 print('*'*80)
                 sys.exit()
     # ==== end of for levels================================================================================
     
     # write the final level = LEVELS-1 (no links there)
     CELLS  += len(rho)   # total number of cells
-    asarray([len(rho),], int32).tofile(fout)
+    np.asarray([len(rho),], np.int32).tofile(fout)
     ## convert links to proper format int -> float
-    asarray(links, int32).tofile('/dev/shm/tmp143563.bin')
-    tmp    =  fromfile('/dev/shm/tmp143563.bin', float32)
+    np.asarray(links, np.int32).tofile('/dev/shm/tmp143563.bin')
+    tmp    =  fromfile('/dev/shm/tmp143563.bin', np.float32)
     m      =  nonzero(links>=0.0)
     rho[m] = -tmp[m]
     ###
-    asarray(rho, float32).tofile(fout)
+    np.asarray(rho, np.float32).tofile(fout)
     TRUE_LEVELS += 1     # could be less than LEVELS, if the cut region is not refined
     fin.close()    
     # update the number of levels and cells
     fout.seek(3*4)
     print('TRUE LEVELS', TRUE_LEVELS)
-    asarray([TRUE_LEVELS, CELLS,], int32).tofile(fout)
+    np.asarray([TRUE_LEVELS, CELLS,], np.int32).tofile(fout)
     fout.close()
     ####
     ####
@@ -1430,9 +1430,9 @@ def OT_cut_volume_old(infile, outfile, limits, hierarchy=[]):
             elif ( s[0]=='dimensions'):
                 fp.write('dimensions %4d %4d %4d\n' % (NX, NY, NZ))
             elif ( s[0]=='direction'):   # set this to the longest LOS direction
-                if   (NX == max([NX, NY, NZ])):
+                if   (NX == np.max([NX, NY, NZ])):
                     fp.write('direction x\n')
-                elif (NY == max([NX, NY, NZ])):
+                elif (NY == np.max([NX, NY, NZ])):
                     fp.write('direction y\n')
                 else:
                     fp.write('direction z\n')
@@ -1477,7 +1477,7 @@ def OT_cut_volume_old2(infile, outfile, limits, LOC=False, GPU=0, platforms=[0,1
     CV       =  program.CutVolume
     #                           LIM,   OFF,  LCELLS,  H,     A,     B,     lcells
     CV.set_scalar_arg_dtypes([  None,  None, None,    None,  None,  None,  None  ])
-    limits     =  asarray(limits, int32)
+    limits     =  np.asarray(limits, np.int32)
     LIM_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR,  hostbuf=limits)
     OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR,  hostbuf=OFF)
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR,  hostbuf=LCELLS)
@@ -1486,7 +1486,7 @@ def OT_cut_volume_old2(infile, outfile, limits, LOC=False, GPU=0, platforms=[0,1
     B_buf      =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
     lcells_buf =  cl.Buffer(context, mf.READ_WRITE, 4*LEVELS)
     ####
-    cells, lcells, levels   =  0, zeros(LEVELS, int32), LEVELS
+    cells, lcells, levels   =  0, np.zeros(LEVELS, np.int32), LEVELS
     # limits are inclusive !!
     limits[0,:] =  clip(limits[0,:], 0, NX-1)
     limits[1,:] =  clip(limits[1,:], 0, NY-1)
@@ -1507,15 +1507,15 @@ def OT_cut_volume_old2(infile, outfile, limits, LOC=False, GPU=0, platforms=[0,1
             cl.enqueue_copy(queue, lcells, lcells_buf)
             cells   = sum(lcells)
             levels  = len(nonzero(lcells>0)[0])  # cut region may not contain all hierarchy levels
-            asarray([nx, ny, nz, levels, cells], int32).tofile(fp)
+            np.asarray([nx, ny, nz, levels, cells], np.int32).tofile(fp)
             print("*** FROM KERNEL %d %d %d  %d %d\n" %(nx, ny, nz, levels, cells))
             print("*** lcells ", lcells)
         # OFF is not changed, only lcells <= LCELLS
-        B = zeros(CELLS, float32)
+        B = np.zeros(CELLS, np.float32)
         cl.enqueue_copy(queue, B, B_buf)
         for ilevel in range(levels):
             print("   ilevel = %2d  ==> %d cells" % (ilevel, lcells[ilevel]))
-            asarray([lcells[ilevel],], int32).tofile(fp)
+            np.asarray([lcells[ilevel],], np.int32).tofile(fp)
             B[OFF[ilevel]:(OFF[ilevel]+lcells[ilevel])].tofile(fp) # dropping the cut cells
     fp.close()
             
@@ -1558,7 +1558,7 @@ def OT_cut_volume(infile, outfile, limits, LOC=False, GPU=0, platforms=[0,1,2,3,
     CV       =  program.CutVolume
     #                           LIM,   OFF,  LCELLS,  H0,    H1,    X0,   X1    lcells
     CV.set_scalar_arg_dtypes([  None,  None, None,    None,  None,  None, None, None  ])
-    limits     =  asarray(limits, int32)
+    limits     =  np.asarray(limits, np.int32)
     LIM_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR,  hostbuf=limits)
     OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR,  hostbuf=OFF)
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR,  hostbuf=LCELLS)
@@ -1568,7 +1568,7 @@ def OT_cut_volume(infile, outfile, limits, LOC=False, GPU=0, platforms=[0,1,2,3,
     X1_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
     lcells_buf =  cl.Buffer(context, mf.READ_WRITE, 4*LEVELS)
     ####
-    cells, lcells, levels   =  0, zeros(LEVELS, int32), LEVELS
+    cells, lcells, levels   =  0, np.zeros(LEVELS, np.int32), LEVELS
     # limits are inclusive !!
     limits[0,:] =  clip(limits[0,:], 0, NX-1)
     limits[1,:] =  clip(limits[1,:], 0, NY-1)
@@ -1596,15 +1596,15 @@ def OT_cut_volume(infile, outfile, limits, LOC=False, GPU=0, platforms=[0,1,2,3,
             cl.enqueue_copy(queue, lcells, lcells_buf)  # cells per level in the new hierarchy
             cells   = sum(lcells)
             levels  = len(nonzero(lcells>0)[0])  # cut region may not contain all hierarchy levels
-            asarray([nx, ny, nz, levels, cells], int32).tofile(fp)
+            np.asarray([nx, ny, nz, levels, cells], np.int32).tofile(fp)
             print("*** FROM KERNEL %d %d %d  %d %d\n" %(nx, ny, nz, levels, cells))
             print("*** lcells ", lcells)
         # OFF is not changed, only lcells <= LCELLS
-        B = zeros(CELLS, float32)
+        B = np.zeros(CELLS, np.float32)
         cl.enqueue_copy(queue, X, X1_buf)  # cut hierarchy for selected field
         for ilevel in range(levels):
             print("   ilevel = %2d  ==> %d cells" % (ilevel, lcells[ilevel]))
-            asarray([lcells[ilevel],], int32).tofile(fp)
+            np.asarray([lcells[ilevel],], np.int32).tofile(fp)
             X[OFF[ilevel]:(OFF[ilevel]+lcells[ilevel])].tofile(fp) # dropping the cut cells
     fp.close()
             
@@ -1627,7 +1627,7 @@ def OT_prune_hierarchy(infile, outfile, threshold, GPU=0, platforms=[0,1,2,3,4])
     """    
     NX, NY, NZ, LEVELS, LCELLS, H = OT_ReadHierarchy(infile)    
     print('OT_cut_levels: reading hierarchy with %d levels' % LEVELS)
-    LCELLS0 = asarray(LCELLS, int32).copy()
+    LCELLS0 = np.asarray(LCELLS, np.int32).copy()
     # Create OpenCL program to average child values into parent node
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms)
     LOCAL    =  [ 8, 32 ][GPU>0]
@@ -1644,7 +1644,7 @@ def OT_prune_hierarchy(infile, outfile, threshold, GPU=0, platforms=[0,1,2,3,4])
     OrderChildren             =  program.OrderChildren
     OrderChildren.set_scalar_arg_dtypes([np.int32, None, None, None, None])
     ############
-    GLOBAL   =  max(LCELLS)   # at most this many parent cells, at most this many vector elements
+    GLOBAL   =  np.max(LCELLS)   # at most this many parent cells, at most this many vector elements
     GLOBAL   =  (GLOBAL//32+1)*32
     P_buf    =  cl.Buffer(context, mf.READ_WRITE, 4*GLOBAL)
     C_buf    =  cl.Buffer(context, mf.READ_WRITE, 4*GLOBAL)
@@ -1663,7 +1663,7 @@ def OT_prune_hierarchy(infile, outfile, threshold, GPU=0, platforms=[0,1,2,3,4])
             # order children so that they are in the same order as the parents
             print("ORDER CHILDREN")
             m = nonzero(P<=0.0)   # all parents with children
-            I = asarray(m[0], int32)
+            I = np.asarray(m[0], np.int32)
             cl.enqueue_copy(queue, I_buf, I)
             nop = len(I)          # number of parents with children
             OrderChildren(queue, [GLOBAL,], [LOCAL,], nop, P_buf, C_buf, CO_buf, I_buf)
@@ -1725,7 +1725,7 @@ def Turbulence(rhofile, vxfile, vyfile, vzfile, sigmafile):
     CELLS = sum(LCELLS)
     SIGMA = []
     for h in H:    # create SIGMA vectors
-        SIGMA.append(zeros(len(h), float32))    
+        SIGMA.append(zeros(len(h), np.float32))    
     for level in range(LEVELS-2, -1, -1):          # loop over parent levels
         print("LEVEL %d" % level)
         m = nonzero(H[level]<=0)                   # parent cells of "level"
@@ -1749,10 +1749,10 @@ def Turbulence(rhofile, vxfile, vyfile, vzfile, sigmafile):
             SIGMA[level+1][c:(c+8)][mc] = sigma     # parent = sigma*k, child is sigma
     # save sigma values to the output file
     fp = open(sigmafile, 'wb')
-    asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fp)
+    np.asarray([NX, NY, NZ, LEVELS, CELLS], np.int32).tofile(fp)
     for level in range(LEVELS):
-        asarray([LCELLS[level],], int32).tofile(fp)
-        asarray(SIGMA[level], float32).tofile(fp)
+        np.asarray([LCELLS[level],], np.int32).tofile(fp)
+        np.asarray(SIGMA[level], np.float32).tofile(fp)
     fp.close()
     
     
@@ -1776,7 +1776,7 @@ def TurbulenceCL(rhofile, vxfile, vyfile, vzfile, sigmafile, GPU=1, PLF=[0,1,2,3
     CELLS = sum(LCELLS)
     SIGMA = []
     for h in H:    # create SIGMA vectors
-        SIGMA.append(zeros(len(h), float32))    
+        SIGMA.append(zeros(len(h), np.float32))    
     ###
     platform, device, context, queue, mf = InitCL(GPU, platforms=PLF)
     LOCAL       =  [8,32][GPU>0]
@@ -1785,7 +1785,7 @@ def TurbulenceCL(rhofile, vxfile, vyfile, vzfile, sigmafile, GPU=1, PLF=[0,1,2,3
     program     =  cl.Program(context, source).build(OPT)
     SU          =  program.SigmaUpdate
     SU.set_scalar_arg_dtypes([np.int32, None, None, None, None, None, None, None, None])
-    NMAX        =  max(LCELLS)
+    NMAX        =  np.max(LCELLS)
     H_buf       =  cl.Buffer(context, mf.READ_ONLY,  4*NMAX)
     SIGMAP_buf  =  cl.Buffer(context, mf.READ_WRITE, 4*NMAX)
     SIGMAC_buf  =  cl.Buffer(context, mf.READ_WRITE, 4*NMAX)
@@ -1798,15 +1798,15 @@ def TurbulenceCL(rhofile, vxfile, vyfile, vzfile, sigmafile, GPU=1, PLF=[0,1,2,3
     ##
     for level in range(LEVELS-2, -1, -1):          # loop over parent levels
         print("LEVEL %d" % level)        
-        cl.enqueue_copy(queue, H_buf,      asarray(H[level],       float32))        
-        cl.enqueue_copy(queue, VXP_buf,    asarray(VX[level],      float32))
-        cl.enqueue_copy(queue, VYP_buf,    asarray(VY[level],      float32))
-        cl.enqueue_copy(queue, VZP_buf,    asarray(VZ[level],      float32))
-        cl.enqueue_copy(queue, SIGMAP_buf, asarray(SIGMA[level],   float32))
-        cl.enqueue_copy(queue, SIGMAC_buf, asarray(SIGMA[level+1], float32))
-        cl.enqueue_copy(queue, VXC_buf,    asarray(VX[level+1],    float32))
-        cl.enqueue_copy(queue, VYC_buf,    asarray(VY[level+1],    float32))
-        cl.enqueue_copy(queue, VZC_buf,    asarray(VZ[level+1],    float32))
+        cl.enqueue_copy(queue, H_buf,      np.asarray(H[level],       np.float32))        
+        cl.enqueue_copy(queue, VXP_buf,    np.asarray(VX[level],      np.float32))
+        cl.enqueue_copy(queue, VYP_buf,    np.asarray(VY[level],      np.float32))
+        cl.enqueue_copy(queue, VZP_buf,    np.asarray(VZ[level],      np.float32))
+        cl.enqueue_copy(queue, SIGMAP_buf, np.asarray(SIGMA[level],   np.float32))
+        cl.enqueue_copy(queue, SIGMAC_buf, np.asarray(SIGMA[level+1], np.float32))
+        cl.enqueue_copy(queue, VXC_buf,    np.asarray(VX[level+1],    np.float32))
+        cl.enqueue_copy(queue, VYC_buf,    np.asarray(VY[level+1],    np.float32))
+        cl.enqueue_copy(queue, VZC_buf,    np.asarray(VZ[level+1],    np.float32))
         SU(queue, [GLOBAL,], [LOCAL,], LCELLS[level], H_buf, 
         VXP_buf, VYP_buf, VZP_buf, SIGMAP_buf,        VXC_buf, VYC_buf, VZC_buf, SIGMAC_buf)
         cl.enqueue_copy(queue, SIGMA[level+1], SIGMAC_buf)
@@ -1816,10 +1816,10 @@ def TurbulenceCL(rhofile, vxfile, vyfile, vzfile, sigmafile, GPU=1, PLF=[0,1,2,3
         cl.enqueue_copy(queue, VZ[level],      VZP_buf)
     # save sigma values to the output file
     fp = open(sigmafile, 'wb')
-    asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fp)
+    np.asarray([NX, NY, NZ, LEVELS, CELLS], np.int32).tofile(fp)
     for level in range(LEVELS):
-        asarray([LCELLS[level],], int32).tofile(fp)
-        asarray(SIGMA[level], float32).tofile(fp)
+        np.asarray([LCELLS[level],], np.int32).tofile(fp)
+        np.asarray(SIGMA[level], np.float32).tofile(fp)
     fp.close()
     
 
@@ -1845,7 +1845,7 @@ def Update_LOC_turbulence(NX, NY, NZ, LCELLS, OFF, H, T, S, VX, VY, VZ, GPU=1, P
     SU          =  program.SigmaUpdateLOC
     #                         N         H     VXP   VYP   VZP   SIGMAP VXC   VYC   VZC   SIGMAC
     SU.set_scalar_arg_dtypes([np.int32, None, None, None, None, None,  None, None, None, None])
-    NMAX        =  max(LCELLS)
+    NMAX        =  np.max(LCELLS)
     H_buf       =  cl.Buffer(context, mf.READ_ONLY,  4*NMAX)
     SIGMAP_buf  =  cl.Buffer(context, mf.READ_WRITE, 4*NMAX)
     SIGMAC_buf  =  cl.Buffer(context, mf.READ_WRITE, 4*NMAX)
@@ -1862,15 +1862,15 @@ def Update_LOC_turbulence(NX, NY, NZ, LCELLS, OFF, H, T, S, VX, VY, VZ, GPU=1, P
         print("LEVEL %d" % level)
         a, b  =  OFF[level],    OFF[level]  +LCELLS[level]     # parent level cells
         c, d  =  OFF[level+1],  OFF[level+1]+LCELLS[level+1]   # child level cells
-        cl.enqueue_copy(queue, H_buf,      asarray(H[a:b],     float32))        
-        cl.enqueue_copy(queue, VXP_buf,    asarray(VX[a:b],    float32))
-        cl.enqueue_copy(queue, VYP_buf,    asarray(VY[a:b],    float32))
-        cl.enqueue_copy(queue, VZP_buf,    asarray(VZ[a:b],    float32))
-        cl.enqueue_copy(queue, SIGMAP_buf, asarray(S[a:b],     float32))
-        cl.enqueue_copy(queue, SIGMAC_buf, asarray(S[c:d],     float32))
-        cl.enqueue_copy(queue, VXC_buf,    asarray(VX[c:d],    float32))
-        cl.enqueue_copy(queue, VYC_buf,    asarray(VY[c:d],    float32))
-        cl.enqueue_copy(queue, VZC_buf,    asarray(VZ[c:d],    float32))
+        cl.enqueue_copy(queue, H_buf,      np.asarray(H[a:b],     np.float32))        
+        cl.enqueue_copy(queue, VXP_buf,    np.asarray(VX[a:b],    np.float32))
+        cl.enqueue_copy(queue, VYP_buf,    np.asarray(VY[a:b],    np.float32))
+        cl.enqueue_copy(queue, VZP_buf,    np.asarray(VZ[a:b],    np.float32))
+        cl.enqueue_copy(queue, SIGMAP_buf, np.asarray(S[a:b],     np.float32))
+        cl.enqueue_copy(queue, SIGMAC_buf, np.asarray(S[c:d],     np.float32))
+        cl.enqueue_copy(queue, VXC_buf,    np.asarray(VX[c:d],    np.float32))
+        cl.enqueue_copy(queue, VYC_buf,    np.asarray(VY[c:d],    np.float32))
+        cl.enqueue_copy(queue, VZC_buf,    np.asarray(VZ[c:d],    np.float32))
         SU(queue, [GLOBAL,], [LOCAL,], LCELLS[level], H_buf, 
         VXP_buf, VYP_buf, VZP_buf, SIGMAP_buf,        VXC_buf, VYC_buf, VZC_buf, SIGMAC_buf)
         cl.enqueue_copy(queue, S[a:b],     SIGMAP_buf)
@@ -1916,9 +1916,9 @@ def Reorder(x, y, z, x0, dx, GPU=0, platforms=[0,1,2,3,4]):
     OPT      =  " -D N=%d  -D OFF=%.8ef  -D STEP=%.8ef -D USE_GPU=%d" % (N, x0, dx, GPU)
     source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_RamsesHierarchy.c').read()
     program  =  cl.Program(context, source).build(OPT)
-    SID0     =  zeros(len(x), int32)
+    SID0     =  np.zeros(len(x), np.int32)
     SID0_buf =  cl.Buffer(context, mf.READ_WRITE, SID0.nbytes)
-    x, y, z  =  asarray(x, float32), asarray(y, float32), asarray(z, float32)
+    x, y, z  =  np.asarray(x, np.float32), np.asarray(y, np.float32), np.asarray(z, np.float32)
     X_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=x)
     Y_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=y)
     Z_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=z)
@@ -1938,7 +1938,7 @@ def Reorder(x, y, z, x0, dx, GPU=0, platforms=[0,1,2,3,4]):
     
     # Second kernel -- given a vector of indices of sid==0 cells, 
     # put all cells to SID in their correct order according to SID (sub-index within each octet)
-    SID      =  zeros(N, int32)
+    SID      =  np.zeros(N, np.int32)
     SID_buf  =  cl.Buffer(context, mf.WRITE_ONLY, SID.nbytes)    
     Sid      =  program.SID_order_sorted
     Sid.set_scalar_arg_dtypes([None, None, None, None, None]) # (x, y, z) coordinates, SID0, SID vector
@@ -1969,7 +1969,7 @@ def DumpToSOC(INDEX, DUMP, FILENAME, GPU=0, platforms=[0,1,2,3,4], scaling=1.0):
         DIM1, DIM2, DIM3, LEVELS, sum(CELLS)
         each level:
             LCELLS, { values}
-    Routine simply copies int32 values (links!!) to a new file where data are float32, 
+    Routine simply copies np.int32 values (links!!) to a new file where data are np.float32, 
     then adding data read from DUMP.
     Note:  Indices in INDEX are 1,2,3,...  DUMP starts with the number of entries
     Links are changed to    -*(float*)&abs(i) !!!
@@ -1977,17 +1977,17 @@ def DumpToSOC(INDEX, DUMP, FILENAME, GPU=0, platforms=[0,1,2,3,4], scaling=1.0):
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=False)
     LOCAL    =  [ 8, 32 ][GPU>0]
     ###
-    X        = fromfile(DUMP, float32)[1:]
+    X        = fromfile(DUMP, np.float32)[1:]
     if (scaling!=1.0):  X *= scaling
     fp       = open(INDEX, 'rb')
     fpo      = open(FILENAME, 'wb')
-    DIM1, DIM2, DIM3, LEVELS, CELLS = fromfile(fp, int32, 5)
-    asarray([DIM1, DIM2, DIM3, LEVELS, CELLS], int32).tofile(fpo)
-    LCELLS   = zeros(LEVELS, int32)
+    DIM1, DIM2, DIM3, LEVELS, CELLS = fromfile(fp, np.int32, 5)
+    np.asarray([DIM1, DIM2, DIM3, LEVELS, CELLS], np.int32).tofile(fpo)
+    LCELLS   = np.zeros(LEVELS, np.int32)
     H        = []
     for i in range(LEVELS):
-        LCELLS[i] = fromfile(fp, int32, 1)[0]
-        H.append(fromfile(fp, int32, LCELLS[i]))   # indices int32 !!
+        LCELLS[i] = fromfile(fp, np.int32, 1)[0]
+        H.append(fromfile(fp, np.int32, LCELLS[i]))   # indices int32 !!
         print('... reading level %d,  cells %d' % (i, LCELLS[i]))
     print('Total of %d cells' % sum(LCELLS))
     # Now the hierarchy has been read, the data vector (ramses dump) has been read
@@ -1997,16 +1997,16 @@ def DumpToSOC(INDEX, DUMP, FILENAME, GPU=0, platforms=[0,1,2,3,4], scaling=1.0):
     program  = cl.Program(context, source).build(OPT)
     CONVERT  = program.Convert
     CONVERT.set_scalar_arg_dtypes([np.int32, None, None, None])
-    GLOBAL   = (max(LCELLS)//LOCAL+1)*LOCAL  # maximum number of cells per level
+    GLOBAL   = (np.max(LCELLS)//LOCAL+1)*LOCAL  # maximum number of cells per level
     print("DumpToSOC  LOCAL=%d, GLOBAL=%d ... %.3f" % (LOCAL, GLOBAL, GLOBAL/LOCAL))
     # One level at a time, convert INDEX vector and DUMP array into DATA vector
-    #    DATA = float32 data values and   *(int *)&(-DATA[i]) links
+    #    DATA = np.float32 data values and   *(int *)&(-DATA[i]) links
     #    ==> result will be SOCAMO file in NEWLINK format
-    X_buf    = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=X) # rho, Bx, ... float32
+    X_buf    = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=X) # rho, Bx, ... np.float32
     H_buf    = cl.Buffer(context, mf.READ_ONLY,  GLOBAL*4)  # index for one level  int32
-    D_buf    = cl.Buffer(context, mf.WRITE_ONLY, GLOBAL*4)  # final data vector    float32
-    DDD      = zeros(GLOBAL, float32)
-    HHH      = zeros(GLOBAL, int32)
+    D_buf    = cl.Buffer(context, mf.WRITE_ONLY, GLOBAL*4)  # final data vector    np.float32
+    DDD      = np.zeros(GLOBAL, np.float32)
+    HHH      = np.zeros(GLOBAL, np.int32)
     for i in range(LEVELS):
         cells  =  LCELLS[i]
         HHH[0:cells] = H[i]
@@ -2014,8 +2014,8 @@ def DumpToSOC(INDEX, DUMP, FILENAME, GPU=0, platforms=[0,1,2,3,4], scaling=1.0):
         CONVERT(queue, [GLOBAL,], [LOCAL,], cells, X_buf, H_buf, D_buf)
         cl.enqueue_copy(queue, DDD, D_buf)    # data vector for current level
         # write data for the current level
-        asarray([cells,], int32).tofile(fpo)
-        asarray(DDD[0:cells], float32).tofile(fpo)
+        np.asarray([cells,], np.int32).tofile(fpo)
+        np.asarray(DDD[0:cells], np.float32).tofile(fpo)
     fp.close()
     fpo.close()
         
@@ -2041,16 +2041,16 @@ def DumpToLOC_(INDEX, PREFIX, FILENAME, T=10.0, SIGMA=1.0, ABUNDANCE=1.0e-6, GPU
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=False)
     LOCAL    =  [ 8, 32 ][GPU>0]
     ###
-    X        = fromfile('%s.rho' % PREFIX, float32)[1:]
+    X        = fromfile('%s.rho' % PREFIX, np.float32)[1:]
     fp       = open(INDEX, 'rb')
-    DIM1, DIM2, DIM3, LEVELS, CELLS = fromfile(fp, int32, 5)
+    DIM1, DIM2, DIM3, LEVELS, CELLS = fromfile(fp, np.int32, 5)
     fpo      = open(FILENAME, 'wb')
-    asarray([DIM1, DIM2, DIM3, LEVELS, CELLS], int32).tofile(fpo)
-    LCELLS   = zeros(LEVELS, int32)
+    np.asarray([DIM1, DIM2, DIM3, LEVELS, CELLS], np.int32).tofile(fpo)
+    LCELLS   = np.zeros(LEVELS, np.int32)
     H        = []
     for i in range(LEVELS):
-        LCELLS[i] = fromfile(fp, int32, 1)[0]
-        H.append(fromfile(fp, int32, LCELLS[i]))   # indices int32 !!
+        LCELLS[i] = fromfile(fp, np.int32, 1)[0]
+        H.append(fromfile(fp, np.int32, LCELLS[i]))   # indices np.int32 !!
         print('... reading level %d,  cells %d' % (i, LCELLS[i]))
     fp.close()
     print('Total of %d cells' % sum(LCELLS))
@@ -2061,15 +2061,15 @@ def DumpToLOC_(INDEX, PREFIX, FILENAME, T=10.0, SIGMA=1.0, ABUNDANCE=1.0e-6, GPU
     program  = cl.Program(context, source).build(OPT)
     CONVERT  = program.Convert
     CONVERT.set_scalar_arg_dtypes([np.int32, None, None, None])
-    GLOBAL   = max(LCELLS)  # maximum number of cells per level
+    GLOBAL   = np.max(LCELLS)  # maximum number of cells per level
     # One level at a time, convert INDEX vector and DUMP array into DATA vector
-    #    DATA = float32 data values and   *(int *)&(-DATA[i]) links
+    #    DATA = np.float32 data values and   *(int *)&(-DATA[i]) links
     #    ==> result will be SOCAMO file in NEWLINK format
-    X_buf    = cl.Buffer(context, mf.READ_ONLY,  4*len(X)) # rho, Bx, ... float32
-    H_buf    = cl.Buffer(context, mf.READ_ONLY,  GLOBAL*4)  # index for one level  int32
-    D_buf    = cl.Buffer(context, mf.WRITE_ONLY, GLOBAL*4)  # final data vector    float32
-    DDD      = zeros(GLOBAL, float32)
-    HHH      = zeros(GLOBAL, int32)
+    X_buf    = cl.Buffer(context, mf.READ_ONLY,  4*len(X)) # rho, Bx, ... np.float32
+    H_buf    = cl.Buffer(context, mf.READ_ONLY,  GLOBAL*4)  # index for one level  np.int32
+    D_buf    = cl.Buffer(context, mf.WRITE_ONLY, GLOBAL*4)  # final data vector    np.float32
+    DDD      = np.zeros(GLOBAL, np.float32)
+    HHH      = np.zeros(GLOBAL, np.int32)
     # RHO
     cl.enqueue_copy(queue, X_buf, X)
     for i in range(LEVELS):
@@ -2078,15 +2078,15 @@ def DumpToLOC_(INDEX, PREFIX, FILENAME, T=10.0, SIGMA=1.0, ABUNDANCE=1.0e-6, GPU
         cl.enqueue_copy(queue, H_buf, HHH)    # index vector for current level
         CONVERT(queue, [GLOBAL,], [LOCAL,], cells, X_buf, H_buf, D_buf)
         cl.enqueue_copy(queue, DDD, D_buf)    # data vector for current level
-        asarray([cells,], int32).tofile(fpo)
-        asarray(DDD[0:cells], float32).tofile(fpo)
+        np.asarray([cells,], np.int32).tofile(fpo)
+        np.asarray(DDD[0:cells], np.float32).tofile(fpo)
     # 
     for ifield in range(6):
         if   (ifield==0):   X = 0.0*X+T                                    # temperature
         elif (ifield==1):   X = 0.0*X+SIGMA                                # SIGMA
-        elif (ifield==2):   X = fromfile('%s.vx' % PREFIX, float32)[1:]    # vx
-        elif (ifield==3):   X = fromfile('%s.vy' % PREFIX, float32)[1:]    # vy
-        elif (ifield==4):   X = fromfile('%s.vz' % PREFIX, float32)[1:]    # vz
+        elif (ifield==2):   X = fromfile('%s.vx' % PREFIX, np.float32)[1:]    # vx
+        elif (ifield==3):   X = fromfile('%s.vy' % PREFIX, np.float32)[1:]    # vy
+        elif (ifield==4):   X = fromfile('%s.vz' % PREFIX, np.float32)[1:]    # vz
         elif (ifield==2):   X = 0.0*X+ABUNDANCE                            # abundance
         cl.enqueue_copy(queue, X_buf, X)
         for i in range(LEVELS):
@@ -2095,8 +2095,8 @@ def DumpToLOC_(INDEX, PREFIX, FILENAME, T=10.0, SIGMA=1.0, ABUNDANCE=1.0e-6, GPU
             cl.enqueue_copy(queue, H_buf, HHH)    # index vector for current level
             CONVERT(queue, [GLOBAL,], [LOCAL,], cells, X_buf, H_buf, D_buf)
             cl.enqueue_copy(queue, DDD, D_buf)    # data vector for current level
-            asarray([cells,], int32).tofile(fpo)
-            asarray(DDD[0:cells], float32).tofile(fpo)
+            np.asarray([cells,], np.int32).tofile(fpo)
+            np.asarray(DDD[0:cells], np.float32).tofile(fpo)
     ###
     fpo.close()
         
@@ -2132,7 +2132,7 @@ def MakeLOC(PREFIX, GPU=0, TKIN=15.0, rhoscale=1.0):
     nx, ny, nz, lcells, off, vx     =  OT_ReadHierarchyV(PREFIX+'.vx')    # RamsesDumpField did zyx -> xyz for velo
     nx, ny, nz, lcells, off, vy     =  OT_ReadHierarchyV(PREFIX+'.vy')
     nx, ny, nz, lcells, off, vz     =  OT_ReadHierarchyV(PREFIX+'.vz')
-    sigma  =  -1.0*ones(len(vx), float32)
+    sigma  =  -1.0*np.ones(len(vx), np.float32)
     
     # We need (vx, vy, vz, s) where EVERY CELL contains data values, not only the leafs.
     # Fill in this information here, parent cell gets the average velocity over children, 
@@ -2163,9 +2163,9 @@ def MakeLOC(PREFIX, GPU=0, TKIN=15.0, rhoscale=1.0):
         print("*** DENSITY SCALED WITH %.3e" % rhoscale)
         H[m] *=  rhoscale
     # TARGET parameter vectors in upper case
-    VX, VY, VZ   =  zeros(CELLS, float32), zeros(CELLS, float32), zeros(CELLS, float32)
-    SIGMA        =  zeros(CELLS, float32)         # value must be zero initially (for bookkeeping), calculated below
-    T            =  TKIN * ones(CELLS, float32)   # eventually from Tdust
+    VX, VY, VZ   =  np.zeros(CELLS, np.float32), np.zeros(CELLS, np.float32), np.zeros(CELLS, np.float32)
+    SIGMA        =  np.zeros(CELLS, np.float32)         # value must be zero initially (for bookkeeping), calculated below
+    T            =  TKIN * np.ones(CELLS, np.float32)   # eventually from Tdust
     # CHI =  from the Glover & Clark paper, abundances for 12CO !!!
     n   =  logspace(-3.0, 10.0, 2000)
     # V2  =  1e-4* n**2.0  / (5.0e5+n**2.0)
@@ -2174,7 +2174,7 @@ def MakeLOC(PREFIX, GPU=0, TKIN=15.0, rhoscale=1.0):
     # lets use version V3
     t0  =  time.time()
     ip  =  interp1d(n, V3, fill_value=1.0e-12, bounds_error=False)
-    CHI =  clip(asarray(ip(H), float32), 1.0e-12, 1.0)
+    CHI =  clip(asarray(ip(H), np.float32), 1.0e-12, 1.0)
     print("Abundance calculated in %.3f seconds" % (time.time()-t0))
     for level in range(LEVELS):  # loop over hierarchy levels (to reduce memory usage)
         a, b        =  OFF[level], OFF[level]+LCELLS[level]
@@ -2196,11 +2196,11 @@ def MakeLOC(PREFIX, GPU=0, TKIN=15.0, rhoscale=1.0):
             
     # Write cloud file
     fp = open(PREFIX+'.loc', 'wb')
-    asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fp)
+    np.asarray([NX, NY, NZ, LEVELS, CELLS], np.int32).tofile(fp)
     for F in [ H, T, SIGMA, VX, VY, VZ, CHI ]:
         for level in range(LEVELS):
             a, b    =  OFF[level], OFF[level] + LCELLS[level]
-            asarray([LCELLS[level],], int32).tofile(fp)
+            np.asarray([LCELLS[level],], np.int32).tofile(fp)
             print('%10d     %10d - %10d' % (LCELLS[level], a, b))
             F[a:b].tofile(fp)
     fp.close()
@@ -2227,20 +2227,20 @@ def AverageTemperatureFiles(names, avename):
     #   LEVELS, CELLS
     #   LCELLS, {T}
     fp     =  open(names[0], 'rb')
-    dims   =  fromfile(fp, int32, 5)
+    dims   =  fromfile(fp, np.int32, 5)
     NX, NY, NZ, LEVELS, CELLS = dims
-    LCELLS = zeros(LEVELS, int32)
+    LCELLS = np.zeros(LEVELS, np.int32)
     AVE = []
     for i in range(LEVELS):
-        lcells     =  fromfile(fp, int32, 1)[0]
+        lcells     =  fromfile(fp, np.int32, 1)[0]
         LCELLS[i]  =  lcells
-        AVE.append(fromfile(fp, float32, lcells))
+        AVE.append(fromfile(fp, np.float32, lcells))
     fp.close()
     count = 1
     # now AVE contains "sum" of count temperature files
     for name in names[1:]: # the rest of the files
         fp = open(name, 'rb')
-        nx, ny, nz, levels, cells = fromfile(fp, int32, 5)
+        nx, ny, nz, levels, cells = fromfile(fp, np.int32, 5)
         if ((nx!=NX)|(ny!=NY)|(nz!=NZ)|(levels!=LEVELS)):
             print('AverageTemperatureFiles: inconsistent dimensions')
             print('%3d %3d %3d %3d for %s' % (NX, NY, NZ, LEVELS, names[0]))
@@ -2249,24 +2249,24 @@ def AverageTemperatureFiles(names, avename):
             return
         ###
         for i in range(LEVELS):
-            lcells = fromfile(fp, int32, 1)[0]
+            lcells = fromfile(fp, np.int32, 1)[0]
             if (lcells!=LCELLS[i]):
                 print('AverageTemperatureFiles: error in lcells')
                 print('First file LCELLS[%d]=%d -- %s' % (i, LCELLS[i], names[0]))
                 print('This file  LCELLS[%d]=%d -- %s' % (i, lcells, name))
                 print(' *** ABORT ***')
                 return
-            x = fromfile(fp, float32, lcells)
+            x = fromfile(fp, np.float32, lcells)
             AVE[i] += x
         fp.close()
         ###
         count += 1
     ###
     fp = open(avename, 'wb')
-    asarray(dims, int32).tofile(fp)
+    np.asarray(dims, np.int32).tofile(fp)
     for i in range(LEVELS):
-        asarray([LCELLS[i],], int32).tofile(fp)
-        asarray(AVE[i]/count, float32).tofile(fp)
+        np.asarray([LCELLS[i],], np.int32).tofile(fp)
+        np.asarray(AVE[i]/count, np.float32).tofile(fp)
     fp.close()
     return
         
@@ -2287,14 +2287,14 @@ def RollCloud(oldname, newname, dx=0, dy=0, dz=0):
         file newname will contain the rolled octree cloud
     """
     fp     =  open(oldname, 'rb')
-    NX, NY, NZ, LEVELS, CELLS = fromfile(fp, int32, 5)    
+    NX, NY, NZ, LEVELS, CELLS = fromfile(fp, np.int32, 5)    
     fpout  =  open(newname, 'wb')
-    asarray([NX, NY, NZ, LEVELS, CELLS], int32).tofile(fpout)    
+    np.asarray([NX, NY, NZ, LEVELS, CELLS], np.int32).tofile(fpout)    
     for ipar in range(7):     # one parameter for SOC, seven for LOC = [ H, T, S, VX, VY, VZ, C ]
         for ilevel in range(LEVELS):
-            cells = fromfile(fp, int32, 1)
+            cells = fromfile(fp, np.int32, 1)
             if (len(cells)<1): break   # no more parameters in the file
-            data  = fromfile(fp, float32, cells[0])
+            data  = fromfile(fp, np.float32, cells[0])
             if (ilevel==0):            # rolling affects only the root level
                 data.shape = (NZ, NY, NX)                
                 data = np.roll(data.copy(), dz, 0)
@@ -2337,11 +2337,11 @@ def I2F_CL(I, GPU=0, PLF=[0,1,2,3,4]):
     """
     Convert integer vector into float vector. As I2F but for vectors and using kernel.
     Input:
-       I     =   integer vector (int32)
+       I     =   integer vector (np.int32)
        GPU   =   if GPU>0, use GPU
        PLF   =   list of OpenCL platforms (numbers)
     Return:
-       F     =   float32 vector with values  F[i] = *(float *)&(I[i])
+       F     =   np.float32 vector with values  F[i] = *(float *)&(I[i])
     """
     N         =  len(I)
     platform, device, context, queue, mf = InitCL(GPU, PLF, verbose=True) # OpenCL environment
@@ -2356,7 +2356,7 @@ def I2F_CL(I, GPU=0, PLF=[0,1,2,3,4]):
     Fun       =  program.I2F
     cl.enqueue_copy(queue, I_buf, I)
     Fun(queue, [GLOBAL,], [LOCAL,], I_buf, F_buf)
-    F         =  zeros(N, float32)
+    F         =  np.zeros(N, np.float32)
     cl.enqueue_copy(queue, F, F_buf)
     return F
 
@@ -2366,11 +2366,11 @@ def F2I_CL(F, GPU=0, PLF=[0,1,2,3,4]):
     """
     Convert float vector into integder vector. As F2I but for vectors and using kernel.
     Input:
-       F     =   vector of float32 values
+       F     =   vector of np.float32 values
        GPU   =   if GPU>0, use GPU
        PLF   =   list of OpenCL platforms (numbers)
     Return:
-       I     =   int32 vector with values  I[i] = *(int *)&(F[i])
+       I     =   np.int32 vector with values  I[i] = *(int *)&(F[i])
     """
     N         =  len(F)
     platform, device, context, queue, mf = InitCL(GPU, PLF, verbose=True) # OpenCL environment
@@ -2383,7 +2383,7 @@ def F2I_CL(F, GPU=0, PLF=[0,1,2,3,4]):
     I_buf     =  cl.Buffer(context, mf.WRITE_ONLY,  4*N)
     Fun       =  program.F2I
     Fun(queue, [GLOBAL,], [LOCAL,], F_buf, I_buf)
-    I         =  ones(N, int32)
+    I         =  np.ones(N, np.int32)
     cl.enqueue_copy(queue, I, I_buf)
     return I
 
@@ -2408,11 +2408,11 @@ def OT_points_to_octree(x, y, z, NX, NY, NZ, LEVELS, filename, GPU=0, PLF=[0,1,2
     print("   === OT_points_to_octree started ===")
     t000      =  time.time()
     NP        =  len(x)
-    OFF       =  zeros(LEVELS, int32)
-    LCELLS    =  zeros(LEVELS, int32)
+    OFF       =  np.zeros(LEVELS, np.int32)
+    LCELLS    =  np.zeros(LEVELS, np.int32)
     LCELLS[0] =  NX*NY*NZ
     ALLOC     =  LCELLS[0]+NP
-    H         =  ones(ALLOC, float32)   # enough space for all cells
+    H         =  np.ones(ALLOC, np.float32)   # enough space for all cells
     ####
     platform, device, context, queue, mf = InitCL(GPU, PLF, verbose=True) # OpenCL environment
     LOCAL     =  [4, 32][GPU>0]     # local work group size
@@ -2438,9 +2438,9 @@ def OT_points_to_octree(x, y, z, NX, NY, NZ, LEVELS, filename, GPU=0, PLF=[0,1,2
     #                               L         H     CC     OFF  LCELLS
     AddLevel.set_scalar_arg_dtypes([np.int32, None, None, None, None  ])    
     ###
-    cl.enqueue_copy(queue, PX_buf,     asarray(x, float32))
-    cl.enqueue_copy(queue, PY_buf,     asarray(y, float32))
-    cl.enqueue_copy(queue, PZ_buf,     asarray(z, float32))
+    cl.enqueue_copy(queue, PX_buf,     np.asarray(x, np.float32))
+    cl.enqueue_copy(queue, PY_buf,     np.asarray(y, np.float32))
+    cl.enqueue_copy(queue, PZ_buf,     np.asarray(z, np.float32))
     cl.enqueue_copy(queue, LCELLS_buf, LCELLS)
     cl.enqueue_copy(queue, OFF_buf,    OFF)
     cl.enqueue_copy(queue, H_buf,      H)
@@ -2469,7 +2469,7 @@ def OT_points_to_octree(x, y, z, NX, NY, NZ, LEVELS, filename, GPU=0, PLF=[0,1,2
 
         # one cannot put directly -index into H, because float has less significant digits
         # =>  encode  these as  *(float *)(&index) => use -I2F
-        I      =   asarray(8*arange(len(m[0])), int32)  # directly first index of child octet
+        I      =   np.asarray(8*arange(len(m[0])), np.int32)  # directly first index of child octet
         F      =   I2F_CL(I, GPU, PLF)
         tmp[m] =  -F
         
@@ -2493,10 +2493,10 @@ def OT_points_to_octree(x, y, z, NX, NY, NZ, LEVELS, filename, GPU=0, PLF=[0,1,2
     
     # write the hierarchy
     fp = open(filename, 'wb')
-    asarray([NX, NY, NZ, len(LCELLS), sum(LCELLS)], int32).tofile(fp)
+    np.asarray([NX, NY, NZ, len(LCELLS), sum(LCELLS)], np.int32).tofile(fp)
     for i in range(LEVELS):
-        asarray([LCELLS[i],], int32).tofile(fp)
-        asarray( H[  (OFF[i]) : (OFF[i]+LCELLS[i])  ], float32).tofile(fp)
+        np.asarray([LCELLS[i],], np.int32).tofile(fp)
+        np.asarray( H[  (OFF[i]) : (OFF[i]+LCELLS[i])  ], np.float32).tofile(fp)
     fp.close()
                                            
     print("   === OT_points_to_octree finished in %.1f seconds ===" % (time.time()-t000))
@@ -2539,7 +2539,7 @@ def OT_energy(filename, tag, GL, ind=[], BX_file='', BY_file='', BZ_file='', GPU
     LEVELS, CELLS  =  len(LCELLS), sum(LCELLS)
     del CHI                            # not needed...
     X, Y, Z = [], [], []               # needed only for 'G' and 'P'
-    L       =  zeros(len(H0), int8)    # helper array to keep track of hierarchy level
+    L       =  np.zeros(len(H0), int8)    # helper array to keep track of hierarchy level
     for l in range(LEVELS):
         L[OFF[l]:(OFF[l]+LCELLS[l])] = l
     m = None
@@ -2566,7 +2566,7 @@ def OT_energy(filename, tag, GL, ind=[], BX_file='', BY_file='', BZ_file='', GPU
         H  *= kdensity
     if (ktemperature!=1.0):
         T  *= ktemperature
-    M      =  asarray(H*2.8*AMU*((8.0**(-L)*(GL*PARSEC)**3)/MSUN), float32)    # MSUN per cell, INPUT IS n(H2) !!!
+    M      =  np.asarray(H*2.8*AMU*((8.0**(-L)*(GL*PARSEC)**3)/MSUN), np.float32)    # MSUN per cell, INPUT IS n(H2) !!!
     MASS   =  sum(M)                    # total mass [Msun] of the selected region
     print("TOTAL MASS OF SELECTED REGION: %.3f MSUN" % MASS) 
     VOLUME =  sum(8.0**(-L))*GL**3.0    # VOLUME [GL^3]
@@ -2595,7 +2595,7 @@ def OT_energy(filename, tag, GL, ind=[], BX_file='', BY_file='', BZ_file='', GPU
         cl.enqueue_copy(queue, Z_buf, Z)
         cl.enqueue_copy(queue, M_buf, M)
         Energy_G(queue, [GLOBAL,], [LOCAL,], cells, X_buf, Y_buf, Z_buf, M_buf, E_buf)
-        E        =  zeros(GLOBAL, float32)
+        E        =  np.zeros(GLOBAL, np.float32)
         cl.enqueue_copy(queue, E, E_buf)
         #  kernel  =  sum(M*M/r),   [M]=Msun, [r]=GL
         #  E_grav  =  kernel_result *    GRAV*MSUN**2/(GL*PARSEC)  --  gravitation between cells
@@ -2643,11 +2643,11 @@ def OT_energy(filename, tag, GL, ind=[], BX_file='', BY_file='', BZ_file='', GPU
         #   these are at the scale of the current cells =>  normalise these contributions to the GL scale!
         # Calculate at the same time the mass flow across the outer boundary!
         if (len(ind)<1):  
-            MASK = ones(CELLS, int8)    # all cells selected
+            MASK = np.ones(CELLS, int8)    # all cells selected
         else:            
-            MASK      = zeros(CELLS, int8)
+            MASK      = np.zeros(CELLS, int8)
             MASK[ind] = 1               # MASK==1 for cells (leaf cells) in the selected subvolume
-        border = zeros(len(X), int8)
+        border = np.zeros(len(X), int8)
         # MASK = for all cells, border = for selected subregion
         W, SUM, INFLOW = 0.0, 0.0, 0.0
         for idir in range(6):
@@ -2717,7 +2717,7 @@ def  MaskDensity(filename, xc, yc, zc, rho0, GPU=0, PLF=[0,1,2,3,4], LOCAL0=-1):
     """    
     NX, NY, NZ, LCELLS, OFF, H = OT_ReadHierarchyV(filename)
     x, y, z  =  OT_GetCoordinatesAllV(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1,2,3,4])
-    ind0     =  OT_GetIndicesV(asarray([xc,], float32), asarray([yc,], float32), asarray([zc,], float32), 
+    ind0     =  OT_GetIndicesV(asarray([xc,], np.float32), np.asarray([yc,], np.float32), np.asarray([zc,], np.float32), 
                               NX, NY, NZ, LCELLS, OFF, H, GPU=GPU, global_index=True, platforms=PLF)
     rho      =  H[ind0[0]]
     if (rho<rho0):
@@ -2742,15 +2742,15 @@ def  MaskDensity(filename, xc, yc, zc, rho0, GPU=0, PLF=[0,1,2,3,4], LOCAL0=-1):
     Y_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*CELLS)
     Z_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*CELLS)
     IND_buf    =  cl.Buffer(context, mf.READ_WRITE, 2*CELLS)
-    IND        =  zeros(CELLS, int16)
+    IND        =  np.zeros(CELLS, int16)
     for i in ind0: IND[i] = 1    # start with one cell flagged
-    cl.enqueue_copy(queue, LCELLS_buf, asarray(LCELLS, int32))
-    cl.enqueue_copy(queue, OFF_buf,    asarray(OFF,    int32))
-    cl.enqueue_copy(queue, H_buf,      asarray(H,      float32))
-    cl.enqueue_copy(queue, X_buf,      asarray(x,      float32))
-    cl.enqueue_copy(queue, Y_buf,      asarray(y,      float32))
-    cl.enqueue_copy(queue, Z_buf,      asarray(z,      float32))
-    cl.enqueue_copy(queue, IND_buf,    asarray(IND,    int16))
+    cl.enqueue_copy(queue, LCELLS_buf, np.asarray(LCELLS, np.int32))
+    cl.enqueue_copy(queue, OFF_buf,    np.asarray(OFF,    np.int32))
+    cl.enqueue_copy(queue, H_buf,      np.asarray(H,      np.float32))
+    cl.enqueue_copy(queue, X_buf,      np.asarray(x,      np.float32))
+    cl.enqueue_copy(queue, Y_buf,      np.asarray(y,      np.float32))
+    cl.enqueue_copy(queue, Z_buf,      np.asarray(z,      np.float32))
+    cl.enqueue_copy(queue, IND_buf,    np.asarray(IND,    int16))
     # one work item per cell, cell coordinates in (x, y, z); one calls ConnectedCells until no more cells get added
     count, count0  =  0, 0
     CC        =   program.ConnectedCells
@@ -2802,7 +2802,7 @@ def  MaskDensity4(filename, xc, yc, zc, rho0, GPU=0, PLF=[0,1,2,3,4], LOCAL0=-1,
         x, y, z      =  CLOUD['x'], CLOUD['y'], CLOUD['z']
         H            =  CLOUD['H']
     ###
-    ind0     =  OT_GetIndicesV(asarray([xc,], float32), asarray([yc,], float32), asarray([zc,], float32), 
+    ind0     =  OT_GetIndicesV(asarray([xc,], np.float32), np.asarray([yc,], np.float32), np.asarray([zc,], np.float32), 
                                NX, NY, NZ, LCELLS, OFF, H, GPU=GPU, global_index=True, platforms=PLF)
     # print("OT_ReadHierarchyV + OT_GetCoordinatesAllV + OT_GetIndicesV: %.3f seconds" % (time.time()-t0))
     rho      =  H[ind0[0]]
@@ -2828,15 +2828,15 @@ def  MaskDensity4(filename, xc, yc, zc, rho0, GPU=0, PLF=[0,1,2,3,4], LOCAL0=-1,
     Y_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*CELLS)
     Z_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*CELLS)
     L_buf      =  cl.Buffer(context, mf.READ_WRITE, 2*CELLS)
-    L          =  -ones(CELLS, int16)    # -1 = outside
+    L          =  -np.ones(CELLS, int16)    # -1 = outside
     for i in ind0: L[i] = 1    # start with one cell flagged, 1 = inside
-    cl.enqueue_copy(queue, LCELLS_buf, asarray(LCELLS, int32))
-    cl.enqueue_copy(queue, OFF_buf,    asarray(OFF,    int32))
-    cl.enqueue_copy(queue, H_buf,      asarray(H,      float32))
-    cl.enqueue_copy(queue, X_buf,      asarray(x,      float32))
-    cl.enqueue_copy(queue, Y_buf,      asarray(y,      float32))
-    cl.enqueue_copy(queue, Z_buf,      asarray(z,      float32))
-    cl.enqueue_copy(queue, L_buf,      asarray(L,      int16))
+    cl.enqueue_copy(queue, LCELLS_buf, np.asarray(LCELLS, np.int32))
+    cl.enqueue_copy(queue, OFF_buf,    np.asarray(OFF,    np.int32))
+    cl.enqueue_copy(queue, H_buf,      np.asarray(H,      np.float32))
+    cl.enqueue_copy(queue, X_buf,      np.asarray(x,      np.float32))
+    cl.enqueue_copy(queue, Y_buf,      np.asarray(y,      np.float32))
+    cl.enqueue_copy(queue, Z_buf,      np.asarray(z,      np.float32))
+    cl.enqueue_copy(queue, L_buf,      np.asarray(L,      int16))
     # precalculate neighbours
     t0 = time.time()
     NB_buf     =  cl.Buffer(context, mf.READ_ONLY,  4*6*CELLS)  # large array !!
@@ -2853,7 +2853,7 @@ def  MaskDensity4(filename, xc, yc, zc, rho0, GPU=0, PLF=[0,1,2,3,4], LOCAL0=-1,
     t0 = time.time()    
     GLOBAL     =  4096
     COUNT_buf  =  cl.Buffer(context, mf.WRITE_ONLY,  2*GLOBAL)
-    COUNT      =  zeros(GLOBAL, int16)
+    COUNT      =  np.zeros(GLOBAL, int16)
     t0         =  time.time()
     for i in range(NX*2**LEVELS):
         CC(queue, [GLOBAL,], [LOCAL,], H_buf, L_buf, NB_buf, COUNT_buf)
@@ -2904,7 +2904,7 @@ if (0):
         """    
         NX, NY, NZ, LCELLS, OFF, H = OT_ReadHierarchyV(filename)
         x, y, z  =  OT_GetCoordinatesAllV(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1,2,3,4])
-        ind0     =  OT_GetIndicesV(asarray([xc,], float32), asarray([yc,], float32), asarray([zc,], float32), 
+        ind0     =  OT_GetIndicesV(asarray([xc,], np.float32), np.asarray([yc,], np.float32), np.asarray([zc,], np.float32), 
                                   NX, NY, NZ, LCELLS, OFF, H, GPU=GPU, global_index=True, platforms=PLF)
         rho      =  H[ind0[0]]
         if (rho<rho0):
@@ -2929,24 +2929,24 @@ if (0):
         Z_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*CELLS)
         IND_buf    =  cl.Buffer(context, mf.READ_WRITE, 2*CELLS)  #  1 for cells in the masked area
         ID_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)  #  cells for which neighbours need to be checked
-        IND        =  zeros(CELLS, int16)    # it is just a flag 0/1
+        IND        =  np.zeros(CELLS, int16)    # it is just a flag 0/1
         IND[ind0[0]] = 1    # start with one cell flagged
-        cl.enqueue_copy(queue, LCELLS_buf, asarray(LCELLS, int32))
-        cl.enqueue_copy(queue, OFF_buf,    asarray(OFF,    int32))
-        cl.enqueue_copy(queue, H_buf,      asarray(H,      float32))
-        cl.enqueue_copy(queue, X_buf,      asarray(x,      float32))
-        cl.enqueue_copy(queue, Y_buf,      asarray(y,      float32))
-        cl.enqueue_copy(queue, Z_buf,      asarray(z,      float32))
-        cl.enqueue_copy(queue, IND_buf,    asarray(IND,    int16))    
+        cl.enqueue_copy(queue, LCELLS_buf, np.asarray(LCELLS, np.int32))
+        cl.enqueue_copy(queue, OFF_buf,    np.asarray(OFF,    np.int32))
+        cl.enqueue_copy(queue, H_buf,      np.asarray(H,      np.float32))
+        cl.enqueue_copy(queue, X_buf,      np.asarray(x,      np.float32))
+        cl.enqueue_copy(queue, Y_buf,      np.asarray(y,      np.float32))
+        cl.enqueue_copy(queue, Z_buf,      np.asarray(z,      np.float32))
+        cl.enqueue_copy(queue, IND_buf,    np.asarray(IND,    int16))    
         count, count0  =  0, 0
         CC        =   program.ConnectedCells2
         CC.set_scalar_arg_dtypes([         np.int32, None,       None,    None,  None,  None,  None,  None,  None ])
-        III       =   zeros(CELLS, int16)
-        ID        =   asarray(arange(CELLS), int32)   # vector of all cell indices
+        III       =   np.zeros(CELLS, int16)
+        ID        =   np.asarray(arange(CELLS), np.int32)   # vector of all cell indices
         for i in range(NX*2**LEVELS):
             m        =   nonzero(IND>0)     # which cells have been flagged
             num      =   len(m[0])          # this many flagged cells
-            cl.enqueue_copy(queue, ID_buf, asarray(ID[m], int32))   #  the cell indices of the num cells to be processed
+            cl.enqueue_copy(queue, ID_buf, np.asarray(ID[m], np.int32))   #  the cell indices of the num cells to be processed
             GLOBAL   =   (num//32+1)*32     # need num work items
             # kernel run foor cells ID[id], id<num, checking six neighbours and update their IND
             CC(queue, [GLOBAL,], [LOCAL,], num , LCELLS_buf, OFF_buf, H_buf, X_buf, Y_buf, Z_buf, IND_buf, ID_buf)
@@ -2982,7 +2982,7 @@ if (0):
         """    
         NX, NY, NZ, LCELLS, OFF, H = OT_ReadHierarchyV(filename)
         x, y, z  =  OT_GetCoordinatesAllV(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1,2,3,4])
-        ind0     =  OT_GetIndicesV(asarray([xc,], float32), asarray([yc,], float32), asarray([zc,], float32), 
+        ind0     =  OT_GetIndicesV(asarray([xc,], np.float32), np.asarray([yc,], np.float32), np.asarray([zc,], np.float32), 
                                   NX, NY, NZ, LCELLS, OFF, H, GPU=GPU, global_index=True, platforms=PLF)
         rho      =  H[ind0[0]]
         if (rho<rho0):
@@ -3006,20 +3006,20 @@ if (0):
         Y_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*CELLS)
         Z_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*CELLS)
         IND_buf    =  cl.Buffer(context, mf.READ_WRITE, 2*CELLS)  #  1 for cells in the masked area
-        IND        =  zeros(CELLS, int16)    # it is just a flag 0/1
+        IND        =  np.zeros(CELLS, int16)    # it is just a flag 0/1
         IND[ind0[0]] = 1    # start with one cell flagged
-        cl.enqueue_copy(queue, LCELLS_buf, asarray(LCELLS, int32))
-        cl.enqueue_copy(queue, OFF_buf,    asarray(OFF,    int32))
-        cl.enqueue_copy(queue, H_buf,      asarray(H,      float32))
-        cl.enqueue_copy(queue, X_buf,      asarray(x,      float32))
-        cl.enqueue_copy(queue, Y_buf,      asarray(y,      float32))
-        cl.enqueue_copy(queue, Z_buf,      asarray(z,      float32))
-        cl.enqueue_copy(queue, IND_buf,    asarray(IND,    int16))    
+        cl.enqueue_copy(queue, LCELLS_buf, np.asarray(LCELLS, np.int32))
+        cl.enqueue_copy(queue, OFF_buf,    np.asarray(OFF,    np.int32))
+        cl.enqueue_copy(queue, H_buf,      np.asarray(H,      np.float32))
+        cl.enqueue_copy(queue, X_buf,      np.asarray(x,      np.float32))
+        cl.enqueue_copy(queue, Y_buf,      np.asarray(y,      np.float32))
+        cl.enqueue_copy(queue, Z_buf,      np.asarray(z,      np.float32))
+        cl.enqueue_copy(queue, IND_buf,    np.asarray(IND,    int16))    
         count, count0  =  0, 0
         CC        =   program.ConnectedCells3
         CC.set_scalar_arg_dtypes([        None,       None,    None,  None,  None,  None,  None ])
-        III       =   zeros(CELLS, int16)
-        ID        =   asarray(arange(CELLS), int32)   # vector of all cell indices
+        III       =   np.zeros(CELLS, int16)
+        ID        =   np.asarray(arange(CELLS), np.int32)   # vector of all cell indices
         for i in range(NX*2**LEVELS):
             CC(queue, [GLOBAL,], [LOCAL,], LCELLS_buf, OFF_buf, H_buf, X_buf, Y_buf, Z_buf, IND_buf)
             queue.finish()
@@ -3078,9 +3078,9 @@ def gravitational_energy(NX, NY, NZ, LCELLS, OFF, H, GL, kdensity=1.0, GPU=0, PL
     Y_buf      =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
     Z_buf      =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
     M_buf      =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
-    cl.enqueue_copy(queue, LCELLS_buf, asarray(LCELLS, int32))
-    cl.enqueue_copy(queue, OFF_buf,    asarray(OFF,    int32))
-    cl.enqueue_copy(queue, H_buf,      H)   # H is always float32 !
+    cl.enqueue_copy(queue, LCELLS_buf, np.asarray(LCELLS, np.int32))
+    cl.enqueue_copy(queue, OFF_buf,    np.asarray(OFF,    np.int32))
+    cl.enqueue_copy(queue, H_buf,      H)   # H is always np.float32 !
     cl.enqueue_copy(queue, X_buf,      XC)
     cl.enqueue_copy(queue, Y_buf,      YC)
     cl.enqueue_copy(queue, Z_buf,      ZC)
@@ -3093,7 +3093,7 @@ def gravitational_energy(NX, NY, NZ, LCELLS, OFF, H, GL, kdensity=1.0, GPU=0, PL
         queue.finish()
     print("   MC --- %.2f seconds" % (time.time()-t1))
     if (1): # check the mass as the sum over root grid entries in M
-        M = zeros(CELLS, float32)
+        M = np.zeros(CELLS, np.float32)
         cl.enqueue_copy(queue, M, M_buf)
         print("   Total mass from root cell entries: %.3e" % (sum(M[0:LCELLS[0]])))
     # Now we have (M, XC, YC, ZC) for each cell in the model, calculate gravitational energy with 
@@ -3106,7 +3106,7 @@ def gravitational_energy(NX, NY, NZ, LCELLS, OFF, H, GL, kdensity=1.0, GPU=0, PL
     t1 = time.time()
     GE.set_scalar_arg_dtypes([     None,       None,    None,  None,  None,  None,  None,  None  ])
     GE(queue, [GLOBAL,], [LOCAL,], LCELLS_buf, OFF_buf, H_buf, X_buf, Y_buf, Z_buf, M_buf, E_buf)
-    E          =  zeros(GLOBAL, float32)
+    E          =  np.zeros(GLOBAL, np.float32)
     cl.enqueue_copy(queue, E, E_buf)
     print("   GE --- %.2f seconds" % (time.time()-t1))    
     E1         =  sum(E)                     * GRAV * (MSUN**2.0/(GL*PARSEC))
@@ -3173,9 +3173,9 @@ def gravitational_energy_masked(L, NX, NY, NZ, LCELLS, OFF, H, GL, kdensity=1.0,
     Y_buf      =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
     Z_buf      =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
     M_buf      =  cl.Buffer(context, mf.READ_WRITE, 4*CELLS)
-    cl.enqueue_copy(queue, LCELLS_buf, asarray(LCELLS, int32))
-    cl.enqueue_copy(queue, OFF_buf,    asarray(OFF,    int32))
-    cl.enqueue_copy(queue, H_buf,      H)   # H is always float32 !
+    cl.enqueue_copy(queue, LCELLS_buf, np.asarray(LCELLS, np.int32))
+    cl.enqueue_copy(queue, OFF_buf,    np.asarray(OFF,    np.int32))
+    cl.enqueue_copy(queue, H_buf,      H)   # H is always np.float32 !
     cl.enqueue_copy(queue, X_buf,      XC)
     cl.enqueue_copy(queue, Y_buf,      YC)
     cl.enqueue_copy(queue, Z_buf,      ZC)
@@ -3188,7 +3188,7 @@ def gravitational_energy_masked(L, NX, NY, NZ, LCELLS, OFF, H, GL, kdensity=1.0,
         queue.finish()
     print("   MC --- %.2f seconds" % (time.time()-t1))
     if (1): # check the mass as the sum over root grid entries in M
-        M = zeros(CELLS, float32)
+        M = np.zeros(CELLS, np.float32)
         cl.enqueue_copy(queue, M, M_buf)
         print("   Total mass from root cell entries: %.3e" % (sum(M[0:LCELLS[0]])))
     # Now we have (M, XC, YC, ZC) for each cell in the model, calculate gravitational energy with 
@@ -3205,7 +3205,7 @@ def gravitational_energy_masked(L, NX, NY, NZ, LCELLS, OFF, H, GL, kdensity=1.0,
     t1 = time.time()
     GE.set_scalar_arg_dtypes([     None,  None,       None,    None,  None,  None,  None,  None,  None  ])
     GE(queue, [GLOBAL,], [LOCAL,], L_buf, LCELLS_buf, OFF_buf, H_buf, X_buf, Y_buf, Z_buf, M_buf, E_buf)
-    E          =  zeros(GLOBAL, float32)
+    E          =  np.zeros(GLOBAL, np.float32)
     cl.enqueue_copy(queue, E, E_buf)
     print("   GE-masked ---  %.2f seconds" % (time.time()-t1))
     E1         =  sum(E)                     * GRAV * (MSUN**2.0/(GL*PARSEC))
@@ -3261,37 +3261,37 @@ def RamsesDumpOLD(MODEL, OUTPUT, BSCALE=1.0, FROMDIR='', TODIR='./'):
     cell_source  =  CellsToPoints(amr)
     if (0):
         cells        =  cell_source.flatten()
-        # COO          =  asarray(cells.points, float32)
-        # asarray(COO, float32).tofile('RAMSES_COO.dump')
+        # COO          =  np.asarray(cells.points, np.float32)
+        # np.asarray(COO, np.float32).tofile('RAMSES_COO.dump')
         n            =  len(cells.fields['rho'])
         prefix       =  'dump_%s_%06d' % (MODEL, OUTPUT)
         ##
         fp           =  open(prefix+'.rho', 'wb')
-        asarray([n,], int32).tofile(fp)
-        x            =  asarray(cells.fields['rho'], float32)
+        np.asarray([n,], int32).tofile(fp)
+        x            =  np.asarray(cells.fields['rho'], np.float32)
         x[nonzero(x<1.0e-10)] = 1.0e-10
-        print('RHO ', min(x), max(x))
+        print('RHO ', np.min(x), np.max(x))
         x.tofile(fp)
         fp.close()
         ##
         fp           =  open(prefix+'.Bx', 'wb')
-        asarray([n,], int32).tofile(fp)
-        x            = asarray(0.5*ravel(cells.fields['Bl'][:,0]+cells.fields['Br'][:,0]), float32)
-        x[nonzero(abs(x)<1.0e-10)] = 1.0e-10
+        np.asarray([n,], int32).tofile(fp)
+        x            = np.asarray(0.5*ravel(cells.fields['Bl'][:,0]+cells.fields['Br'][:,0]), np.float32)
+        x[nonzero(np.abs(x)<1.0e-10)] = 1.0e-10
         x.tofile(fp)
         fp.close()
         ##
         fp           =  open(prefix+'.By', 'wb')
-        asarray([n,], int32).tofile(fp)
-        x            =  asarray(0.5*ravel(cells.fields['Bl'][:,1]+cells.fields['Br'][:,1]), float32)
-        x[nonzero(abs(x)<1.0e-10)] = 1.0e-10
+        np.asarray([n,], int32).tofile(fp)
+        x            =  np.asarray(0.5*ravel(cells.fields['Bl'][:,1]+cells.fields['Br'][:,1]), np.float32)
+        x[nonzero(np.abs(x)<1.0e-10)] = 1.0e-10
         x.tofile(fp)
         fp.close()
         ##
         fp           =  open(prefix+'.Bz', 'wb')
-        asarray([n,], int32).tofile(fp)
-        x            =  asarray(0.5*ravel(cells.fields['Bl'][:,2]+cells.fields['Br'][:,2]), float32)
-        x[nonzero(abs(x)<1.0e-10)] = 1.0e-10    
+        np.asarray([n,], int32).tofile(fp)
+        x            =  np.asarray(0.5*ravel(cells.fields['Bl'][:,2]+cells.fields['Br'][:,2]), np.float32)
+        x[nonzero(np.abs(x)<1.0e-10)] = 1.0e-10    
         x.tofile(fp)
         fp.close()
     else:
@@ -3301,7 +3301,7 @@ def RamsesDumpOLD(MODEL, OUTPUT, BSCALE=1.0, FROMDIR='', TODIR='./'):
         fpBx    =   open(prefix+'.Bx',  'wb')
         fpBy    =   open(prefix+'.By',  'wb')
         fpBz    =   open(prefix+'.Bz',  'wb')
-        A       =   asarray([0,], int32)
+        A       =   np.asarray([0,], np.int32)
         A.tofile(fpR)   # total number of data points to be updated later
         A.tofile(fpBx)
         A.tofile(fpBy)
@@ -3310,11 +3310,11 @@ def RamsesDumpOLD(MODEL, OUTPUT, BSCALE=1.0, FROMDIR='', TODIR='./'):
         for dset in cell_source.iter_dsets():
             n += dset.npoints
             print('%9d %9d' % (dset.npoints, n))
-            X = asarray(dset.fields['rho'], float32)
+            X = np.asarray(dset.fields['rho'], np.float32)
             X.tofile(fpR)
             ##
-            BL = asarray(dset.fields['Bl'],  float32)
-            BR = asarray(dset.fields['Br'],  float32)
+            BL = np.asarray(dset.fields['Bl'],  np.float32)
+            BR = np.asarray(dset.fields['Br'],  np.float32)
             if (OLD_ORIENTATION==-999):                    
                 print("OLD ORIENTATION -- NOT CORRECT")
                 sys.exit()
@@ -3341,7 +3341,7 @@ def RamsesDumpOLD(MODEL, OUTPUT, BSCALE=1.0, FROMDIR='', TODIR='./'):
         fpBx.seek(0)
         fpBy.seek(0)
         fpBz.seek(0)        
-        A    =  asarray([n,], int32)
+        A    =  np.asarray([n,], np.int32)
         A.tofile(fpR)
         A.tofile(fpBx)
         A.tofile(fpBy)
@@ -3386,7 +3386,7 @@ def RamsesDumpFieldOLD(MODEL, OUTPUT, TAG='rho', FROMDIR='', TODIR='./'):
         fpX     =   open(prefix+'.vx', 'wb')   # FORTRAN NAMING 
         fpY     =   open(prefix+'.vy', 'wb')
         fpZ     =   open(prefix+'.vz', 'wb')
-        A       =   asarray([0,], int32)
+        A       =   np.asarray([0,], np.int32)
         A.tofile(fpX)   # total number of data points to be updated later
         A.tofile(fpY)   # total number of data points to be updated later
         A.tofile(fpZ)   # total number of data points to be updated later
@@ -3394,10 +3394,10 @@ def RamsesDumpFieldOLD(MODEL, OUTPUT, TAG='rho', FROMDIR='', TODIR='./'):
         for dset in cell_source.iter_dsets():
             n += dset.npoints
             print('%9d %9d' % (dset.npoints, n))
-            X = asarray(dset.fields[TAG],  float32)
+            X = np.asarray(dset.fields[TAG],  np.float32)
             # *** we do not like zero values !!! ***
             for iii in range(3):
-                m              =  nonzero(abs(X[:,iii])<1.0e-6)
+                m              =  nonzero(np.abs(X[:,iii])<1.0e-6)
                 X[m[0], iii]  +=  1.0e-4*randn(len(m[0]))
             if (OLD_ORIENTATION==-999):  # B has to be switched => vel must be switched ??
                 X[:,2].tofile(fpX)  # fortran Z becomes our X   == ROTATE VECTOR COMPONENTS
@@ -3418,7 +3418,7 @@ def RamsesDumpFieldOLD(MODEL, OUTPUT, TAG='rho', FROMDIR='', TODIR='./'):
         fpX.seek(0)
         fpY.seek(0)
         fpZ.seek(0)
-        A    =  asarray([n,], int32)
+        A    =  np.asarray([n,], np.int32)
         A.tofile(fpX)
         A.tofile(fpY)
         A.tofile(fpZ)
@@ -3427,19 +3427,19 @@ def RamsesDumpFieldOLD(MODEL, OUTPUT, TAG='rho', FROMDIR='', TODIR='./'):
         fpZ.close()
     else:
         fp      =   open(prefix+'.'+TAG, 'wb')
-        A       =   asarray([0,], int32)
+        A       =   np.asarray([0,], np.int32)
         A.tofile(fp)   # total number of data points to be updated later
         n = 0
         for dset in cell_source.iter_dsets():
             n += dset.npoints
             print('%9d %9d' % (dset.npoints, n))
-            X = asarray(dset.fields[TAG], float32)
+            X = np.asarray(dset.fields[TAG], np.float32)
             if (TAG=='rho'):
                 X[nonzero(X<=1.0e-11)] = 1.0e-11
             X.tofile(fp)
         ##
         fp.seek(0)
-        A    =  asarray([n,], int32)
+        A    =  np.asarray([n,], np.int32)
         A.tofile(fp)
         fp.close()
 
@@ -3451,14 +3451,14 @@ def RamsesDumpFieldOLD(MODEL, OUTPUT, TAG='rho', FROMDIR='', TODIR='./'):
 def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR='', TODIR='./', platforms=[0,1,2,3,4]):
     """
     Write an index file. The format is the same as SOCAMO cloud file but the
-    main array is int32 instead of float.
+    main array is np.int32 instead of float.
     Each cell contains either index to the Ramses vectors == 1,2,3, ... (leaf cells only)
     or values <=0 meaning links.
     """
     
     fp_info = None    
-    CMIN    =   asarray(centre) - delta
-    CMAX    =   asarray(centre) + delta
+    CMIN    =   np.asarray(centre) - delta
+    CMAX    =   np.asarray(centre) + delta
     if (  direction=='x'):  # take the full LOS along the selected direction
         CMIN[0], CMAX[0] = 0.0, 1.0
     elif (direction=='y'):
@@ -3482,9 +3482,9 @@ def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR
     for dset in cell_source.iter_dsets():
         N += dset.npoints
     
-    X, Y, Z  =  zeros(N, float32), zeros(N, float32), zeros(N, float32)
-    S        =  zeros(N, float32)
-    ## R        =  asarray([], float32)
+    X, Y, Z  =  np.zeros(N, np.float32), np.zeros(N, np.float32), np.zeros(N, np.float32)
+    S        =  np.zeros(N, np.float32)
+    ## R        =  np.asarray([], np.float32)
     if (0):
         # parallel read ... files for different CPUs read in ***RANDOM*** order
         cells        =  cell_source.flatten()
@@ -3526,18 +3526,18 @@ def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR
             iii += dset.npoints
     print('READ POINTS... ', len(X), len(Y), len(Z), len(S)) ## , len(R)
     
-    ### print 'R statistics  %10.3e ... %10.3e    %10.3e +- %10.3e  %d' % (min(R), max(R), mean(R), std(R), len(R))
+    ### print 'R statistics  %10.3e ... %10.3e    %10.3e +- %10.3e  %d' % (np.min(R), max(R), mean(R), std(R), len(R))
     ### print R[10000], R[20000], R[100000], R[200000], R[1000000]
     ### return
     
     
     # ok, change R into a running, 1-based index to Ramses vectors (leaf cells only)
-    # vector is int32, values <= are the normal links, 
+    # vector is np.int32, values <= are the normal links, 
     # values i>0 =>      cell value  <-  ramses vector value [i-1]
     # ... or read the full ramses dump =  [cells, val0, val1, ...] as float vector, index with [i]
     N            =  len(X)
     R            =  None
-    R            =  asarray(arange(1, N+1), int32)  # 1, 2, ..., number of leaf cells
+    R            =  np.asarray(arange(1, N+1), np.int32)  # 1, 2, ..., number of leaf cells
     
     
     # Find the dimensions of the root grid
@@ -3621,7 +3621,7 @@ def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR
     
     # parent cells created for cells on the next deeper level cells
     XP, YP, ZP, RP =  [], [], [], []
-    CELLS  = zeros(LEVELS, int32)
+    CELLS  = np.zeros(LEVELS, np.int32)
     pcells = 0
 
     
@@ -3633,11 +3633,11 @@ def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR
         print("CHILD LEVEL %d,  SIZE[i] = %.5e" % (i, SIZE[i]))
         
         # From ramses hierarchy, extract all the leafs on this level
-        m          =  nonzero(abs(S/SIZE[i]-1.0)<0.01)   # cells with size SIZE[i]
-        XC         =  asarray(X[m], float64)
-        YC         =  asarray(Y[m], float64)
-        ZC         =  asarray(Z[m], float64)
-        RC         =  asarray(R[m], int32)
+        m          =  nonzero(np.abs(S/SIZE[i]-1.0)<0.01)   # cells with size SIZE[i]
+        XC         =  np.asarray(X[m], np.float64)
+        YC         =  np.asarray(Y[m], np.float64)
+        ZC         =  np.asarray(Z[m], np.float64)
+        RC         =  np.asarray(R[m], np.int32)
         
         if (SUBVOLUME):    # drop all cells outside the subvolume
             m = nonzero((XC>=CMIN[0])&(XC<CMAX[0])&(YC>=CMIN[1])&(YC<CMAX[1])&(ZC>=CMIN[2])&(ZC<CMAX[2]))
@@ -3672,50 +3672,50 @@ def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR
         
         # Save data for the current level i - temporary file
         fp = open('%s/level_%02d.bin' % (TODIR, i), 'w')
-        asarray([len(RC),], int32).tofile(fp)
-        asarray(RC, int32).tofile(fp)
+        np.asarray([len(RC),], np.int32).tofile(fp)
+        np.asarray(RC, np.int32).tofile(fp)
         fp.close()
         
         # Create parents for all the cells and make the links
         if (i>1):
             # just create enough parent cells, order does not matter
             pcells = len(RC)/8  # total number of parent cells on the level i-1 (with just links)
-            XP = zeros(pcells, float64)
-            YP = zeros(pcells, float64)
-            ZP = zeros(pcells, float64)
-            RP = zeros(pcells,   int32)
+            XP = np.zeros(pcells, np.float64)
+            YP = np.zeros(pcells, np.float64)
+            ZP = np.zeros(pcells, np.float64)
+            RP = np.zeros(pcells,   np.int32)
             for j in range(pcells):  # loop over cells parent cells on level i-1
                 XP[j] = XC[8*j] + 0.499*STEP  # 8*j is the index of a sid==0 cell on level i
                 YP[j] = YC[8*j] + 0.499*STEP  #   these are the true centre coordinates of the
                 ZP[j] = ZC[8*j] + 0.499*STEP  #   parent cell
                 RP[j] = -8*j                  # the link = index to the first child in the octet on level i
             print('PARENT CELLS %10.8f %10.8f  %10.8f %10.8f  %10.8f %10.8f' % \
-            (min(XP), max(XP), min(YP), max(YP), min(ZP), max(ZP)))
+            (np.min(XP), np.max(XP), np.min(YP), np.max(YP), np.min(ZP), np.max(ZP)))
         else:
             # i==1  ==> the parent cells are on the root grid
             # use coordinates to match the children with the parent cells
             pcells = DIM1*DIM2*DIM3
-            XP     = zeros(pcells, float64)
-            YP     = zeros(pcells, float64)
-            ZP     = zeros(pcells, float64)
-            RP     = zeros(pcells,   int32)
+            XP     = np.zeros(pcells, np.float64)
+            YP     = np.zeros(pcells, np.float64)
+            ZP     = np.zeros(pcells, np.float64)
+            RP     = np.zeros(pcells,   np.int32)
             if (SUBVOLUME):
                 for j in range(0, CELLS[i], 8):  # loop over the sid==0 children on level i
                     x, y, z =  int((XC[j]-CMIN[0])/GL), int((YC[j]-CMIN[1])/GL), int((ZC[j]-CMIN[2])/GL)
                     ind     =  x+DIM1*(y+DIM2*z) # index of the root grid parent cell
                     RP[ind] = -(j)               # link to the first child in the sub-octet
                 # Finish the root level == add the leaf cells
-                m          = nonzero(abs(S/SIZE[0]-1.0)<0.1)   # leaf cells on the root grid
-                XC         = asarray(X[m], float64)
-                YC         = asarray(Y[m], float64)
-                ZC         = asarray(Z[m], float64)
-                RC         = asarray(R[m], int32)
+                m          = nonzero(np.abs(S/SIZE[0]-1.0)<0.1)   # leaf cells on the root grid
+                XC         = np.asarray(X[m], np.float64)
+                YC         = np.asarray(Y[m], np.float64)
+                ZC         = np.asarray(Z[m], np.float64)
+                RC         = np.asarray(R[m], np.int32)
                 # Select only the root cells inside the selected volume
                 m = nonzero((XC>=CMIN[0])&(XC<CMAX[0])&(YC>=CMIN[1])&(YC<CMAX[1])&(ZC>=CMIN[2])&(ZC<CMAX[2]))
                 XC, YC, ZC, RC = XC[m], YC[m], ZC[m], RC[m]
                 # Copy those densities into the cartesian grid
-                x, y, z =  floor((XC-CMIN[0])/GL), floor((YC-CMIN[1])/GL), floor((ZC-CMIN[2])/GL)
-                x, y, z =  asarray(x, int32), asarray(y, int32), asarray(z, int32)
+                x, y, z =  np.floor((XC-CMIN[0])/GL), np.floor((YC-CMIN[1])/GL), np.floor((ZC-CMIN[2])/GL)
+                x, y, z =  np.asarray(x, np.int32), np.asarray(y, np.int32), np.asarray(z, np.int32)
                 ind     =  x+DIM1*(y+DIM2*z)  # indices for the root grid leaf cells
                 m = nonzero(RP[ind]!=0)
                 if (len(m[0])!=0.0): 
@@ -3726,20 +3726,20 @@ def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR
                 ### i = child level
                 print('child level %d' % i)
                 print('%10.8f %10.8f   %10.8f %10.8f   %10.8f %10.8f' % \
-                (min(XC), max(XC), min(YC), max(YC), min(ZC), max(ZC)))
+                (np.min(XC), np.max(XC), np.min(YC), np.max(YC), np.min(ZC), np.max(ZC)))
                 ###
                 for j in range(0, CELLS[i], 8):  # loop over the sid==0 children on level i
                     x, y, z =  int(XC[j]/GL), int(YC[j]/GL), int(ZC[j]/GL)
                     ind     =  x+DIM*(y+DIM*z)   # index of the root grid cell
                     RP[ind] =  -j                # link to the first child in octet
                 # Finish the root level -- the leaf cells are still missing !!
-                m          =  nonzero(abs(S/SIZE[0]-1.0)<0.1)   # leaf cells on the root grid
-                XC         =  asarray(X[m], float64)
-                YC         =  asarray(Y[m], float64)
-                ZC         =  asarray(Z[m], float64)
-                RC         =  asarray(R[m],   int32)
-                x, y, z    =  floor(XC/GL), floor(YC/GL), floor(ZC/GL)
-                x, y, z    =  asarray(x, int32), asarray(y, int32), asarray(z, int32)
+                m          =  nonzero(np.abs(S/SIZE[0]-1.0)<0.1)   # leaf cells on the root grid
+                XC         =  np.asarray(X[m], np.float64)
+                YC         =  np.asarray(Y[m], np.float64)
+                ZC         =  np.asarray(Z[m], np.float64)
+                RC         =  np.asarray(R[m],   np.int32)
+                x, y, z    =  np.floor(XC/GL), np.floor(YC/GL), np.floor(ZC/GL)
+                x, y, z    =  np.asarray(x, np.int32), np.asarray(y, np.int32), np.asarray(z, np.int32)
                 if (0):
                     x       =  clip(x, 0, DIM1-1)
                     y       =  clip(y, 0, DIM2-1)
@@ -3752,21 +3752,21 @@ def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR
             ##
             # Save also this first level
             fp = open('%s/level_%02d.bin' % (TODIR, 0), 'w')
-            asarray([len(RP),], int32).tofile(fp)
-            asarray(RP, int32).tofile(fp)
+            np.asarray([len(RP),], np.int32).tofile(fp)
+            np.asarray(RP, np.int32).tofile(fp)
             fp.close()
             CELLS[0]= len(XP)
     
     # Write the SOCAMO cloud like index file
     fp = open(cloudfile, 'w')
-    asarray([DIM1, DIM2, DIM3, LEVELS, sum(CELLS)], int32).tofile(fp)
+    np.asarray([DIM1, DIM2, DIM3, LEVELS, sum(CELLS)], np.int32).tofile(fp)
     for i in range(LEVELS):
         fpi   = open('%s/level_%02d.bin' % (TODIR, i))
-        cells = fromfile(fpi, int32, 1)
-        x     = fromfile(fpi, int32, cells)
+        cells = fromfile(fpi, np.int32, 1)
+        x     = fromfile(fpi, np.int32, cells)
         fpi.close()
-        asarray([cells,], int32).tofile(fp)
-        asarray(x, int32).tofile(fp)
+        np.asarray([cells,], np.int32).tofile(fp)
+        np.asarray(x, np.int32).tofile(fp)
     fp.close()
         
 
@@ -3781,7 +3781,7 @@ def RamsesToIndexOLD(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR
     
 def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR='', TODIR='./', platforms=[0,1,2,3,4]):
     """
-    Write an index file. The format is the same as SOC cloud but the main array is int32 instead of float.
+    Write an index file. The format is the same as SOC cloud but the main array is np.int32 instead of float.
     Each cell contains either index >=1 to the Ramses vectors (leaf cells only) or values <=0 meaning links.
     Input:
         MODEL     =  name of the model directory (without full path), under which are output_????? directories
@@ -3797,8 +3797,8 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
         This one uses/used pynbody library but no longer works with the latest version pf pynbody.
     """    
     fp_info = None    
-    CMIN    =   asarray(centre) - delta
-    CMAX    =   asarray(centre) + delta
+    CMIN    =   np.asarray(centre) - delta
+    CMAX    =   np.asarray(centre) + delta
     if (  direction=='x'):  # take the full LOS along the selected direction
         CMIN[0], CMAX[0] = 0.0, 1.0
     elif (direction=='y'):
@@ -3811,10 +3811,10 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
     tmp     =   FROMDIR+'/'+MODEL+'/output_%05d' % OUTPUT
     print("Reading data: %s" % tmp)
     ro      =  pynbody.load(tmp)
-    pos_pc  =  asarray(ro['pos'].in_units('pc'), float32)
+    pos_pc  =  np.asarray(ro['pos'].in_units('pc'), np.float32)
 
     # @@@ NO LONGER WORKING 
-    smo_pc  =  asarray(ro['smooth'].in_units('pc'))
+    smo_pc  =  np.asarray(ro['smooth'].in_units('pc'))
     
     # GL           =  1.0                /  2.0**ro.info["levelmin"]  # root grid cell size
     SIZE_pc =  float(ro.properties['boxsize'].in_units('pc'))
@@ -3825,23 +3825,23 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
     ROOTDIM =  int(1.0/GL)                   # root grid size in cells
     print("DIM=%d, SIZE %.3e pc, GL %.3e pc = %.3e, CELLS %.3e ... %.3e" % (ROOTDIM, SIZE_pc, GL_pc, GL, min_pc, max_pc))
     
-    X       =  asarray(pos_pc[:,0]/SIZE_pc, float32)   # [0,1]
-    Y       =  asarray(pos_pc[:,1]/SIZE_pc, float32)   # [0,1]
-    Z       =  asarray(pos_pc[:,2]/SIZE_pc, float32)   # [0,1]
+    X       =  np.asarray(pos_pc[:,0]/SIZE_pc, np.float32)   # [0,1]
+    Y       =  np.asarray(pos_pc[:,1]/SIZE_pc, np.float32)   # [0,1]
+    Z       =  np.asarray(pos_pc[:,2]/SIZE_pc, np.float32)   # [0,1]
     N       =  len(X)
     
     LMAX    =  int(log(max_pc/min_pc)/log(2.0))
     LEVELS  =  LMAX+1
-    L       =  asarray(log(max_pc/smo_pc)/log(2.0), int32)  # L=0, ..., LMAX==LEVELS-1
+    L       =  np.asarray(log(max_pc/smo_pc)/log(2.0), np.int32)  # L=0, ..., LMAX==LEVELS-1
     ## SIZE    =  GL  / 2.0**arange(LEVELS)
     print("LEVELS %d, LMAX %d, sizes %.3e pc ... %.3e pc, ratio %.3e == %.3e" % (LEVELS, LMAX, min_pc, max_pc, 2.0**LMAX, max_pc/min_pc))
     
     # ok, change R into a running, 1-based index to Ramses vectors (leaf cells only)
-    # vector is int32, values <= are the normal links, 
+    # vector is np.int32, values <= are the normal links, 
     # values i>0 =>      cell value  <-  ramses vector value [i-1]
     # ... or read the full ramses dump =  [cells, val0, val1, ...] as float vector, index with [i]
     R            =  None
-    R            =  asarray(arange(1, N+1), int32)  # 1, 2, ..., number of leaf cells
+    R            =  np.asarray(arange(1, N+1), np.int32)  # 1, 2, ..., number of leaf cells
     
     # Find the dimensions of the root grid
     # XMIN, XMAX etc. --- minimum and maximum root grid indices [XMIN, XMAX[
@@ -3897,7 +3897,7 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
     
     # parent cells created for cells on the next deeper level cells
     XP, YP, ZP, RP =  [], [], [], []
-    CELLS  = zeros(LEVELS, int32)
+    CELLS  = np.zeros(LEVELS, np.int32)
     pcells = 0
     print("\n\n") 
     
@@ -3910,10 +3910,10 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
         m          =  nonzero(L==i)
 
         # data on the cells on the child level... in some order
-        XC         =  asarray(X[m], float64)
-        YC         =  asarray(Y[m], float64)
-        ZC         =  asarray(Z[m], float64)
-        RC         =  asarray(R[m], int32)
+        XC         =  np.asarray(X[m], np.float64)
+        YC         =  np.asarray(Y[m], np.float64)
+        ZC         =  np.asarray(Z[m], np.float64)
+        RC         =  np.asarray(R[m], np.int32)
         
         if (SUBVOLUME):    # drop all cells outside the subvolume
             m = nonzero((XC>=CMIN[0])&(XC<CMAX[0])&(YC>=CMIN[1])&(YC<CMAX[1])&(ZC>=CMIN[2])&(ZC<CMAX[2]))
@@ -3948,33 +3948,33 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
         
         # Save data for the current level i - temporary file
         fp = open('%s/level_%02d.bin' % (TODIR, i), 'w')
-        asarray([len(RC),], int32).tofile(fp)
-        asarray(RC, int32).tofile(fp)
+        np.asarray([len(RC),], np.int32).tofile(fp)
+        np.asarray(RC, np.int32).tofile(fp)
         fp.close()
         
         # Create parents for all the cells and make the links
         if (i>1):
             # just create enough parent cells, order does not matter
             pcells = len(RC)//8               # total number of parent cells on the level i-1 (with just links)
-            XP = zeros(pcells, float64)
-            YP = zeros(pcells, float64)
-            ZP = zeros(pcells, float64)
-            RP = zeros(pcells,   int32)
+            XP = np.zeros(pcells, np.float64)
+            YP = np.zeros(pcells, np.float64)
+            ZP = np.zeros(pcells, np.float64)
+            RP = np.zeros(pcells,   np.int32)
             for j in range(pcells):           # loop over cells parent cells on level i-1
                 XP[j] = XC[8*j] + 0.499*STEP  # 8*j is the index of a sid==0 cell on level i
                 YP[j] = YC[8*j] + 0.499*STEP  #   these are the true centre coordinates of the
                 ZP[j] = ZC[8*j] + 0.499*STEP  #   parent cell
                 RP[j] = -8*j                  # the link = index to the first child in the octet on level i
             print('PARENT CELLS %10.8f %10.8f  %10.8f %10.8f  %10.8f %10.8f' % \
-            (min(XP), max(XP), min(YP), max(YP), min(ZP), max(ZP)))
+            (np.min(XP), np.max(XP), np.min(YP), np.max(YP), np.min(ZP), np.max(ZP)))
         else:
             # i==1  ==> the parent cells are on the root grid
             # use coordinates to match the children with the parent cells
             pcells = DIM1*DIM2*DIM3
-            XP     = zeros(pcells, float64)
-            YP     = zeros(pcells, float64)
-            ZP     = zeros(pcells, float64)
-            RP     = zeros(pcells,   int32)
+            XP     = np.zeros(pcells, np.float64)
+            YP     = np.zeros(pcells, np.float64)
+            ZP     = np.zeros(pcells, np.float64)
+            RP     = np.zeros(pcells,   np.int32)
             if (SUBVOLUME):
                 for j in range(0, CELLS[i], 8):  # loop over the sid==0 children on level i
                     x, y, z =  int((XC[j]-CMIN[0])/GL), int((YC[j]-CMIN[1])/GL), int((ZC[j]-CMIN[2])/GL)
@@ -3983,16 +3983,16 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
                 # Finish the root level == add the leaf cells
                 # m          = nonzero(abs(S/SIZE[0]-1.0)<0.1)   # leaf cells on the root grid
                 m          = nonzero(L==0)
-                XC         = asarray(X[m], float64)
-                YC         = asarray(Y[m], float64)
-                ZC         = asarray(Z[m], float64)
-                RC         = asarray(R[m], int32)
+                XC         = np.asarray(X[m], np.float64)
+                YC         = np.asarray(Y[m], np.float64)
+                ZC         = np.asarray(Z[m], np.float64)
+                RC         = np.asarray(R[m], np.int32)
                 # Select only the root cells inside the selected volume
                 m = nonzero((XC>=CMIN[0])&(XC<CMAX[0])&(YC>=CMIN[1])&(YC<CMAX[1])&(ZC>=CMIN[2])&(ZC<CMAX[2]))
                 XC, YC, ZC, RC = XC[m], YC[m], ZC[m], RC[m]
                 # Copy those densities into the cartesian grid
-                x, y, z =  floor((XC-CMIN[0])/GL), floor((YC-CMIN[1])/GL), floor((ZC-CMIN[2])/GL)
-                x, y, z =  asarray(x, int32), asarray(y, int32), asarray(z, int32)
+                x, y, z =  np.floor((XC-CMIN[0])/GL), np.floor((YC-CMIN[1])/GL), np.floor((ZC-CMIN[2])/GL)
+                x, y, z =  np.asarray(x, np.int32), np.asarray(y, np.int32), np.asarray(z, np.int32)
                 ind     =  x+DIM1*(y+DIM2*z)  # indices for the root grid leaf cells
                 m = nonzero(RP[ind]!=0)
                 if (len(m[0])!=0.0): 
@@ -4003,7 +4003,7 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
                 ### i = child level
                 print('child level %d' % i)
                 print('%10.8f %10.8f   %10.8f %10.8f   %10.8f %10.8f' % \
-                (min(XC), max(XC), min(YC), max(YC), min(ZC), max(ZC)))
+                (np.min(XC), np.max(XC), np.min(YC), np.max(YC), np.min(ZC), np.max(ZC)))
                 ###
                 for j in range(0, CELLS[i], 8):   # loop over the sid==0 children on level i
                     x, y, z =  int(XC[j]/GL), int(YC[j]/GL), int(ZC[j]/GL)
@@ -4012,12 +4012,12 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
                 # Finish the root level -- the leaf cells are still missing !!
                 # m          =  nonzero(abs(S/SIZE[0]-1.0)<0.1)   # leaf cells on the root grid
                 m          =  nonzero(L==0)
-                XC         =  asarray(X[m], float64)
-                YC         =  asarray(Y[m], float64)
-                ZC         =  asarray(Z[m], float64)
-                RC         =  asarray(R[m],   int32)
-                x, y, z    =  floor(XC/GL), floor(YC/GL), floor(ZC/GL)
-                x, y, z    =  asarray(x, int32), asarray(y, int32), asarray(z, int32)
+                XC         =  np.asarray(X[m], np.float64)
+                YC         =  np.asarray(Y[m], np.float64)
+                ZC         =  np.asarray(Z[m], np.float64)
+                RC         =  np.asarray(R[m],   np.int32)
+                x, y, z    =  np.floor(XC/GL), np.floor(YC/GL), np.floor(ZC/GL)
+                x, y, z    =  np.asarray(x, np.int32), np.asarray(y, np.int32), np.asarray(z, np.int32)
                 if (0):
                     x       =  clip(x, 0, DIM1-1)
                     y       =  clip(y, 0, DIM2-1)
@@ -4030,22 +4030,22 @@ def RamsesToIndex(MODEL, OUTPUT, centre, delta, direction, GPU=False, FROMDIR=''
             ##
             # Save also this first level
             fp = open('%s/level_%02d.bin' % (TODIR, 0), 'w')
-            asarray([len(RP),], int32).tofile(fp)
-            asarray(RP, int32).tofile(fp)
+            np.asarray([len(RP),], np.int32).tofile(fp)
+            np.asarray(RP, np.int32).tofile(fp)
             fp.close()
             CELLS[0]= len(XP)
     
     # Write the SOC-cloud-like index file
     fp = open(cloudfile, 'w')
-    asarray([DIM1, DIM2, DIM3, LEVELS, sum(CELLS)], int32).tofile(fp)
+    np.asarray([DIM1, DIM2, DIM3, LEVELS, sum(CELLS)], np.int32).tofile(fp)
     for i in range(LEVELS):
         fpi   = open('%s/level_%02d.bin' % (TODIR, i))
-        cells = fromfile(fpi, int32, 1)[0]
+        cells = fromfile(fpi, np.int32, 1)[0]
         print(cells)
-        x     = fromfile(fpi, int32, cells)
+        x     = fromfile(fpi, np.int32, cells)
         fpi.close()
-        asarray([cells,], int32).tofile(fp)
-        asarray(x, int32).tofile(fp)
+        np.asarray([cells,], np.int32).tofile(fp)
+        np.asarray(x, np.int32).tofile(fp)
     fp.close()
         
 
@@ -4072,33 +4072,33 @@ def RamsesDumpField(MODEL, OUTPUT, TAG='rho', FROMDIR='', TODIR='./'):
     # amr          =  ro.amr_source(['rho', 'Bl', 'Br'])
     prefix  =  '%s/dump_%s_%06d' % (TODIR, MODEL, OUTPUT)
     if (TAG=='vel'):            
-        v     =  asarray(ro['vel'].in_units('km s**-1'), float32)
+        v     =  np.asarray(ro['vel'].in_units('km s**-1'), np.float32)
         N     =  v.shape[0]
-        m     =  nonzero(abs(v)<1.0e-6)
+        m     =  nonzero(np.abs(v)<1.0e-6)
         v[m] +=  1.0e-4*randn(N)        
         for i in range(3):
             tag = ['x', 'y', 'z'][i]
             fp    =  open(prefix+'.v%s' % tag, 'wb')   # FORTRAN NAMING
-            asarray([N,], int32).tofile(fp)
-            asarray(v[:,i], float32).tofile(fp)
+            np.asarray([N,], np.int32).tofile(fp)
+            np.asarray(v[:,i], np.float32).tofile(fp)
             fp.close()
     elif (TAG=='B'):  # name ??? ... one can call for individual Bx, By, Bz instead
-        B  =  asarray(ro['B'].in_units('Gauss'), float32)
+        B  =  np.asarray(ro['B'].in_units('Gauss'), np.float32)
         N  =  B.shape[0]
         for i in range(3):
             tag  =  ['x', 'y', 'z'][i]
             fp   =  open(prefix+'.B%s' % tag, 'wb')    # FORTRAN NAMING
-            asarray([N,], int32).tofile(fp)
-            asarray(B[:,i], float32).tofile(fp)
+            np.asarray([N,], np.int32).tofile(fp)
+            np.asarray(B[:,i], np.float32).tofile(fp)
             fp.close()
     else:
         if (TAG=='rho'):
-            X  = asarray(ro[TAG].in_units('1.67e-24 g cm**-3'), float32)  # as n(H)
+            X  = np.asarray(ro[TAG].in_units('1.67e-24 g cm**-3'), np.float32)  # as n(H)
             X[nonzero(X<=1.0e-10)] = 1.0e-10  # density must be non-negative !
         else:
-            X  = asarray(ro[TAG], float32)
+            X  = np.asarray(ro[TAG], np.float32)
         fp = open(prefix+'.'+TAG, 'wb')
-        asarray([len(X),], int32).tofile(fp)
+        np.asarray([len(X),], np.int32).tofile(fp)
         X.tofile(fp)
         fp.close()
 
@@ -4113,7 +4113,7 @@ def RamsesDumpField(MODEL, OUTPUT, TAG='rho', FROMDIR='', TODIR='./'):
         
 def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
     """
-    Write an index file. The format is the same as SOC cloud but the main array is int32 instead of float.
+    Write an index file. The format is the same as SOC cloud but the main array is np.int32 instead of float.
     Each cell contains either index >=1 to the data vectors (leaf cells only) or values <=0 meaning links.
     Usage:
         YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999)
@@ -4128,7 +4128,7 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
     ds     =  yt.load(INPUT)
     LE_pc  =  ds.index.domain_left_edge.in_units( 'pc').value
     RE_pc  =  ds.index.domain_right_edge.in_units('pc').value    
-    LMAX   =  min([ds.index.max_level, MAXL])
+    LMAX   =  np.min([ds.index.max_level, MAXL])
     LEVELS =  LMAX+1
     # size of the cells on the root grid
     gs     =  ds.index.select_grids(0)
@@ -4144,8 +4144,8 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
         print("Yt read data in units [%s] ???" % unit)
         sys.exit()
     # create hierarchy based on coordinates only, at this point no data is involved
-    OFF    =  zeros(LEVELS, int32)
-    LCELLS =  zeros(LEVELS, int32)
+    OFF    =  np.zeros(LEVELS, np.int32)
+    LCELLS =  np.zeros(LEVELS, np.int32)
     for ilevel in range(LEVELS):
         print("LEVEL %d" % ilevel)        
         if (ilevel>0): 
@@ -4161,10 +4161,10 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
         print(" %d  OFF %10d   LCELLS  %10d = %.3e cells" % (ilevel, OFF[ilevel], LCELLS[ilevel], LCELLS[ilevel]))
     print("  ---------------------------------------------------")
     print("    %10d = %.3e cells" % (CELLS, CELLS))
-    X  =  zeros(CELLS, float32)
-    Y  =  zeros(CELLS, float32)
-    Z  =  zeros(CELLS, float32)
-    H  =  zeros(CELLS, float32)
+    X  =  np.zeros(CELLS, np.float32)
+    Y  =  np.zeros(CELLS, np.float32)
+    Z  =  np.zeros(CELLS, np.float32)
+    H  =  np.zeros(CELLS, np.float32)
     # loop over levels and grid the second time, adding the coordinate and density values
     ii =  0  # running index to the final X, Y, Z, H vectors
     for ilevel in range(LEVELS):
@@ -4207,7 +4207,7 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
         #   coordinates C  =>   C*2^(ilevel+1)  should be ~integers  1, 3, 5, 7, 9,....
         #                       C*2^(ilevel+1) can go up to DIM*2^(ilevel+1)
         CCC = DIM*2.0**(ilevel+1) + 1.0
-        q   =       asarray(np.round(ccc*X[OFF[ilevel]:(OFF[ilevel]+LCELLS[ilevel])]), int64)   \
+        q   =       np.asarray(np.round(ccc*X[OFF[ilevel]:(OFF[ilevel]+LCELLS[ilevel])]), int64)   \
         +       CCC*asarray(np.round(ccc*Y[OFF[ilevel]:(OFF[ilevel]+LCELLS[ilevel])]), int64)   \
         +   CCC*CCC*asarray(np.round(ccc*Z[OFF[ilevel]:(OFF[ilevel]+LCELLS[ilevel])]), int64)
         I = argsort(q)
@@ -4253,7 +4253,7 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
     #                            NC                          XC    YC    ZC    HC    xc    yc    zc    hc  
                                  np.int32,                   None, None, None, None, None, None, None, None])
     # 
-    max_cells  =  max(LCELLS)
+    max_cells  =  np.max(LCELLS)
     GLOBAL     =  (max_cells//LOCAL+1)*LOCAL
     XP_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)
     YP_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)
@@ -4270,7 +4270,7 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
     hc_buf     =  cl.Buffer(context, mf.READ_WRITE, 4*max_cells)  # output for kernel
     #
     I_buf      =  cl.Buffer(context, mf.READ_ONLY,  4*(max_cells//8))  # cells with children
-    TMP        =  zeros(max_cells, float32)
+    TMP        =  np.zeros(max_cells, np.float32)
     print()
     for ilevel in range(LEVELS-1): # loop over parent levels
         print("Linking parent level %d" % ilevel)
@@ -4300,7 +4300,7 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
             H[OFF[ilevel]+m[i]]  =  -I2F(8*i)
             
         # Providing kernel a list of parent cells = m
-        cl.enqueue_copy(queue, I_buf, asarray(m, int32))   # kernel Link2 gets parent indices, does not need HP
+        cl.enqueue_copy(queue, I_buf, np.asarray(m, np.int32))   # kernel Link2 gets parent indices, does not need HP
         TMP[:] = 1e10
         cl.enqueue_copy(queue, hc_buf, TMP)   # all elements of hc should be set below
         # Link2 to reorder children to match the above linking, HC -> hc
@@ -4324,10 +4324,10 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
                 
     # Write the SOC-cloud
     fp = open(SOCFILE, 'wb')
-    asarray([DIM, DIM, DIM, LEVELS, sum(LCELLS)], int32).tofile(fp)
+    np.asarray([DIM, DIM, DIM, LEVELS, sum(LCELLS)], np.int32).tofile(fp)
     for ilevel in range(LEVELS):
-        asarray([LCELLS[ilevel],], int32).tofile(fp)
-        asarray(H[OFF[ilevel]:(OFF[ilevel]+LCELLS[ilevel])], float32).tofile(fp)
+        np.asarray([LCELLS[ilevel],], np.int32).tofile(fp)
+        np.asarray(H[OFF[ilevel]:(OFF[ilevel]+LCELLS[ilevel])], np.float32).tofile(fp)
     fp.close()
         
 
@@ -4360,9 +4360,9 @@ def YT2SOC_RAMSES(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], LOCFILE=""):
     NX, NY, NZ = DIM, DIM, DIM
     LMAX   =  ds.max_level
     LEVELS =  LMAX+1
-    x      =  asarray(ad["ramses", "x"], float32)*DIM   #   [0,DIM] = GL coordinates
-    y      =  asarray(ad["ramses", "y"], float32)*DIM
-    z      =  asarray(ad["ramses", "z"], float32)*DIM
+    x      =  np.asarray(ad["ramses", "x"], np.float32)*DIM   #   [0,DIM] = GL coordinates
+    y      =  np.asarray(ad["ramses", "y"], np.float32)*DIM
+    z      =  np.asarray(ad["ramses", "z"], np.float32)*DIM
     ORD    =  argsort(z)
     x      =  x[ORD]
     y      =  y[ORD]
@@ -4373,10 +4373,10 @@ def YT2SOC_RAMSES(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], LOCFILE=""):
     NX, NY, NZ, LCELLS, OFF, H = OT_ReadHierarchyV(SOCFILE)
     # each leaf H>0.0 is equal to  *(float *)&(1+index_to_yt_vectors)
     m    =  nonzero(H>0.0)     #  int=1  =>  1.401298464324817e-45  !!!
-    ind  =  zeros(len(m[0]), int32)
+    ind  =  np.zeros(len(m[0]), np.int32)
     for i in range(len(m[0])):           # ind = YT vector indices for leaves.. indices to z-ordered vectors
         ind[i] = F2I( H[m[0][i]] ) - 1   # convert back to YT indices        
-    rho  =  asarray(ad["gas", "density"], float32)[ORD]  # reorder to z-order
+    rho  =  np.asarray(ad["gas", "density"], np.float32)[ORD]  # reorder to z-order
     H[m] =  rho[ind]
     del rho    
     print("--- Write SOC file")
@@ -4387,15 +4387,15 @@ def YT2SOC_RAMSES(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], LOCFILE=""):
         print(" === YT2SOC_2024 create LOC file ===")
         t01    =  time.time()
         cells  =  len(H)
-        VX     =  zeros(cells, float32)
-        VX[m]  =  asarray(ad["gas", "velocity_z"], float32)[ORD][ind] 
-        VY     =  zeros(cells, float32)
-        VY[m]  =  asarray(ad["gas", "velocity_y"], float32)[ORD][ind] 
-        VZ     =  zeros(cells, float32)
-        VZ[m]  =  asarray(ad["gas", "velocity_x"], float32)[ORD][ind] 
-        CHI    =  ones(cells, float32)
-        S      =  ones(cells, float32)
-        T      =  ones(cells, float32)
+        VX     =  np.zeros(cells, np.float32)
+        VX[m]  =  np.asarray(ad["gas", "velocity_z"], np.float32)[ORD][ind] 
+        VY     =  np.zeros(cells, np.float32)
+        VY[m]  =  np.asarray(ad["gas", "velocity_y"], np.float32)[ORD][ind] 
+        VZ     =  np.zeros(cells, np.float32)
+        VZ[m]  =  np.asarray(ad["gas", "velocity_x"], np.float32)[ORD][ind] 
+        CHI    =  np.ones(cells, np.float32)
+        S      =  np.ones(cells, np.float32)
+        T      =  np.ones(cells, np.float32)
         OT_WriteHierarchyV_LOC(NX, NY, NZ, LCELLS, OFF, H, T, S, VX, VY, VZ, CHI, LOCFILE)
         print(" === YT2SOC_RAMSES LOC created in %.1f seconds ===" % (time.time()-t01))
         
