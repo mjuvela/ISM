@@ -1,0 +1,39 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: DIES
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Mika
+    family-names: Juvela
+    email: mika.juvela@helsinki.fi
+    affiliation: University of Helsinki
+    orcid: 'https://orcid.org/0000-0002-5809-4834'
+identifiers:
+  - type: doi
+    value: 10.1051/0004-6361/202451423
+    description: Journal article (Astronomy & Astrophysics)
+  - type: url
+    value: >-
+      https://ui.adsabs.harvard.edu/link_gateway/2024A%26A...689A.180J/EPRINT_HTML
+    description: arXiv preprint
+repository-code: 'https://github.com/mjuvela/ISM'
+url: >-
+  https://www.interstellarmedium.org/radiative_transfer/dies/
+abstract: >-
+  DIES is a parallelised implementation of the
+  immediate-reemission Monte Carlo method for the
+  calculation of dust emission from astronomical targets.
+  The program is based on the use of OpenCL libraries, which
+  allows execution on either a CPU or a GPU.
+keywords:
+  - radiative transfer
+  - GPU computing
+  - interstellar dust
+license: MIT
+commit: d3d5d1c
+date-released: '2023-09-04'
