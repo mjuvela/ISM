@@ -15,8 +15,27 @@ def I2F(i):
     
 def F2I(x):
     return ctypes.c_int.from_buffer(ctypes.c_float(x)).value
-        
 
+
+def KernelSource(sname):
+    # Try to read kernel source file "sname" from a couple of places
+    src = ""
+    try:  #  directory specified with the environmental variable KERNEL_DIRECTORY
+        src = open("%s/%s" % (os.environ["KERNEL_DIRECTORY"], sname)).read()
+    except:
+        # print("Environmental variable KERNEL_DIRECTORY not set or directory not containing kernel %s" % sname)
+        src = ""
+    if (len(src)<1):
+        try:  # read from default location "~/starformation/Python/MJ/MJ/Aux/"
+            src =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/%s" % sname).read()
+        except:
+            print("OT_library.py => kernel file %s not found" % sname)
+            print("  ... set environmental variable KERNEL_DIRECTORY to point to the directory ")
+            print("      containing the kernel source file %s" % sname)
+            pass
+    return src
+
+            
 if (1):
     from MJ.Aux.mjGPU import *
 else:
@@ -2370,7 +2389,8 @@ def I2F_CL(I, GPU=0, PLF=[0,1,2,3,4]):
     LOCAL     =  [4, 32][GPU>0]     # local work group size
     GLOBAL    =  8192*LOCAL
     OPT       = '-D N=%d' % N
-    source    =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_I2F_F2I.c").read()
+    # source    =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_I2F_F2I.c").read()
+    source    =  KernelSource("kernel_I2F_F2I.c")
     program   =  cl.Program(context, source).build(OPT)
     ####
     I_buf     =  cl.Buffer(context, mf.READ_ONLY,  4*np.int64(N))
@@ -2399,7 +2419,8 @@ def F2I_CL(F, GPU=0, PLF=[0,1,2,3,4]):
     LOCAL     =  [4, 32][GPU>0]     # local work group size
     GLOBAL    =  8192*LOCAL
     OPT       = '-D N=%d' % N
-    source    =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_I2F_F2I.c").read()
+    # source    =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_I2F_F2I.c").read()
+    source    =  KernelSource("kernel_I2F_F2I.c")
     program   =  cl.Program(context, source).build(OPT)
     F_buf     =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR,  hostbuf=F)
     I_buf     =  cl.Buffer(context, mf.WRITE_ONLY,  4*np.int64(N))
@@ -2447,7 +2468,8 @@ def OT_points_to_octree(x, y, z, NX, NY, NZ, LEVELS, filename, GPU=0, PLF=[0,1,2
     LOCAL     =  [4, 32][GPU>0]     # local work group size
     GLOBAL    =  4096*LOCAL
     OPT       = '-D NX=%d -D NY=%d -D NZ=%d -D NP=%d' % (NX, NY, NZ, NP)
-    source    =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_points_to_octree.c").read()
+    # source    =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_points_to_octree.c").read()
+    source    =  KernelSource("kernel_points_to_octree.c")
     program   =  cl.Program(context, source).build(OPT)
     ####
     print("***** NUMBER OF POINTS  N = %d = %.2e, ALLOC = %d = %.2e  < 1.5*NP = %.2e" % (NP, NP, ALLOC, ALLOC, 1.5*NP))
@@ -4272,7 +4294,8 @@ def YT2SOC(INPUT, SOCFILE, GPU=False, platforms=[0,1,2,3,4], MAXL=999):
     #      if there is a child cell, replace H value with the link
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms)
     LOCAL    =  [ 8, 32 ][GPU>0]
-    source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools_yt.c").read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools_yt.c").read()
+    source   =  KernelSource("kernel_OT_tools_yt.c")
     OPT      =  ' '
     program  =  cl.Program(context, source).build(OPT)
     # Sort for the root grid cells
