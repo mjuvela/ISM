@@ -64,7 +64,12 @@ __kernel void CutVolume(__global int   *LIMITS,
    const int id = get_global_id(0) ;
    if (id>0) return ;    // single work item !!
    int Ia=LIMITS[0], Ib=LIMITS[1], Ja=LIMITS[2], Jb=LIMITS[3], Ka=LIMITS[4], Kb=LIMITS[5];
+#if 0
    int op, oc, count, i, j, k, ind ;
+#else
+   long int op, oc ;
+   int  count, i, j, k, ind ;
+#endif
    float p ;
    // root grid
    count = 0 ;  // running index in the new cloud

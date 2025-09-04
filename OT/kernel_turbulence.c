@@ -23,11 +23,11 @@ __kernel void SigmaUpdateLOC(const    int    N,       // cells on the parent lev
 	int   c ;
 	for(int i=id; i<N; i+=gs) {      // loop over parent cells
 		if (H[i]>0.0f) {
-			SIGMAP[i] = -2.0f ;
-			continue ;    // no children, nothing to do
+			SIGMAP[i] = -2.0f ;    // mark the turbulence of leaf cells as so far undefined
+			continue ;             // no children, nothing to do
 		}
 		f   =  -H[i] ;
-		c   =  *(int*)(&f)  ;        // index of the child cell (first in octet)
+		c   =  *(int*)(&f)  ;     // index of the child cell (first in octet)
 		// compute std in three directions, loop over the eight child cells
 		// printf(" V = %10.3e  %10.3e  %10.3e\n", VXC[c], VYC[c], VZC[c]) ;
 		sx  = 0.0f ; sy  = 0.0f ; sz  = 0.0f ;
@@ -45,8 +45,23 @@ __kernel void SigmaUpdateLOC(const    int    N,       // cells on the parent lev
 		s2z  =  (s2x+s2y+s2z)/3.0f ;        // sigma(parent) == std(children)
 		// printf("   s2z   %10.3e\n", s2z) ;
 #if 1
+      // If child cells already have turbulence values, perhaps that should be used to bias
+      // turbulence estimates in parent towards 1.5 times mean turbulence of children ?
+      float child_turbulence = 0.0f ;
+      int   no = 0 ;
+		for(int j=c; j<c+8; j++) {  // j = child level index
+			if (SIGMAC[j]>0.0f) {
+            no += 1 ;
+            child_turbulence += SIGMAC[j] ;
+         }
+		}
+      if (no==8) {
+         s2z =  0.7f*s2z + 0.3f*1.5f*child_turbulence ; //  < velocity difference,  1.5 * average child turbulence times >
+      }
+#endif
+#if 1
 		// include clipping to avoid extreme values ???
-		s2z  =  clamp(s2z, 0.01f, 50.0f) ;  // relevant for dense ISM (minus large shocks)
+		s2z  =  clamp(s2z, 0.01f, 90.0f) ;  // relevant for dense ISM (minus large shocks)
 #endif
 		SIGMAP[i] = s2z ;                   // microturbulence into the parent cell
 		// printf("     %9d  s= %8.4f      %8.4f %8.4f %8.4f \n", id, s2z, sx/8.0f, sy/8.0f, sz/8.0f) ;
@@ -58,7 +73,7 @@ __kernel void SigmaUpdateLOC(const    int    N,       // cells on the parent lev
 		VXP[i]   =   sx/8.0f ;     VYP[i]   =   sy/8.0f ;     VZP[i]   =   sz/8.0f ;
 		// set sigma in children, if their sigma estimate is still missing
 		for(int j=c; j<c+8; j++) {  // j = child level index
-			if (SIGMAC[j]<=0.0f) SIGMAC[j] = s2z/2.83f ;  // sigma(children) = std(children)/2.83 ??
+			if (SIGMAC[j]<=0.0f) SIGMAC[j] = s2z/1.50f ;  // sigma(children) = std(children)/2.83 ??
 		}
 	}
 }

@@ -17,26 +17,45 @@ def F2I(x):
     return ctypes.c_int.from_buffer(ctypes.c_float(x)).value
         
 
-if (0):
+if (1):
     from MJ.Aux.mjGPU import *
 else:
-    def InitCL(GPU=0):
+    def InitCL(GPU=0, platforms=[], sub=0, verbose=False):
         """
-        platform, device, context, queue,  cl.mem_flags = InitCL(GPU=0)
+        Usage:
+            platform, device, context, queue, mf = InitCL(GPU=0, platforms=[], sub=0)
+        Input:
+            GPU       =  if >0, try to return a GPU device instead of CPU
+            platforms =  optional array of possible platform numbers
+            sub       =  optional number of threads for a subdevice (first returned)
         """
         platform, device, context, queue = None, None, None, None
-        for iplatform in range(3):
+        possible_platforms = range(6)
+        if (len(platforms)>0):
+            possible_platforms = platforms
+        device = []
+        for iplatform in possible_platforms:
+            if (verbose): print("try platform %d... for GPU=%d" % (iplatform, GPU))
             try:
-                platform = cl.get_platforms()[iplatform]
+                # print(cl.get_platforms())
+                platform     = cl.get_platforms()[iplatform]
+                # print(platform)
                 if (GPU>0):
                     device   = platform.get_devices(cl.device_type.GPU)
                 else:
                     device   = platform.get_devices(cl.device_type.CPU)
+                #print(device)
+                if (sub>0):
+                    # try to make subdevices with sub threads, return the first one
+                    dpp       =  cl.device_partition_property
+                    device    =  [device[0].create_sub_devices( [dpp.EQUALLY, sub] )[0],]
                 context   =  cl.Context(device)
                 queue     =  cl.CommandQueue(context)
                 break
             except:
                 pass
+        if (verbose):
+            print(device)
         return platform, device, context, queue,  cl.mem_flags
     
     
@@ -539,6 +558,8 @@ def OT_GetIndicesV(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, max_level=99, glo
     source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
     program  =  cl.Program(context, source).build(OPT)
     #
+    if (1):
+        print("OT_GetIndicesV ... H has %d = %.2e cells" % (len(H), len(H)))
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
     OFF_buf    =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(OFF, np.int32))
     H_buf      =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=H)
