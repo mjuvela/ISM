@@ -5,12 +5,7 @@ Most of the programs require a working OpenCL environment and the
 installation of pyOpenCL (see https://mathema.tician.de/software/pyopencl/).
 
 Programs assume that the source tree exists
-under one's own home directory, in ~/GITHUB. If the files are
-elsewhere, one can set an environmental variable ISM_DIRECTORY. 
-ISM_DIRECTORY should point to the directory that contains ISM as a
-subdirectory (which then contains Defs.py and further subdirectories
-FITS, TM, etc.). If ISM_DIRECTORY is not set, that is the same as
-having ISM_DIRECTORY equal to ~/GITHUB.
+under one's own home directory (see the error messages to set suitable symbolic links for the paths).
 
 **Note:** radiative transfer programs SOC and LOC now reside in separate repositories: https://github.com/mjuvela/SOC and https://github.com/mjuvela/LOC .
 
