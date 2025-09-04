@@ -5,7 +5,7 @@ Most of the programs require a working OpenCL environment and the
 installation of pyOpenCL (see https://mathema.tician.de/software/pyopencl/).
 
 Programs assume that the source tree exists
-under one's own home directory (see the error messages to set suitable symbolic links for the paths).
+under one's own home directory (see the error messages to set suitable symbolic links for the paths). The directory containing the kernel files can also be specified using the environmental variable KERNEL_DIRECTORY (currently only for routines in the OT_library script).
 
 **Note:** radiative transfer programs SOC and LOC now reside in separate repositories: https://github.com/mjuvela/SOC and https://github.com/mjuvela/LOC .
 
