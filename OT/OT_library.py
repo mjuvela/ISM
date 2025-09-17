@@ -1,9 +1,9 @@
-
+import os, sys
 import pyopencl as cl
 import ctypes
 import numpy as np
+from   numpy import *
 
-# import pynbody
 import yt
 import time
 
@@ -21,6 +21,7 @@ def KernelSource(sname):
     # Try to read kernel source file "sname" from a couple of places
     src = ""
     try:  #  directory specified with the environmental variable KERNEL_DIRECTORY
+        print("%s/%s" % (os.environ["KERNEL_DIRECTORY"], sname))
         src = open("%s/%s" % (os.environ["KERNEL_DIRECTORY"], sname)).read()
     except:
         # print("Environmental variable KERNEL_DIRECTORY not set or directory not containing kernel %s" % sname)
@@ -36,7 +37,7 @@ def KernelSource(sname):
     return src
 
             
-if (1):
+if (0):
     from MJ.Aux.mjGPU import *
 else:
     def InitCL(GPU=0, platforms=[], sub=0, verbose=False):
@@ -343,7 +344,8 @@ def OT_GetCoordinatesAllV(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1,2,3,
     GLOBAL     =  8192
     LOCAL      =  [ 8, 32 ][GPU>0]
     OPT        =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d" % (LEVELS, N, NX, NY, NZ)
-    source     =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source     =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program    =  cl.Program(context, source).build(OPT)
     # Use kernel Parents to find the parents
     print('Parents...')
@@ -398,7 +400,8 @@ def OT_GetCoordinatesAndLevels(NX, NY, NZ, LCELLS, OFF, H, GPU=0, platforms=[0,1
     GLOBAL     =  8192
     LOCAL      =  [ 8, 32 ][GPU>0]
     OPT        =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d" % (LEVELS, N, NX, NY, NZ)
-    source     =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source     =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program    =  cl.Program(context, source).build(OPT)
     # Use kernel Parents to find the parents
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
@@ -451,7 +454,8 @@ def OT_GetCoordinatesLevelV(NX, NY, NZ, LCELLS, OFF, H, L, GPU=0, platforms=[0,1
     GLOBAL     =  8192
     LOCAL      =  [ 8, 32 ][GPU>0]
     OPT        =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d" % (LEVELS, N, NX, NY, NZ)
-    source     =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source     =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program    =  cl.Program(context, source).build(OPT)
     # Use kernel Parents to find the parents
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=LCELLS)
@@ -574,7 +578,8 @@ def OT_GetIndicesV(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, max_level=99, glo
     LOCAL    =  [ 8, 32 ][GPU>0]
     GLOBAL   =  8192
     OPT      =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d" % (LEVELS, N, NX, NY, NZ)
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program  =  cl.Program(context, source).build(OPT)
     #
     if (1):
@@ -637,7 +642,8 @@ def OT_GetIndicesForLevels(x, y, z, l, NX, NY, NZ, LCELLS, OFF, H, GPU=1, platfo
     LOCAL    =  [ 8, 32 ][GPU>0]
     GLOBAL   =  8192
     OPT      =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d" % (LEVELS, N, NX, NY, NZ)
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program  =  cl.Program(context, source).build(OPT)
     #
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
@@ -693,7 +699,8 @@ def OT_GetIndicesVLowmem(x, y, z, NX, NY, NZ, LCELLS, OFF, H, GPU=1, global_inde
     LOCAL    =  [ 8, 32 ][GPU>0]
     GLOBAL   =  8192
     OPT      =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d" % (LEVELS, BATCH, NX, NY, NZ)
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source   =  KernelSource("kernel_OT_tools.c")
     program  =  cl.Program(context, source).build(OPT)
     #
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
@@ -843,7 +850,8 @@ def OT_MakeEmptyHierarchyCL(DIM, MAXL, GPU=1, platforms=[0,1,2,3]):
     LOCAL    =  [ 8, 32 ][GPU>0]
     GLOBAL   =  32768
     OPT      =  ""
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_make_empty_hierarchy.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_make_empty_hierarchy.c").read()
+    source   =  KernelSource("kernel_make_empty_hierarchy.c")
     program  =  cl.Program(context, source).build(OPT)
     Index    =  program.Index
     Index.set_scalar_arg_dtypes([np.int32, None])
@@ -888,7 +896,8 @@ def OT_PropagateVelocity(NX, NY, NZ, LCELLS, OFF, H0, VX, VY, VZ, SIGMA,
     GLOBAL     =  8192
     LOCAL      =  [ 8, 32 ][GPU>0]
     OPT        =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d " % (LEVELS, CELLS, NX, NY, NZ)
-    source     =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source     =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program    =  cl.Program(context, source).build(OPT)
     # Use kernel Parents to find the parents
     max_cells  =  np.int64(np.max(LCELLS))
@@ -972,7 +981,8 @@ def OT_PropagateScalar(NX, NY, NZ, LCELLS, OFF, H, X, GPU=0, platforms=[0,1,2,3,
     GLOBAL     =  8192
     LOCAL      =  [ 1, 32 ][GPU>0]
     OPT        =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d " % (LEVELS, CELLS, NX, NY, NZ)
-    source     =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source     =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program    =  cl.Program(context, source).build(OPT)
     max_cells  =  np.int64(np.max(LCELLS))
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=asarray(LCELLS, np.int32))
@@ -1140,7 +1150,8 @@ def OT_GetIndices(x, y, z, NX, NY, NZ, H, GPU=0, platforms=[0,1,2,3,4]):
     GLOBAL    =  8192
     LOCAL      =  [ 8, 32 ][GPU>0]
     OPT       =  " -D LEVELS=%d -D N=%d -D NX=%d -D NY=%d -D NZ=%d" % (LEVELS, N, NX, NY, NZ)
-    source    =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source    =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program   =  cl.Program(context, source).build(OPT)
     #
     DENS_buf  =  []
@@ -1217,7 +1228,8 @@ def OT_cut_levels(infile, outfile, maxlevel, HHH_in=[], GPU=0, platforms=[0,1,2,
     # Create OpenCL program to average child values into parent node
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=False)
     LOCAL    =  [ 8, 32 ][GPU>0]
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     OPT      = '-D NX=0 -D NY=0 -D NZ=0 -D N=0 -D LEVELS=%d' % LEVELS  # all dummy
     program  =  cl.Program(context, source).build(OPT)
     AverageParent = program.AverageParent
@@ -1511,7 +1523,8 @@ def OT_cut_volume_old2(infile, outfile, limits, LOC=False, GPU=0, platforms=[0,1
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms)
     LOCAL    =   8
     GLOBAL   =  64
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_cut.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_cut.c").read()
+    source     =  KernelSource("kernel_OT_cut.c")
     OPT      = '-D NX=%s -D NY=%d -D NZ=%d -D LEVELS=%d' % (NX, NY, NZ, LEVELS)
     program  =  cl.Program(context, source).build(OPT)
     CV       =  program.CutVolume
@@ -1592,7 +1605,8 @@ def OT_cut_volume(infile, outfile, limits, LOC=False, GPU=0, platforms=[0,1,2,3,
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms, verbose=True)
     LOCAL    =   8
     GLOBAL   =  64
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_cut.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_cut.c").read()
+    source     =  KernelSource("kernel_OT_cut.c")
     OPT      = '-D NX=%s -D NY=%d -D NZ=%d -D LEVELS=%d' % (NX, NY, NZ, LEVELS)
     program  =  cl.Program(context, source).build(OPT)
     CV       =  program.CutVolume
@@ -1671,7 +1685,8 @@ def OT_prune_hierarchy(infile, outfile, threshold, GPU=0, platforms=[0,1,2,3,4])
     # Create OpenCL program to average child values into parent node
     platform, device, context, queue, mf = InitCL(GPU=GPU, platforms=platforms)
     LOCAL    =  [ 8, 32 ][GPU>0]
-    source   = open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source   = open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     OPT      = '-D NX=0 -D NY=0 -D NZ=0 -D N=0 -D LEVELS=%d' % LEVELS  # all dummy
     program  = cl.Program(context, source).build(OPT)
     ############
@@ -1820,7 +1835,8 @@ def TurbulenceCL(rhofile, vxfile, vyfile, vzfile, sigmafile, GPU=1, PLF=[0,1,2,3
     ###
     platform, device, context, queue, mf = InitCL(GPU, platforms=PLF)
     LOCAL       =  [8,32][GPU>0]
-    source      =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_turbulence.c').read()
+    # source      =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_turbulence.c").read()
+    source     =  KernelSource("kernel_turbulence.c")
     OPT         =  ''
     program     =  cl.Program(context, source).build(OPT)
     SU          =  program.SigmaUpdate
@@ -1879,7 +1895,8 @@ def Update_LOC_turbulence(NX, NY, NZ, LCELLS, OFF, H, T, S, VX, VY, VZ, GPU=1, P
     platform, device, context, queue, mf = InitCL(GPU, platforms=PLF)
     LOCAL       =  [8,32][GPU>0]
     GLOBAL      =  16384
-    source      =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_turbulence.c').read()
+    # source      =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_turbulence.c").read()
+    source     =  KernelSource("kernel_turbulence.c")
     OPT         =  ''
     program     =  cl.Program(context, source).build(OPT)
     SU          =  program.SigmaUpdateLOC
@@ -1955,7 +1972,8 @@ def Reorder(x, y, z, x0, dx, GPU=0, platforms=[0,1,2,3,4]):
         print('???')
         sys.exit()
     OPT      =  " -D N=%d  -D OFF=%.8ef  -D STEP=%.8ef -D USE_GPU=%d" % (N, x0, dx, GPU)
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_RamsesHierarchy.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_RamsesHierarchy.c").read()
+    source     =  KernelSource("kernel_RamsesHierarchy.c")
     program  =  cl.Program(context, source).build(OPT)
     SID0     =  np.zeros(len(x), np.int32)
     SID0_buf =  cl.Buffer(context, mf.READ_WRITE, SID0.nbytes)
@@ -2034,7 +2052,8 @@ def DumpToSOC(INDEX, DUMP, FILENAME, GPU=0, platforms=[0,1,2,3,4], scaling=1.0):
     # Now the hierarchy has been read, the data vector (ramses dump) has been read
     #  NX, NY, NZ are here dummy values !
     OPT      = " -D N=%d -D NX=1 -D NY=1 -D NZ=1 -D LEVELS=1" % len(X)  #  N = length of data vectors (=dumped parameters)
-    source   = open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source   = open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program  = cl.Program(context, source).build(OPT)
     CONVERT  = program.Convert
     CONVERT.set_scalar_arg_dtypes([np.int32, None, None, None])
@@ -2098,7 +2117,8 @@ def DumpToLOC_(INDEX, PREFIX, FILENAME, T=10.0, SIGMA=1.0, ABUNDANCE=1.0e-6, GPU
     # Now the hierarchy has been read, the data vector (ramses dump) has been read
     #  NX, NY, NZ are here dummy values !
     OPT      = " -D N=%d -D NX=1 -D NY=1 -D NZ=1 -D LEVELS=1" % len(X)  #  N = length of data vectors (=dumped parameters)
-    source   = open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c').read()
+    # source   = open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_tools.c").read()
+    source     =  KernelSource("kernel_OT_tools.c")
     program  = cl.Program(context, source).build(OPT)
     CONVERT  = program.Convert
     CONVERT.set_scalar_arg_dtypes([np.int32, None, None, None])
@@ -2635,7 +2655,8 @@ def OT_energy(filename, tag, GL, ind=[], BX_file='', BY_file='', BZ_file='', GPU
     if (tag=='G'):         
         platform, device, context, queue, mf = InitCL(GPU, PF) # OpenCL environment
         LOCAL    =  [1, 32][GPU>0]     # local work group size
-        source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c').read()
+        # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c").read()
+        KernelSource("kernel_OT_analysis.c")
         OPT      =  " -D LEVELS=%d -D CELLS=%d -D NX=%d -D NY=%d -D NZ=%d -D RHO0=%.4ef" % (LEVELS, CELLS, NX, NY, NZ, 0.0)
         program  =  cl.Program(context, source).build(OPT)
         # use kernel to do pairwise summation
@@ -2791,7 +2812,8 @@ def  MaskDensity(filename, xc, yc, zc, rho0, GPU=0, PLF=[0,1,2,3,4], LOCAL0=-1):
     #  ???? POCL FAILS IF LOCAL>1  AND THERE IS NO PRINTF IN THE KERNEL ????
     GLOBAL   =  (CELLS//LOCAL+1)*LOCAL
     OPT      =  " -D LEVELS=%d -D CELLS=%d -D NX=%d -D NY=%d -D NZ=%d -D RHO0=%.4ef" % (LEVELS, CELLS, NX, NY, NZ, rho0)
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c").read()
+    KernelSource("kernel_OT_analysis.c")
     program  =  cl.Program(context, source).build(OPT)
     #
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY,  4*LEVELS)
@@ -2877,7 +2899,8 @@ def  MaskDensity4(filename, xc, yc, zc, rho0, GPU=0, PLF=[0,1,2,3,4], LOCAL0=-1,
     #  ???? POCL FAILS IF LOCAL>1  AND THERE IS NO PRINTF IN THE KERNEL ????
     GLOBAL   =  (CELLS//LOCAL+1)*LOCAL
     OPT      =  " -D LEVELS=%d -D CELLS=%d -D NX=%d -D NY=%d -D NZ=%d -D RHO0=%.4ef" % (LEVELS, CELLS, NX, NY, NZ, rho0)
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c").read()
+    source     =  KernelSource("kernel_OT_analysis.c")
     program  =  cl.Program(context, source).build(OPT)
     #
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY,  4*LEVELS)
@@ -2977,7 +3000,8 @@ if (0):
         #  ???? POCL FAILS IF LOCAL>1  AND THERE IS NO PRINTF IN THE KERNEL ????
         GLOBAL   =  (CELLS//32+1)*32
         OPT      =  " -D LEVELS=%d -D CELLS=%d -D NX=%d -D NY=%d -D NZ=%d -D RHO0=%.4ef" % (LEVELS, CELLS, NX, NY, NZ, rho0)
-        source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c').read()
+        # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c").read()
+        source     =  KernelSource("kernel_OT_analysis.c")
         program  =  cl.Program(context, source).build(OPT)
         #
         LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY,  4*LEVELS)
@@ -3055,7 +3079,8 @@ if (0):
         #  ???? POCL FAILS IF LOCAL>1  AND THERE IS NO PRINTF IN THE KERNEL ????
         GLOBAL   =  (CELLS//32+1)*32
         OPT      =  " -D LEVELS=%d -D CELLS=%d -D NX=%d -D NY=%d -D NZ=%d -D RHO0=%.4ef" % (LEVELS, CELLS, NX, NY, NZ, rho0)
-        source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c').read()
+        # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_analysis.c").read()
+        source     =  KernelSource("kernel_OT_analysis.c")
         program  =  cl.Program(context, source).build(OPT)
         #
         LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY,  4*LEVELS)
@@ -3127,7 +3152,8 @@ def gravitational_energy(NX, NY, NZ, LCELLS, OFF, H, GL, kdensity=1.0, GPU=0, PL
     GLOBAL   =  16384
     OPT      =  " -D LEVELS=%d -D CELLS=%d -D NX=%d -D NY=%d -D NZ=%d -D KDENS=%.4ef -D GL=%.4ef" % \
                     (LEVELS,      CELLS,      NX,      NY,      NZ,      kdensity,      GL)
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_gravity.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_gravity.c").read()
+    source     =  KernelSource("kernel_OT_gravity.c")
     program  =  cl.Program(context, source).build(OPT)
     #
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY,  4*LEVELS)
@@ -3222,7 +3248,8 @@ def gravitational_energy_masked(L, NX, NY, NZ, LCELLS, OFF, H, GL, kdensity=1.0,
     GLOBAL   =  16384
     OPT      =  " -D LEVELS=%d -D CELLS=%d -D NX=%d -D NY=%d -D NZ=%d -D KDENS=%.4ef -D GL=%.4ef" % \
                     (LEVELS,      CELLS,      NX,      NY,      NZ,      kdensity,      GL)
-    source   =  open(HOMEDIR+'/starformation/Python/MJ/MJ/Aux/kernel_OT_gravity.c').read()
+    # source   =  open(HOMEDIR+"/starformation/Python/MJ/MJ/Aux/kernel_OT_gravity.c").read()
+    source     =  KernelSource("kernel_OT_gravity.c")
     program  =  cl.Program(context, source).build(OPT)
     #
     LCELLS_buf =  cl.Buffer(context, mf.READ_ONLY,  4*LEVELS)
